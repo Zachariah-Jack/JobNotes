@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <com.google.android.material.button.MaterialButtonToggleGroup
+        android:id="@+id/highlightModeGroup"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:singleSelection="true">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnHlFreeform"
+            style="?attr/materialButtonOutlinedStyle"
+            android:text="Freeform" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnHlStraight"
+            style="?attr/materialButtonOutlinedStyle"
+            android:text="Straight" />
+    </com.google.android.material.button.MaterialButtonToggleGroup>
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Size"
+        android:layout_marginTop="12dp" />
+
+    <com.google.android.material.slider.Slider
+        android:id="@+id/sliderHighlightSize"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:valueFrom="4"
+        app:valueTo="48"
+        app:stepSize="1" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Opacity"
+        android:layout_marginTop="12dp" />
+
+    <com.google.android.material.slider.Slider
+        android:id="@+id/sliderHighlightOpacity"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        app:valueFrom="0"
+        app:valueTo="100"
+        app:stepSize="1" />
+</LinearLayout>

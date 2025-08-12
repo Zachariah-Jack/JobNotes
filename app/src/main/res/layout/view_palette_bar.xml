@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<HorizontalScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:padding="6dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnPaletteCollapse"
+            android:text="▼" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnPenQuick" android:text="Pen" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnHighQuick" android:text="High" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnEraserQuick" android:text="Erase" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSelectQuick" android:text="Select" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnShapesQuick" android:text="Shapes" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnImageQuick" android:text="Image" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnUndoQuick" android:text="Undo" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRedoQuick" android:text="Redo" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnFitQuick" android:text="Fit" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCutQuick" android:text="Cut" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCopyQuick" android:text="Copy" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnPasteQuick" android:text="Paste" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnOpenBrushes" android:text="Brushes" />
+    </LinearLayout>
+</HorizontalScrollView>

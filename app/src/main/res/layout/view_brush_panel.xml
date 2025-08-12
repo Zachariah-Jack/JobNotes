@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<com.google.android.material.card.MaterialCardView
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:padding="12dp"
+    app:cardElevation="6dp">
+
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical">
+
+        <com.google.android.material.button.MaterialButtonToggleGroup
+            android:id="@+id/groupBrushType"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            app:singleSelection="true">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnBrushPen"
+                android:text="Pen" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnBrushHigh"
+                android:text="Highlighter" />
+        </com.google.android.material.button.MaterialButtonToggleGroup>
+
+        <!-- Size presets -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:layout_marginTop="8dp">
+
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnSz1" android:text="2" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnSz2" android:text="4" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnSz3" android:text="6" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnSz4" android:text="8" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnSz5" android:text="12" />
+        </LinearLayout>
+
+        <!-- Ink slider -->
+        <com.google.android.material.slider.Slider
+            android:id="@+id/sliderInk"
+            android:layout_width="200dp"
+            android:layout_height="wrap_content"
+            android:value="6"
+            android:valueFrom="1"
+            android:valueTo="48" />
+
+        <!-- Eraser slider -->
+        <com.google.android.material.slider.Slider
+            android:id="@+id/sliderEraser"
+            android:layout_width="200dp"
+            android:layout_height="wrap_content"
+            android:value="24"
+            android:valueFrom="8"
+            android:valueTo="64" />
+
+        <!-- Colors -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnColor1" android:text=" " />
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnColor2" android:text=" " />
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnColor3" android:text=" " />
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnColor4" android:text=" " />
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnColor5" android:text=" " />
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnColor6" android:text=" " />
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnColor7" android:text=" " />
+            <com.google.android.material.button.MaterialButton android:id="@+id/btnColorMore" android:text="More" />
+        </LinearLayout>
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchEraseByStroke"
+            android:text="Erase by stroke" />
+
+        <com.google.android.material.materialswitch.MaterialSwitch
+            android:id="@+id/switchStylusOnly"
+            android:text="Stylus only" />
+    </LinearLayout>
+</com.google.android.material.card.MaterialCardView>

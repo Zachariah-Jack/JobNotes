@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
+    <item android:id="@+id/action_pen" android:title="Pen" />
+    <item android:id="@+id/action_highlighter" android:title="Highlighter" />
+    <item android:id="@+id/action_eraser" android:title="Eraser" />
+    <item android:id="@+id/action_undo" android:title="Undo" />
+    <item android:id="@+id/action_redo" android:title="Redo" />
+    <item android:id="@+id/action_clear" android:title="Clear" />
+    <item android:id="@+id/action_fit" android:title="Fit" />
+    <item android:id="@+id/action_save" android:title="Save" />
+    <item android:id="@+id/action_load" android:title="Load" />
+</menu>
