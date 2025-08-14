@@ -12,7 +12,10 @@ class NoteCanvasView @JvmOverloads constructor(
 ) : View(context, attrs, defStyleAttr) {
 
     enum class Tool { STYLUS, HIGHLIGHTER, ERASER }
-    enum class StylusBrush { FOUNTAIN, MARKER }
+
+    // Expanded brush set
+    enum class StylusBrush { FOUNTAIN, CALLIGRAPHY, PEN, PENCIL, MARKER }
+
     enum class HighlightMode { FREEFORM, STRAIGHT }
     enum class EraserMode { STROKE, AREA }
     private enum class Layer { INK, HL }
@@ -120,7 +123,6 @@ class NoteCanvasView @JvmOverloads constructor(
     }
 
     private fun push(op: Op) {
-        // Drop any redo tail
         if (cursor < ops.lastIndex) {
             ops.subList(cursor + 1, ops.size).clear()
         }
@@ -153,8 +155,7 @@ class NoteCanvasView @JvmOverloads constructor(
         inkBitmap?.eraseColor(Color.TRANSPARENT)
         hlBitmap?.eraseColor(Color.TRANSPARENT)
         for (i in 0..cursor) {
-            val op = ops[i]
-            when (op) {
+            when (val op = ops[i]) {
                 is Op.DrawPath -> {
                     val p = buildPaint(op.params)
                     when (op.layer) {
@@ -172,8 +173,7 @@ class NoteCanvasView @JvmOverloads constructor(
                     if (op.highlightsOnly) {
                         hc.drawPath(op.path, p)
                     } else {
-                        ic.drawPath(op.path, p)
-                        hc.drawPath(op.path, p)
+                        ic.drawPath(op.path, p); hc.drawPath(op.path, p)
                     }
                 }
                 is Op.EraseDots -> {
@@ -212,7 +212,6 @@ class NoteCanvasView @JvmOverloads constructor(
         inkCanvas = Canvas(inkBitmap!!)
         hlCanvas = Canvas(hlBitmap!!)
 
-        // Repaint from history on size (e.g., rotation)
         rebuildFromHistory()
     }
 
@@ -230,12 +229,9 @@ class NoteCanvasView @JvmOverloads constructor(
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 parent?.requestDisallowInterceptTouchEvent(true)
-                downX = x
-                downY = y
-                lastX = x
-                lastY = y
-                path.reset()
-                path.moveTo(x, y)
+                downX = x; downY = y
+                lastX = x; lastY = y
+                path.reset(); path.moveTo(x, y)
                 areaDots.clear()
 
                 if (tool == Tool.ERASER && eraserMode == EraserMode.AREA) {
@@ -243,76 +239,45 @@ class NoteCanvasView @JvmOverloads constructor(
                 }
                 invalidate()
             }
-
             MotionEvent.ACTION_MOVE -> {
                 val midX = (lastX + x) / 2f
                 val midY = (lastY + y) / 2f
                 path.quadTo(lastX, lastY, midX, midY)
-                lastX = x
-                lastY = y
+                lastX = x; lastY = y
 
                 when (tool) {
                     Tool.STYLUS -> inkCanvas?.drawPath(path, penPaint)
-                    Tool.HIGHLIGHTER -> {
-                        if (highlightMode == HighlightMode.FREEFORM) {
-                            hlCanvas?.drawPath(path, hlPaint)
-                        }
+                    Tool.HIGHLIGHTER -> if (highlightMode == HighlightMode.FREEFORM) {
+                        hlCanvas?.drawPath(path, hlPaint)
                     }
                     Tool.ERASER -> {
-                        if (eraserMode == EraserMode.STROKE) {
-                            erasePathLive(path)
-                        } else {
-                            stampEraseDot(x, y)
-                        }
+                        if (eraserMode == EraserMode.STROKE) erasePathLive(path) else stampEraseDot(x, y)
                     }
                 }
                 invalidate()
             }
-
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 when (tool) {
-                    Tool.STYLUS -> {
-                        // Commit stroke to history
-                        push(Op.DrawPath(Layer.INK, Path(path), toParams(penPaint)))
-                    }
+                    Tool.STYLUS -> push(Op.DrawPath(Layer.INK, Path(path), toParams(penPaint)))
                     Tool.HIGHLIGHTER -> {
                         if (highlightMode == HighlightMode.FREEFORM) {
                             push(Op.DrawPath(Layer.HL, Path(path), toParams(hlPaint)))
                         } else {
-                            // Straight horizontal
                             hlCanvas?.drawLine(downX, downY, x, downY, hlPaint)
-                            push(
-                                Op.DrawStraightHl(
-                                    startX = downX, endX = x, y = downY, params = toParams(hlPaint)
-                                )
-                            )
+                            push(Op.DrawStraightHl(downX, x, downY, toParams(hlPaint)))
                         }
                     }
                     Tool.ERASER -> {
                         if (eraserMode == EraserMode.STROKE) {
-                            push(
-                                Op.ErasePath(
-                                    path = Path(path),
-                                    strokeWidth = eraserSize,
-                                    highlightsOnly = eraseHighlightsOnly
-                                )
-                            )
+                            push(Op.ErasePath(Path(path), eraserSize, eraseHighlightsOnly))
                         } else {
-                            // area dots
                             if (areaDots.isNotEmpty()) {
-                                push(
-                                    Op.EraseDots(
-                                        dots = ArrayList(areaDots),
-                                        radius = eraserSize / 2f,
-                                        highlightsOnly = eraseHighlightsOnly
-                                    )
-                                )
+                                push(Op.EraseDots(ArrayList(areaDots), eraserSize / 2f, eraseHighlightsOnly))
                             }
                         }
                     }
                 }
-                path.reset()
-                areaDots.clear()
+                path.reset(); areaDots.clear()
                 invalidate()
                 parent?.requestDisallowInterceptTouchEvent(false)
             }
@@ -325,8 +290,7 @@ class NoteCanvasView @JvmOverloads constructor(
         if (eraseHighlightsOnly) {
             hlCanvas?.drawPath(p, cStroke)
         } else {
-            inkCanvas?.drawPath(p, cStroke)
-            hlCanvas?.drawPath(p, cStroke)
+            inkCanvas?.drawPath(p, cStroke); hlCanvas?.drawPath(p, cStroke)
         }
     }
 
@@ -337,8 +301,7 @@ class NoteCanvasView @JvmOverloads constructor(
         if (eraseHighlightsOnly) {
             hlCanvas?.drawCircle(x, y, r, fill)
         } else {
-            inkCanvas?.drawCircle(x, y, r, fill)
-            hlCanvas?.drawCircle(x, y, r, fill)
+            inkCanvas?.drawCircle(x, y, r, fill); hlCanvas?.drawCircle(x, y, r, fill)
         }
     }
 
@@ -347,11 +310,32 @@ class NoteCanvasView @JvmOverloads constructor(
 
     fun setStylusBrush(b: StylusBrush) {
         stylusBrush = b
+        // Reset special effects each time
+        penPaint.pathEffect = null
+        penPaint.maskFilter = null
+
         when (b) {
             StylusBrush.FOUNTAIN -> {
                 penPaint.strokeCap = Paint.Cap.ROUND
                 penPaint.strokeJoin = Paint.Join.ROUND
                 penPaint.alpha = 255
+            }
+            StylusBrush.CALLIGRAPHY -> {
+                // Simple approximation: flat nib (butt), bevel joins
+                penPaint.strokeCap = Paint.Cap.BUTT
+                penPaint.strokeJoin = Paint.Join.BEVEL
+                penPaint.alpha = 255
+            }
+            StylusBrush.PEN -> {
+                penPaint.strokeCap = Paint.Cap.ROUND
+                penPaint.strokeJoin = Paint.Join.ROUND
+                penPaint.alpha = 255
+            }
+            StylusBrush.PENCIL -> {
+                // Slightly lighter + bevel join for a softer look
+                penPaint.strokeCap = Paint.Cap.ROUND
+                penPaint.strokeJoin = Paint.Join.BEVEL
+                penPaint.alpha = 200
             }
             StylusBrush.MARKER -> {
                 penPaint.strokeCap = Paint.Cap.SQUARE
@@ -359,6 +343,7 @@ class NoteCanvasView @JvmOverloads constructor(
                 penPaint.alpha = 230
             }
         }
+        penPaint.strokeWidth = stylusSize
         invalidate()
     }
 
@@ -393,13 +378,9 @@ class NoteCanvasView @JvmOverloads constructor(
         invalidate()
     }
 
-    fun setHighlightMode(mode: HighlightMode) {
-        highlightMode = mode
-    }
+    fun setHighlightMode(mode: HighlightMode) { highlightMode = mode }
 
-    fun setEraserMode(mode: EraserMode) {
-        eraserMode = mode
-    }
+    fun setEraserMode(mode: EraserMode) { eraserMode = mode }
 
     fun setEraserSize(px: Float) {
         eraserSize = px.coerceAtLeast(1f)
@@ -407,9 +388,7 @@ class NoteCanvasView @JvmOverloads constructor(
         invalidate()
     }
 
-    fun setEraseHighlightsOnly(only: Boolean) {
-        eraseHighlightsOnly = only
-    }
+    fun setEraseHighlightsOnly(only: Boolean) { eraseHighlightsOnly = only }
 
     fun clearAll() {
         inkBitmap?.eraseColor(Color.TRANSPARENT)

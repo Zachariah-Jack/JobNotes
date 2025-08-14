@@ -6,10 +6,12 @@
     android:layout_height="wrap_content"
     android:orientation="vertical">
 
+    <!-- Icon-only toggle group: Freeform / Straight -->
     <com.google.android.material.button.MaterialButtonToggleGroup
         android:id="@+id/highlightModeGroup"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:gravity="center_horizontal"
         app:singleSelection="true"
         app:selectionRequired="true">
 
@@ -18,14 +20,23 @@
             style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Freeform"/>
+            android:checked="true"
+            app:icon="@drawable/ic_highlight_freeform"
+            app:iconTint="@android:color/black"
+            app:iconSize="24dp"
+            app:iconPadding="0dp"
+            android:contentDescription="Freeform" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnHlStraight"
             style="@style/Widget.Material3.Button.OutlinedButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Straight"/>
+            app:icon="@drawable/ic_highlight_straight"
+            app:iconTint="@android:color/black"
+            app:iconSize="24dp"
+            app:iconPadding="0dp"
+            android:contentDescription="Straight" />
     </com.google.android.material.button.MaterialButtonToggleGroup>
 
     <com.google.android.material.slider.Slider

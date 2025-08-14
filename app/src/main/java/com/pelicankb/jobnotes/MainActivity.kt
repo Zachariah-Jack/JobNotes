@@ -5,6 +5,9 @@ import android.util.Log
 import android.view.Menu
 import android.view.MenuItem
 import android.view.View
+import android.widget.ImageButton
+import android.widget.TextView
+import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButtonToggleGroup
@@ -14,17 +17,48 @@ import com.pelicankb.jobnotes.canvas.NoteCanvasView
 
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var noteCanvas: NoteCanvasView
-    private lateinit var toolGroup: MaterialButtonToggleGroup
+    private val TAG = "JOBNOTES"
 
+    // Canvas
+    private lateinit var noteCanvas: NoteCanvasView
+
+    // Rows (Pen / Keyboard)
+    private lateinit var penRowScroll: View
+    private lateinit var kbdRowScroll: View
+
+    // Pen row buttons
+    private lateinit var btnSwitchToKeyboard: ImageButton
+    private lateinit var btnPenStylus: ImageButton
+    private lateinit var btnPenHighlighter: ImageButton
+    private lateinit var btnPenEraser: ImageButton
+    private lateinit var btnPenSelect: ImageButton
+    private lateinit var btnPenUndo: ImageButton
+    private lateinit var btnPenRedo: ImageButton
+    private lateinit var btnPenColor: ImageButton
+
+    // Keyboard row buttons (placeholders for now)
+    private lateinit var btnSwitchToPen: ImageButton
+    private lateinit var btnKbdCheckbox: ImageButton
+    private lateinit var btnKbdText: ImageButton
+    private lateinit var btnKbdTextColor: ImageButton
+    private lateinit var btnKbdTextBgColor: ImageButton
+    private lateinit var btnKbdFontSize: TextView
+    private lateinit var btnKbdUndo: ImageButton
+    private lateinit var btnKbdRedo: ImageButton
+
+    // Dropdown panel card + individual panels
     private lateinit var toolPanelCard: MaterialCardView
     private lateinit var panelStylus: View
     private lateinit var panelHighlighter: View
     private lateinit var panelEraser: View
     private lateinit var panelColor: View
+    private lateinit var panelSelect: View
+    private lateinit var panelText: View
+    private lateinit var panelFontSize: View
 
-    private val TAG = "JOBNOTES"
-    private val SHOW_DEBUG_SUBTITLE = false  // set true if you want the subtitle back
+    // Track which panel is open + which icon opened it (for toggle-to-hide behavior)
+    private var openPanelViewId: Int? = null
+    private var openPanelAnchorId: Int? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -32,10 +66,33 @@ class MainActivity : AppCompatActivity() {
 
         val toolbar: MaterialToolbar = findViewById(R.id.toolbar)
         setSupportActionBar(toolbar)
-        if (!SHOW_DEBUG_SUBTITLE) supportActionBar?.subtitle = null
+        supportActionBar?.subtitle = null // no debug text
 
-        // Canvas
         noteCanvas = findViewById(R.id.noteCanvas)
+
+        // Rows
+        penRowScroll = findViewById(R.id.penRowScroll)
+        kbdRowScroll = findViewById(R.id.kbdRowScroll)
+
+        // Pen buttons
+        btnSwitchToKeyboard = findViewById(R.id.btnSwitchToKeyboard)
+        btnPenStylus = findViewById(R.id.btnPenStylus)
+        btnPenHighlighter = findViewById(R.id.btnPenHighlighter)
+        btnPenEraser = findViewById(R.id.btnPenEraser)
+        btnPenSelect = findViewById(R.id.btnPenSelect)
+        btnPenUndo = findViewById(R.id.btnPenUndo)
+        btnPenRedo = findViewById(R.id.btnPenRedo)
+        btnPenColor = findViewById(R.id.btnPenColor)
+
+        // Keyboard buttons
+        btnSwitchToPen = findViewById(R.id.btnSwitchToPen)
+        btnKbdCheckbox = findViewById(R.id.btnKbdCheckbox)
+        btnKbdText = findViewById(R.id.btnKbdText)
+        btnKbdTextColor = findViewById(R.id.btnKbdTextColor)
+        btnKbdTextBgColor = findViewById(R.id.btnKbdTextBgColor)
+        btnKbdFontSize = findViewById(R.id.btnKbdFontSize)
+        btnKbdUndo = findViewById(R.id.btnKbdUndo)
+        btnKbdRedo = findViewById(R.id.btnKbdRedo)
 
         // Panels
         toolPanelCard = findViewById(R.id.toolPanelCard)
@@ -43,38 +100,105 @@ class MainActivity : AppCompatActivity() {
         panelHighlighter = findViewById(R.id.panelHighlighter)
         panelEraser = findViewById(R.id.panelEraser)
         panelColor = findViewById(R.id.panelColor)
+        panelSelect = findViewById(R.id.panelSelect)
+        panelText = findViewById(R.id.panelText)
+        panelFontSize = findViewById(R.id.panelFontSize)
 
-        // Tool toggle group
-        toolGroup = findViewById(R.id.toolSelectorGroup)
-        toolGroup.check(R.id.btnToolPen) // default selection
-        setToolAndPanel(NoteCanvasView.Tool.STYLUS)
+        // Default state
+        showPenRow()
+        setTool(NoteCanvasView.Tool.STYLUS)
+        showOnly(panelStylus, anchorId = R.id.btnPenStylus)
 
-        toolGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
-            if (!isChecked) return@addOnButtonCheckedListener
-            when (checkedId) {
-                R.id.btnToolPen -> setToolAndPanel(NoteCanvasView.Tool.STYLUS)
-                R.id.btnToolHighlighter -> setToolAndPanel(NoteCanvasView.Tool.HIGHLIGHTER)
-                R.id.btnToolEraser -> setToolAndPanel(NoteCanvasView.Tool.ERASER)
-                R.id.btnToolColor -> { showOnly(panelColor); updateSubtitle() } // show color panel only
+        // Keep undo/redo UI in sync
+        noteCanvas.onStackChanged = {
+            invalidateOptionsMenu()
+            updateUndoRedoButtons()
+        }
+
+        // --- PEN ROW actions ---
+        btnSwitchToKeyboard.setOnClickListener {
+            hidePanels()
+            showKeyboardRow()
+        }
+
+        btnPenStylus.setOnClickListener {
+            togglePanel(anchor = it, panel = panelStylus) {
+                setTool(NoteCanvasView.Tool.STYLUS)
             }
         }
 
-        // Keep Undo/Redo enabled state fresh
-        noteCanvas.onStackChanged = {
-            invalidateOptionsMenu()
-            updateSubtitle()
+        btnPenHighlighter.setOnClickListener {
+            togglePanel(anchor = it, panel = panelHighlighter) {
+                setTool(NoteCanvasView.Tool.HIGHLIGHTER)
+            }
         }
 
-        // Wire per-panel controls
+        btnPenEraser.setOnClickListener {
+            togglePanel(anchor = it, panel = panelEraser) {
+                setTool(NoteCanvasView.Tool.ERASER)
+            }
+        }
+
+        btnPenSelect.setOnClickListener {
+            togglePanel(anchor = it, panel = panelSelect) {
+                // (Selection tools to be implemented)
+            }
+            Toast.makeText(this, "Select: lasso/rectangle (coming soon)", Toast.LENGTH_SHORT).show()
+        }
+
+        btnPenUndo.setOnClickListener { noteCanvas.undo(); updateUndoRedoButtons() }
+        btnPenRedo.setOnClickListener { noteCanvas.redo(); updateUndoRedoButtons() }
+
+        btnPenColor.setOnClickListener {
+            togglePanel(anchor = it, panel = panelColor) {
+                // Applies to both pen & highlighter for now
+            }
+        }
+
+        // --- KEYBOARD ROW actions (placeholders for now) ---
+        btnSwitchToPen.setOnClickListener {
+            hidePanels()
+            showPenRow()
+        }
+
+        btnKbdCheckbox.setOnClickListener {
+            hidePanels()
+            Toast.makeText(this, "Insert checkbox (placeholder)", Toast.LENGTH_SHORT).show()
+        }
+
+        btnKbdText.setOnClickListener {
+            togglePanel(anchor = it, panel = panelText) { }
+            Toast.makeText(this, "Text formatting (placeholder)", Toast.LENGTH_SHORT).show()
+        }
+
+        btnKbdTextColor.setOnClickListener {
+            togglePanel(anchor = it, panel = panelColor) { }
+            Toast.makeText(this, "Text color (placeholder)", Toast.LENGTH_SHORT).show()
+        }
+
+        btnKbdTextBgColor.setOnClickListener {
+            togglePanel(anchor = it, panel = panelColor) { }
+            Toast.makeText(this, "Text background color (placeholder)", Toast.LENGTH_SHORT).show()
+        }
+
+        btnKbdFontSize.setOnClickListener {
+            togglePanel(anchor = it, panel = panelFontSize) { }
+            Toast.makeText(this, "Font size (placeholder)", Toast.LENGTH_SHORT).show()
+        }
+
+        btnKbdUndo.setOnClickListener { noteCanvas.undo(); updateUndoRedoButtons() }
+        btnKbdRedo.setOnClickListener { noteCanvas.redo(); updateUndoRedoButtons() }
+
+        // Wire the sub-panels’ controls
         wireStylusPanel()
         wireHighlighterPanel()
         wireEraserPanel()
         wireColorPanel()
 
-        updateSubtitle()
+        updateUndoRedoButtons()
     }
 
-    // region Toolbar menu
+    // ----- Toolbar overflow (history & clear) -----
     override fun onCreateOptionsMenu(menu: Menu): Boolean {
         menuInflater.inflate(R.menu.menu_main, menu)
         return true
@@ -88,82 +212,136 @@ class MainActivity : AppCompatActivity() {
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
-            R.id.action_undo -> { noteCanvas.undo(); true }
-            R.id.action_redo -> { noteCanvas.redo(); true }
-            R.id.action_clear -> { noteCanvas.clearAll(); true }
+            R.id.action_undo -> { noteCanvas.undo(); updateUndoRedoButtons(); true }
+            R.id.action_redo -> { noteCanvas.redo(); updateUndoRedoButtons(); true }
+            R.id.action_clear -> { noteCanvas.clearAll(); updateUndoRedoButtons(); true }
             else -> super.onOptionsItemSelected(item)
         }
     }
-    // endregion
 
-    // region Panel wiring
+    // ----- Row / panel helpers -----
+    private fun showPenRow() {
+        penRowScroll.visibility = View.VISIBLE
+        kbdRowScroll.visibility = View.GONE
+    }
+
+    private fun showKeyboardRow() {
+        penRowScroll.visibility = View.GONE
+        kbdRowScroll.visibility = View.VISIBLE
+    }
+
+    private fun setTool(t: NoteCanvasView.Tool) {
+        noteCanvas.setTool(t)
+    }
+
+    /**
+     * Toggle logic:
+     * - If the same icon/panel is clicked while open -> hide.
+     * - Otherwise show the requested panel and record which icon opened it.
+     */
+    private fun togglePanel(anchor: View, panel: View, beforeShow: (() -> Unit)? = null) {
+        val isOpen = toolPanelCard.visibility == View.VISIBLE
+        val isSame = isOpen && openPanelViewId == panel.id && openPanelAnchorId == anchor.id
+        if (isSame) {
+            hidePanels()
+        } else {
+            beforeShow?.let { it() }
+            showOnly(panel, anchor.id)
+        }
+    }
+
+    private fun showOnly(visiblePanel: View, anchorId: Int) {
+        toolPanelCard.visibility = View.VISIBLE
+        panelStylus.visibility = if (visiblePanel === panelStylus) View.VISIBLE else View.GONE
+        panelHighlighter.visibility = if (visiblePanel === panelHighlighter) View.VISIBLE else View.GONE
+        panelEraser.visibility = if (visiblePanel === panelEraser) View.VISIBLE else View.GONE
+        panelColor.visibility = if (visiblePanel === panelColor) View.VISIBLE else View.GONE
+        panelSelect.visibility = if (visiblePanel === panelSelect) View.VISIBLE else View.GONE
+        panelText.visibility = if (visiblePanel === panelText) View.VISIBLE else View.GONE
+        panelFontSize.visibility = if (visiblePanel === panelFontSize) View.VISIBLE else View.GONE
+        openPanelViewId = visiblePanel.id
+        openPanelAnchorId = anchorId
+    }
+
+    private fun hidePanels() {
+        toolPanelCard.visibility = View.GONE
+        openPanelViewId = null
+        openPanelAnchorId = null
+    }
+
+    private fun updateUndoRedoButtons() {
+        val canUndo = noteCanvas.canUndo()
+        val canRedo = noteCanvas.canRedo()
+        btnPenUndo.isEnabled = canUndo
+        btnPenRedo.isEnabled = canRedo
+        btnKbdUndo.isEnabled = canUndo
+        btnKbdRedo.isEnabled = canRedo
+    }
+
+    // ----- Panel wiring -----
     private fun wireStylusPanel() {
-        // Fountain / Marker
-        findViewById<View?>(R.id.btnBrushFountain)?.setOnClickListener {
-            ensureTool(NoteCanvasView.Tool.STYLUS)
-            noteCanvas.setStylusBrush(NoteCanvasView.StylusBrush.FOUNTAIN)
-            Log.d(TAG, "Stylus brush -> FOUNTAIN")
-        }
-        findViewById<View?>(R.id.btnBrushMarker)?.setOnClickListener {
-            ensureTool(NoteCanvasView.Tool.STYLUS)
-            noteCanvas.setStylusBrush(NoteCanvasView.StylusBrush.MARKER)
-            Log.d(TAG, "Stylus brush -> MARKER")
-        }
+        // Icon toggle group for: Fountain, Calligraphy, Pen, Pencil, Marker
+        findViewById<MaterialButtonToggleGroup?>(R.id.stylusBrushGroup)
+            ?.addOnButtonCheckedListener { _, id, checked ->
+                if (!checked) return@addOnButtonCheckedListener
+                when (id) {
+                    R.id.btnBrushFountain ->
+                        noteCanvas.setStylusBrush(NoteCanvasView.StylusBrush.FOUNTAIN)
+                    R.id.btnBrushCalligraphy ->
+                        noteCanvas.setStylusBrush(NoteCanvasView.StylusBrush.CALLIGRAPHY)
+                    R.id.btnBrushPen ->
+                        noteCanvas.setStylusBrush(NoteCanvasView.StylusBrush.PEN)
+                    R.id.btnBrushPencil ->
+                        noteCanvas.setStylusBrush(NoteCanvasView.StylusBrush.PENCIL)
+                    R.id.btnBrushMarker ->
+                        noteCanvas.setStylusBrush(NoteCanvasView.StylusBrush.MARKER)
+                }
+                Log.d(TAG, "Stylus brush changed: $id")
+            }
 
-        // Size
         findViewById<Slider?>(R.id.sliderStylusSize)?.addOnChangeListener { _, v, _ ->
-            ensureTool(NoteCanvasView.Tool.STYLUS)
             noteCanvas.setStylusSize(v)
         }
     }
 
     private fun wireHighlighterPanel() {
-        // Mode (FREEFORM / STRAIGHT)
+        // Icon toggle group for Freeform vs Straight
         findViewById<MaterialButtonToggleGroup?>(R.id.highlightModeGroup)
             ?.addOnButtonCheckedListener { _, id, checked ->
                 if (!checked) return@addOnButtonCheckedListener
-                ensureTool(NoteCanvasView.Tool.HIGHLIGHTER)
                 when (id) {
-                    R.id.btnHlFreeform -> noteCanvas.setHighlightMode(NoteCanvasView.HighlightMode.FREEFORM)
-                    R.id.btnHlStraight -> noteCanvas.setHighlightMode(NoteCanvasView.HighlightMode.STRAIGHT)
+                    R.id.btnHlFreeform ->
+                        noteCanvas.setHighlightMode(NoteCanvasView.HighlightMode.FREEFORM)
+                    R.id.btnHlStraight ->
+                        noteCanvas.setHighlightMode(NoteCanvasView.HighlightMode.STRAIGHT)
                 }
-                Log.d(TAG, "Highlighter mode set")
             }
 
-        // Tip size
         findViewById<Slider?>(R.id.sliderHighlightSize)?.addOnChangeListener { _, v, _ ->
-            ensureTool(NoteCanvasView.Tool.HIGHLIGHTER)
             noteCanvas.setHighlighterSize(v)
         }
-
-        // Opacity (0..100 -> 0..1)
         findViewById<Slider?>(R.id.sliderHighlightOpacity)?.addOnChangeListener { _, raw, _ ->
-            ensureTool(NoteCanvasView.Tool.HIGHLIGHTER)
             val v = if (raw > 1f) raw / 100f else raw
             noteCanvas.setHighlighterOpacity(v)
         }
     }
 
     private fun wireEraserPanel() {
-        // Mode (STROKE / AREA)
         findViewById<MaterialButtonToggleGroup?>(R.id.eraserModeGroup)
             ?.addOnButtonCheckedListener { _, id, checked ->
                 if (!checked) return@addOnButtonCheckedListener
-                ensureTool(NoteCanvasView.Tool.ERASER)
                 when (id) {
-                    R.id.btnEraserStroke -> noteCanvas.setEraserMode(NoteCanvasView.EraserMode.STROKE)
-                    R.id.btnEraserArea -> noteCanvas.setEraserMode(NoteCanvasView.EraserMode.AREA)
+                    R.id.btnEraserStroke ->
+                        noteCanvas.setEraserMode(NoteCanvasView.EraserMode.STROKE)
+                    R.id.btnEraserArea ->
+                        noteCanvas.setEraserMode(NoteCanvasView.EraserMode.AREA)
                 }
-                Log.d(TAG, "Eraser mode set")
             }
 
-        // Size
         findViewById<Slider?>(R.id.sliderEraserSize)?.addOnChangeListener { _, v, _ ->
-            ensureTool(NoteCanvasView.Tool.ERASER)
             noteCanvas.setEraserSize(v)
         }
 
-        // Highlights-only
         findViewById<com.google.android.material.switchmaterial.SwitchMaterial?>(R.id.switchEraseHighlightsOnly)
             ?.setOnCheckedChangeListener { _, isChecked ->
                 noteCanvas.setEraseHighlightsOnly(isChecked)
@@ -174,11 +352,10 @@ class MainActivity : AppCompatActivity() {
         val hue = findViewById<Slider?>(R.id.sliderHue)
         val sat = findViewById<Slider?>(R.id.sliderSat)
         val vvv = findViewById<Slider?>(R.id.sliderVal)
-
         val preview = findViewById<View?>(R.id.previewSwatch)
         val previewCard = preview as? MaterialCardView
 
-        fun clamp01(x: Float): Float = when {
+        fun clamp01(x: Float) = when {
             x.isNaN() -> 0f
             x < 0f -> 0f
             x > 1f -> 1f
@@ -195,83 +372,18 @@ class MainActivity : AppCompatActivity() {
         }
 
         fun applyColor(c: Int) {
-            // Color both pen & highlighter
             noteCanvas.setStylusColor(c)
             noteCanvas.setHighlighterColor(c)
             previewCard?.setCardBackgroundColor(c)
             preview?.setBackgroundColor(c)
         }
 
-        val onColorChanged = Slider.OnChangeListener { _, _, _ ->
-            try {
-                currentColor()?.let { applyColor(it) }
-            } catch (t: Throwable) {
-                Log.w(TAG, "Color picker suppressed error", t)
-            }
+        val listener = Slider.OnChangeListener { _, _, _ ->
+            currentColor()?.let { applyColor(it) }
         }
 
-        hue?.addOnChangeListener(onColorChanged)
-        sat?.addOnChangeListener(onColorChanged)
-        vvv?.addOnChangeListener(onColorChanged)
+        hue?.addOnChangeListener(listener)
+        sat?.addOnChangeListener(listener)
+        vvv?.addOnChangeListener(listener)
     }
-    // endregion
-
-    // region Helpers
-    private fun setToolAndPanel(tool: NoteCanvasView.Tool) {
-        noteCanvas.setTool(tool)
-        setCurrentTool(tool)
-        when (tool) {
-            NoteCanvasView.Tool.STYLUS -> showOnly(panelStylus)
-            NoteCanvasView.Tool.HIGHLIGHTER -> showOnly(panelHighlighter)
-            NoteCanvasView.Tool.ERASER -> showOnly(panelEraser)
-        }
-        updateSubtitle()
-    }
-
-    private fun showOnly(visiblePanel: View) {
-        panelStylus.visibility = if (visiblePanel === panelStylus) View.VISIBLE else View.GONE
-        panelHighlighter.visibility = if (visiblePanel === panelHighlighter) View.VISIBLE else View.GONE
-        panelEraser.visibility = if (visiblePanel === panelEraser) View.VISIBLE else View.GONE
-        panelColor.visibility = if (visiblePanel === panelColor) View.VISIBLE else View.GONE
-        toolPanelCard.visibility = View.VISIBLE
-    }
-
-    private fun ensureTool(t: NoteCanvasView.Tool) {
-        if (getCurrentTool() != t) {
-            noteCanvas.setTool(t)
-            setCurrentTool(t)
-            when (t) {
-                NoteCanvasView.Tool.STYLUS -> toolGroup.check(R.id.btnToolPen)
-                NoteCanvasView.Tool.HIGHLIGHTER -> toolGroup.check(R.id.btnToolHighlighter)
-                NoteCanvasView.Tool.ERASER -> toolGroup.check(R.id.btnToolEraser)
-            }
-            updateSubtitle()
-        }
-    }
-
-    private fun getCurrentTool(): NoteCanvasView.Tool {
-        @Suppress("UNCHECKED_CAST")
-        return (noteCanvas.getTag(R.id.tag_current_tool) as? NoteCanvasView.Tool)
-            ?: NoteCanvasView.Tool.STYLUS
-    }
-
-    private fun setCurrentTool(t: NoteCanvasView.Tool) {
-        noteCanvas.setTag(R.id.tag_current_tool, t)
-    }
-
-    /** Hide debug subtitle by default */
-    private fun updateSubtitle() {
-        if (SHOW_DEBUG_SUBTITLE) {
-            val toolName = when (getCurrentTool()) {
-                NoteCanvasView.Tool.STYLUS -> "Pen"
-                NoteCanvasView.Tool.HIGHLIGHTER -> "Highlighter"
-                NoteCanvasView.Tool.ERASER -> "Eraser"
-            }
-            supportActionBar?.subtitle =
-                "Tool: $toolName  •  Undo=${noteCanvas.canUndo()}  Redo=${noteCanvas.canRedo()}"
-        } else {
-            supportActionBar?.subtitle = null
-        }
-    }
-    // endregion
 }
