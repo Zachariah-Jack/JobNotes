@@ -2,54 +2,38 @@
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:orientation="vertical"
-    android:padding="12dp"
     android:layout_width="match_parent"
-    android:layout_height="wrap_content">
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
 
     <com.google.android.material.button.MaterialButtonToggleGroup
         android:id="@+id/stylusBrushGroup"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:singleSelection="true">
+        app:singleSelection="true"
+        app:selectionRequired="true">
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnBrushFountain"
-            style="?attr/materialButtonOutlinedStyle"
-            android:text="Fountain" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnBrushCalligraphy"
-            style="?attr/materialButtonOutlinedStyle"
-            android:text="Calligraphy" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnBrushPen"
-            style="?attr/materialButtonOutlinedStyle"
-            android:text="Pen" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnBrushPencil"
-            style="?attr/materialButtonOutlinedStyle"
-            android:text="Pencil" />
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Fountain"/>
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnBrushMarker"
-            style="?attr/materialButtonOutlinedStyle"
-            android:text="Marker" />
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Marker"/>
     </com.google.android.material.button.MaterialButtonToggleGroup>
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Size"
-        android:layout_marginTop="12dp" />
 
     <com.google.android.material.slider.Slider
         android:id="@+id/sliderStylusSize"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        app:valueFrom="1"
-        app:valueTo="60"
-        app:stepSize="1" />
+        android:value="8"
+        android:valueFrom="1"
+        android:valueTo="64"
+        android:stepSize="1" />
 </LinearLayout>
