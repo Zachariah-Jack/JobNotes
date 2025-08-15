@@ -19,265 +19,103 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"/>
 
-    <!-- WHITE Tool Row (Pen/Keyboard) with thin divider -->
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/toolRowCard"
+    <!-- Tool row (icons only) -->
+    <LinearLayout
+        android:id="@+id/toolRow"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        app:cardUseCompatPadding="false"
-        app:cardElevation="0dp"
+        android:orientation="horizontal"
+        android:gravity="center"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
         app:layout_constraintTop_toBottomOf="@id/toolbar"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
-        <LinearLayout
-            android:layout_width="match_parent"
+        <!-- Tools toggle group -->
+        <com.google.android.material.button.MaterialButtonToggleGroup
+            android:id="@+id/toolGroup"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:background="@android:color/white">
+            app:singleSelection="true"
+            app:selectionRequired="true">
 
-            <FrameLayout
-                android:id="@+id/toolRowSwitcher"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content">
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnToolKeyboard"
+                style="@style/Widget.Material3.Button.IconButton.Outlined"
+                app:icon="@drawable/ic_tool_keyboard"
+                android:contentDescription="Keyboard" />
 
-                <!-- PEN MENU ROW -->
-                <HorizontalScrollView
-                    android:id="@+id/penRowScroll"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:fillViewport="true"
-                    android:overScrollMode="never">
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnToolPen"
+                style="@style/Widget.Material3.Button.IconButton.Outlined"
+                app:icon="@drawable/ic_brush_fountain"
+                android:contentDescription="Pen" />
 
-                    <LinearLayout
-                        android:id="@+id/penRow"
-                        android:layout_width="match_parent"
-                        android:layout_height="56dp"
-                        android:gravity="center"
-                        android:orientation="horizontal"
-                        android:paddingStart="8dp"
-                        android:paddingEnd="8dp">
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnToolHighlighter"
+                style="@style/Widget.Material3.Button.IconButton.Outlined"
+                app:icon="@drawable/ic_tool_highlighter"
+                android:contentDescription="Highlighter" />
 
-                        <ImageButton
-                            android:id="@+id/btnSwitchToKeyboard"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:padding="8dp"
-                            android:src="@drawable/ic_tool_keyboard"
-                            android:tint="@android:color/black"
-                            android:contentDescription="Keyboard Menu" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnToolEraser"
+                style="@style/Widget.Material3.Button.IconButton.Outlined"
+                app:icon="@drawable/ic_tool_eraser"
+                android:contentDescription="Eraser" />
 
-                        <ImageButton
-                            android:id="@+id/btnPenStylus"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:layout_marginStart="4dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:padding="8dp"
-                            android:src="@drawable/ic_brush_fountain"
-                            android:tint="@android:color/black"
-                            android:contentDescription="Stylus Menu" />
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnToolSelect"
+                style="@style/Widget.Material3.Button.IconButton.Outlined"
+                app:icon="@drawable/ic_tool_select_rect"
+                android:contentDescription="Select" />
+        </com.google.android.material.button.MaterialButtonToggleGroup>
 
-                        <ImageButton
-                            android:id="@+id/btnPenHighlighter"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:layout_marginStart="4dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:padding="8dp"
-                            android:src="@drawable/ic_tool_highlighter"
-                            android:tint="@android:color/black"
-                            android:contentDescription="Highlighter Menu" />
+        <!-- Spacer -->
+        <View
+            android:layout_width="8dp"
+            android:layout_height="0dp" />
 
-                        <ImageButton
-                            android:id="@+id/btnPenEraser"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:layout_marginStart="4dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:padding="8dp"
-                            android:src="@drawable/ic_tool_eraser"
-                            android:tint="@android:color/black"
-                            android:contentDescription="Eraser Menu" />
+        <!-- Actions (not toggles) -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnUndo"
+            style="@style/Widget.Material3.Button.IconButton"
+            app:icon="@drawable/ic_tool_undo"
+            android:contentDescription="Undo" />
 
-                        <ImageButton
-                            android:id="@+id/btnPenSelect"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:layout_marginStart="4dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:padding="8dp"
-                            android:src="@drawable/ic_tool_select_rect"
-                            android:tint="@android:color/black"
-                            android:contentDescription="Select Menu" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnRedo"
+            style="@style/Widget.Material3.Button.IconButton"
+            app:icon="@drawable/ic_tool_redo"
+            android:contentDescription="Redo" />
 
-                        <ImageButton
-                            android:id="@+id/btnPenUndo"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:layout_marginStart="4dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:padding="8dp"
-                            android:src="@drawable/ic_tool_undo"
-                            android:tint="@android:color/black"
-                            android:contentDescription="Undo" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnToolColor"
+            style="@style/Widget.Material3.Button.IconButton"
+            app:icon="@drawable/ic_tool_palette"
+            android:contentDescription="Color" />
+    </LinearLayout>
 
-                        <ImageButton
-                            android:id="@+id/btnPenRedo"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:layout_marginStart="4dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:padding="8dp"
-                            android:src="@drawable/ic_tool_redo"
-                            android:tint="@android:color/black"
-                            android:contentDescription="Redo" />
+    <!-- Divider -->
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/tool_divider"
+        app:layout_constraintTop_toBottomOf="@id/toolRow"
+        app:layout_constraintStart_toStartOf="parent"
+        app:layout_constraintEnd_toEndOf="parent"/>
 
-                        <ImageButton
-                            android:id="@+id/btnPenColor"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:layout_marginStart="4dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:padding="8dp"
-                            android:src="@drawable/ic_tool_palette"
-                            android:tint="@android:color/black"
-                            android:contentDescription="Color Menu" />
-                    </LinearLayout>
-                </HorizontalScrollView>
-
-                <!-- KEYBOARD MENU ROW -->
-                <HorizontalScrollView
-                    android:id="@+id/kbdRowScroll"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:fillViewport="true"
-                    android:overScrollMode="never"
-                    android:visibility="gone">
-
-                    <LinearLayout
-                        android:id="@+id/kbdRow"
-                        android:layout_width="match_parent"
-                        android:layout_height="56dp"
-                        android:gravity="center"
-                        android:orientation="horizontal"
-                        android:paddingStart="8dp"
-                        android:paddingEnd="8dp">
-
-                        <ImageButton
-                            android:id="@+id/btnSwitchToPen"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:padding="8dp"
-                            android:src="@drawable/ic_tool_pen"
-                            android:tint="@android:color/black"
-                            android:contentDescription="Pen Menu" />
-
-                        <ImageButton
-                            android:id="@+id/btnKbdCheckbox"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:layout_marginStart="4dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:padding="8dp"
-                            android:src="@drawable/ic_kbd_checkbox"
-                            android:tint="@android:color/black"
-                            android:contentDescription="Insert Checkbox" />
-
-                        <ImageButton
-                            android:id="@+id/btnKbdText"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:layout_marginStart="4dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:padding="8dp"
-                            android:src="@drawable/ic_kbd_text"
-                            android:tint="@android:color/black"
-                            android:contentDescription="Text Menu" />
-
-                        <ImageButton
-                            android:id="@+id/btnKbdTextColor"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:layout_marginStart="4dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:padding="8dp"
-                            android:src="@drawable/ic_kbd_text_color"
-                            android:tint="@android:color/black"
-                            android:contentDescription="Text Color" />
-
-                        <ImageButton
-                            android:id="@+id/btnKbdTextBgColor"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:layout_marginStart="4dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:padding="8dp"
-                            android:src="@drawable/ic_kbd_text_bg"
-                            android:tint="@android:color/black"
-                            android:contentDescription="Text Background Color" />
-
-                        <TextView
-                            android:id="@+id/btnKbdFontSize"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:paddingStart="16dp"
-                            android:paddingEnd="16dp"
-                            android:paddingTop="8dp"
-                            android:paddingBottom="8dp"
-                            android:text="12"
-                            android:textSize="16sp"
-                            android:textColor="@android:color/black"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:clickable="true"
-                            android:focusable="true"
-                            android:contentDescription="Font Size" />
-
-                        <ImageButton
-                            android:id="@+id/btnKbdUndo"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:layout_marginStart="4dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:padding="8dp"
-                            android:src="@drawable/ic_kbd_undo"
-                            android:tint="@android:color/black"
-                            android:contentDescription="Keyboard Undo" />
-
-                        <ImageButton
-                            android:id="@+id/btnKbdRedo"
-                            android:layout_width="48dp"
-                            android:layout_height="48dp"
-                            android:layout_marginStart="4dp"
-                            android:background="?attr/selectableItemBackgroundBorderless"
-                            android:padding="8dp"
-                            android:src="@drawable/ic_tool_redo"
-                            android:tint="@android:color/black"
-                            android:contentDescription="Keyboard Redo" />
-                    </LinearLayout>
-                </HorizontalScrollView>
-            </FrameLayout>
-
-            <!-- bottom divider -->
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:background="@color/tool_divider"/>
-        </LinearLayout>
-    </com.google.android.material.card.MaterialCardView>
-
-    <!-- DROPDOWN PANELS -->
+    <!-- Dropdown card (panels) -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/toolPanelCard"
         android:layout_width="0dp"
         android:layout_height="wrap_content"
-        android:visibility="gone"
+        android:visibility="visible"
         app:cardElevation="4dp"
         app:cardUseCompatPadding="true"
-        app:layout_constraintTop_toBottomOf="@id/toolRowCard"
+        app:layout_constraintTop_toBottomOf="@id/toolRow"
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent">
 
@@ -290,55 +128,41 @@
             <include
                 android:id="@+id/panelStylus"
                 layout="@layout/panel_stylus"
-                android:visibility="gone"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                android:visibility="visible"/>
 
             <include
                 android:id="@+id/panelHighlighter"
                 layout="@layout/panel_highlighter"
-                android:visibility="gone"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                android:visibility="gone"/>
 
             <include
                 android:id="@+id/panelEraser"
                 layout="@layout/panel_eraser"
-                android:visibility="gone"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <include
-                android:id="@+id/panelColor"
-                layout="@layout/panel_color"
-                android:visibility="gone"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                android:visibility="gone"/>
 
             <include
                 android:id="@+id/panelSelect"
                 layout="@layout/panel_select"
-                android:visibility="gone"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                android:visibility="gone"/>
 
             <include
-                android:id="@+id/panelText"
-                layout="@layout/panel_text"
-                android:visibility="gone"
+                android:id="@+id/panelColor"
+                layout="@layout/panel_color"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-
-            <include
-                android:id="@+id/panelFontSize"
-                layout="@layout/panel_font_size"
-                android:visibility="gone"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
+                android:layout_height="wrap_content"
+                android:visibility="gone"/>
         </FrameLayout>
     </com.google.android.material.card.MaterialCardView>
 
-    <!-- The canvas -->
+    <!-- Canvas -->
     <com.pelicankb.jobnotes.canvas.NoteCanvasView
         android:id="@+id/noteCanvas"
         android:layout_width="0dp"
@@ -349,4 +173,5 @@
         app:layout_constraintStart_toStartOf="parent"
         app:layout_constraintEnd_toEndOf="parent"
         tools:ignore="SpeakableTextPresentCheck" />
+
 </androidx.constraintlayout.widget.ConstraintLayout>

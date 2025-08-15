@@ -10,31 +10,26 @@
         android:id="@+id/selectModeGroup"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:gravity="center_horizontal"
         app:singleSelection="true"
         app:selectionRequired="true">
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnSelectLasso"
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:checked="true"
-            app:icon="@drawable/ic_tool_select_lasso"
-            app:iconTint="@android:color/black"
-            app:iconSize="24dp"
-            app:iconPadding="0dp"
-            android:contentDescription="Lasso" />
-
-        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSelectRect"
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
+            style="@style/Widget.Material3.Button.IconButton.Outlined"
             app:icon="@drawable/ic_tool_select_rect"
-            app:iconTint="@android:color/black"
-            app:iconSize="24dp"
-            app:iconPadding="0dp"
-            android:contentDescription="Rectangle" />
+            android:contentDescription="Rectangle select" />
+
+        <!-- Reuse freeform icon for lasso if you don't have a lasso asset -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnSelectLasso"
+            style="@style/Widget.Material3.Button.IconButton.Outlined"
+            app:icon="@drawable/ic_highlight_freeform"
+            android:contentDescription="Lasso select" />
     </com.google.android.material.button.MaterialButtonToggleGroup>
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/btnSelectClear"
+        style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_marginTop="8dp"
+        android:text="Clear selection"/>
 </LinearLayout>
