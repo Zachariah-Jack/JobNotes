@@ -14,15 +14,19 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnHlFreeform"
-            style="@style/Widget.Material3.Button.IconButton.Outlined"
-            app:icon="@drawable/ic_highlight_freeform"
-            android:contentDescription="Freeform" />
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            app:icon="@drawable/ic_highlight_freeform" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnHlStraight"
-            style="@style/Widget.Material3.Button.IconButton.Outlined"
-            app:icon="@drawable/ic_highlight_straight"
-            android:contentDescription="Straight line" />
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            app:icon="@drawable/ic_highlight_straight" />
     </com.google.android.material.button.MaterialButtonToggleGroup>
 
     <com.google.android.material.slider.Slider

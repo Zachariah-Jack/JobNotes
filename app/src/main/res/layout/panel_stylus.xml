@@ -14,33 +14,43 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnBrushFountain"
-            style="@style/Widget.Material3.Button.IconButton.Outlined"
-            app:icon="@drawable/ic_brush_fountain"
-            android:contentDescription="Fountain" />
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            app:icon="@drawable/ic_brush_fountain" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnBrushCalligraphy"
-            style="@style/Widget.Material3.Button.IconButton.Outlined"
-            app:icon="@drawable/ic_brush_calligraphy"
-            android:contentDescription="Calligraphy" />
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            app:icon="@drawable/ic_brush_calligraphy" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnBrushPen"
-            style="@style/Widget.Material3.Button.IconButton.Outlined"
-            app:icon="@drawable/ic_brush_pen"
-            android:contentDescription="Pen" />
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            app:icon="@drawable/ic_brush_pen" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnBrushPencil"
-            style="@style/Widget.Material3.Button.IconButton.Outlined"
-            app:icon="@drawable/ic_brush_pencil"
-            android:contentDescription="Pencil" />
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            app:icon="@drawable/ic_brush_pencil" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnBrushMarker"
-            style="@style/Widget.Material3.Button.IconButton.Outlined"
-            app:icon="@drawable/ic_brush_marker"
-            android:contentDescription="Marker" />
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            app:icon="@drawable/ic_brush_marker" />
     </com.google.android.material.button.MaterialButtonToggleGroup>
 
     <com.google.android.material.slider.Slider

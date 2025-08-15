@@ -15,21 +15,26 @@
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSelectRect"
-            style="@style/Widget.Material3.Button.IconButton.Outlined"
-            app:icon="@drawable/ic_tool_select_rect"
-            android:contentDescription="Rectangle select" />
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            app:icon="@drawable/ic_tool_select_rect" />
 
-        <!-- Reuse freeform icon for lasso if you don't have a lasso asset -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSelectLasso"
-            style="@style/Widget.Material3.Button.IconButton.Outlined"
-            app:icon="@drawable/ic_highlight_freeform"
-            android:contentDescription="Lasso select" />
+            style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            app:icon="@drawable/ic_highlight_freeform" />
     </com.google.android.material.button.MaterialButtonToggleGroup>
 
     <com.google.android.material.button.MaterialButton
         android:id="@+id/btnSelectClear"
         style="@style/Widget.Material3.Button.OutlinedButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:text="Clear selection"/>
 </LinearLayout>

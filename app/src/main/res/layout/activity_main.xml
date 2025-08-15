@@ -44,33 +44,48 @@
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnToolKeyboard"
-                style="@style/Widget.Material3.Button.IconButton.Outlined"
-                app:icon="@drawable/ic_tool_keyboard"
-                android:contentDescription="Keyboard" />
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checkable="true"
+                android:text=""
+                app:icon="@drawable/ic_tool_keyboard" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnToolPen"
-                style="@style/Widget.Material3.Button.IconButton.Outlined"
-                app:icon="@drawable/ic_brush_fountain"
-                android:contentDescription="Pen" />
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checkable="true"
+                android:text=""
+                app:icon="@drawable/ic_brush_fountain" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnToolHighlighter"
-                style="@style/Widget.Material3.Button.IconButton.Outlined"
-                app:icon="@drawable/ic_tool_highlighter"
-                android:contentDescription="Highlighter" />
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checkable="true"
+                android:text=""
+                app:icon="@drawable/ic_tool_highlighter" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnToolEraser"
-                style="@style/Widget.Material3.Button.IconButton.Outlined"
-                app:icon="@drawable/ic_tool_eraser"
-                android:contentDescription="Eraser" />
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checkable="true"
+                android:text=""
+                app:icon="@drawable/ic_tool_eraser" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnToolSelect"
-                style="@style/Widget.Material3.Button.IconButton.Outlined"
-                app:icon="@drawable/ic_tool_select_rect"
-                android:contentDescription="Select" />
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:checkable="true"
+                android:text=""
+                app:icon="@drawable/ic_tool_select_rect" />
         </com.google.android.material.button.MaterialButtonToggleGroup>
 
         <!-- Spacer -->
@@ -82,20 +97,26 @@
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnUndo"
             style="@style/Widget.Material3.Button.IconButton"
-            app:icon="@drawable/ic_tool_undo"
-            android:contentDescription="Undo" />
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            app:icon="@drawable/ic_tool_undo" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnRedo"
             style="@style/Widget.Material3.Button.IconButton"
-            app:icon="@drawable/ic_tool_redo"
-            android:contentDescription="Redo" />
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            app:icon="@drawable/ic_tool_redo" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnToolColor"
             style="@style/Widget.Material3.Button.IconButton"
-            app:icon="@drawable/ic_tool_palette"
-            android:contentDescription="Color" />
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            app:icon="@drawable/ic_tool_palette" />
     </LinearLayout>
 
     <!-- Divider -->
