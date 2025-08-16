@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <!-- Lists -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnTextBulleted"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="• List" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnTextNumbered"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="1. List"
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+
+    <!-- Alignment -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAlignLeft"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="L" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAlignCenter"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="C"
+            android:layout_marginStart="8dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAlignRight"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="R"
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+
+    <!-- Styles -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnStyleBold"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="B" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnStyleItalic"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="I"
+            android:layout_marginStart="8dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnStyleUnderline"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="U"
+            android:layout_marginStart="8dp" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnStyleStrike"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="S"
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+
+    <!-- Indent -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnIndentDecrease"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="⟵" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnIndentIncrease"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="⟶"
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+</LinearLayout>
