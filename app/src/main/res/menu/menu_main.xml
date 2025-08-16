@@ -3,6 +3,16 @@
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
     <item
+        android:id="@+id/action_undo"
+        android:title="Undo"
+        app:showAsAction="never" />
+
+    <item
+        android:id="@+id/action_redo"
+        android:title="Redo"
+        app:showAsAction="never" />
+
+    <item
         android:id="@+id/action_clear"
         android:title="Clear"
         app:showAsAction="never" />
