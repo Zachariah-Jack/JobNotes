@@ -2,19 +2,45 @@
 <menu xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto">
 
-    <!-- History & clear only -->
+    <item
+        android:id="@+id/action_stylus"
+        android:title="Pen"
+        android:icon="@android:drawable/ic_menu_edit"
+        app:showAsAction="always" />
+
+    <item
+        android:id="@+id/action_highlighter"
+        android:title="Highlighter"
+        android:icon="@android:drawable/ic_menu_edit"
+        app:showAsAction="always" />
+
+    <item
+        android:id="@+id/action_eraser"
+        android:title="Eraser"
+        android:icon="@android:drawable/ic_menu_delete"
+        app:showAsAction="always" />
+
+    <item
+        android:id="@+id/action_select"
+        android:title="Select"
+        android:icon="@android:drawable/ic_menu_crop"
+        app:showAsAction="always" />
+
     <item
         android:id="@+id/action_undo"
         android:title="Undo"
-        app:showAsAction="never" />
+        android:icon="@android:drawable/ic_menu_revert"
+        app:showAsAction="ifRoom" />
 
     <item
         android:id="@+id/action_redo"
         android:title="Redo"
-        app:showAsAction="never" />
+        android:icon="@android:drawable/ic_menu_rotate"
+        app:showAsAction="ifRoom" />
 
     <item
         android:id="@+id/action_clear"
-        android:title="Clear"
+        android:title="Clear page"
+        android:icon="@android:drawable/ic_menu_delete"
         app:showAsAction="never" />
 </menu>

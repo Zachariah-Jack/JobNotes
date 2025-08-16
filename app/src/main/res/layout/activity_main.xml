@@ -1,181 +1,232 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout
-    xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    tools:context=".MainActivity">
+    android:orientation="vertical">
 
-    <!-- App bar -->
-    <com.google.android.material.appbar.MaterialToolbar
-        android:id="@+id/toolbar"
-        android:layout_width="0dp"
-        android:layout_height="?attr/actionBarSize"
-        app:title="Job Notes"
-        app:titleCentered="true"
-        app:layout_constraintTop_toTopOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"/>
+    <!-- Icon toolbar (ImageButtons; icons set in code so you can keep your own drawables) -->
+    <HorizontalScrollView
+        android:layout_width="match_parent"
+        android:layout_height="56dp"
+        android:fillViewport="true">
 
-    <!-- Tool selector row -->
-    <com.google.android.material.button.MaterialButtonToggleGroup
-        android:id="@+id/toolSelectorGroup"
-        android:layout_width="0dp"
-        android:layout_height="wrap_content"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
-        android:paddingTop="8dp"
-        android:paddingBottom="8dp"
-        app:singleSelection="true"
-        app:selectionRequired="true"
-        app:checkedButton="@id/btnToolPen"
-        app:layout_constraintTop_toBottomOf="@id/toolbar"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnToolPen"
-            style="@style/Widget.Material3.Button.OutlinedButton"
+        <LinearLayout
+            android:id="@+id/toolbarRow"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Pen"/>
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp"
+            android:gravity="center_vertical">
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnToolHighlighter"
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Highlighter"/>
+            <ImageButton
+                android:id="@+id/ibPen"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Pen" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnToolEraser"
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Eraser"/>
+            <ImageButton
+                android:id="@+id/ibHighlighter"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Highlighter" />
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnToolColor"
-            style="@style/Widget.Material3.Button.OutlinedButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Color"/>
-    </com.google.android.material.button.MaterialButtonToggleGroup>
+            <ImageButton
+                android:id="@+id/ibEraser"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Eraser" />
 
-    <!-- Existing sticky tool rows -->
+            <ImageButton
+                android:id="@+id/ibSelect"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Select" />
+
+            <Space android:layout_width="12dp" android:layout_height="0dp" />
+
+            <ImageButton
+                android:id="@+id/ibUndo"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Undo" />
+
+            <ImageButton
+                android:id="@+id/ibRedo"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Redo" />
+
+            <ImageButton
+                android:id="@+id/ibClear"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:contentDescription="Clear page" />
+
+        </LinearLayout>
+    </HorizontalScrollView>
+
+    <!-- Brush/highlighter/eraser settings (kept IDs from your older code) -->
     <LinearLayout
-        android:id="@+id/toolRowsContainer"
-        android:layout_width="0dp"
+        android:id="@+id/panelText"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:background="@android:color/white"
-        android:paddingStart="8dp"
-        android:paddingEnd="8dp"
-        app:layout_constraintTop_toBottomOf="@id/toolSelectorGroup"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:background="#11CCCCCC">
 
-        <HorizontalScrollView
-            android:id="@+id/scrollPenRow"
-            android:layout_width="match_parent"
+        <LinearLayout
+            android:id="@+id/panelFontSize"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:fillViewport="true"
-            android:overScrollMode="never">
+            android:layout_weight="1"
+            android:orientation="vertical">
 
-            <LinearLayout
-                android:id="@+id/rowPen"
+            <TextView
                 android:layout_width="wrap_content"
-                android:layout_height="56dp"
-                android:gravity="center"
-                android:orientation="horizontal"
-                android:paddingTop="4dp"
-                android:paddingBottom="4dp" />
-        </HorizontalScrollView>
+                android:layout_height="wrap_content"
+                android:text="Pen size" />
 
-        <HorizontalScrollView
-            android:id="@+id/scrollKeyboardRow"
-            android:layout_width="match_parent"
+            <SeekBar
+                android:id="@+id/seekPenSize"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:fillViewport="true"
-            android:overScrollMode="never"
-            android:visibility="gone">
+            android:layout_weight="1"
+            android:orientation="vertical">
 
-            <LinearLayout
-                android:id="@+id/rowKeyboard"
+            <TextView
                 android:layout_width="wrap_content"
-                android:layout_height="56dp"
-                android:gravity="center"
-                android:orientation="horizontal"
-                android:paddingTop="4dp"
-                android:paddingBottom="4dp" />
-        </HorizontalScrollView>
+                android:layout_height="wrap_content"
+                android:text="Highlighter size" />
 
-        <View
-            android:layout_width="match_parent"
-            android:layout_height="1dp"
-            android:background="@color/tool_divider"/>
+            <SeekBar
+                android:id="@+id/seekHighlighterSize"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:orientation="vertical">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Eraser size" />
+
+            <SeekBar
+                android:id="@+id/seekEraserSize"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content" />
+        </LinearLayout>
+
+        <!-- Quick color swatches -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="match_parent"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingStart="8dp">
+
+            <View
+                android:id="@+id/btnColorBlack"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_margin="4dp"
+                android:background="#000000" />
+
+            <View
+                android:id="@+id/btnColorBlue"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_margin="4dp"
+                android:background="#1976D2" />
+
+            <View
+                android:id="@+id/btnColorRed"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_margin="4dp"
+                android:background="#D32F2F" />
+
+            <View
+                android:id="@+id/btnColorYellow"
+                android:layout_width="28dp"
+                android:layout_height="28dp"
+                android:layout_margin="4dp"
+                android:background="#FFFF00" />
+        </LinearLayout>
     </LinearLayout>
 
-    <!-- Sliding tool panel -->
-    <com.google.android.material.card.MaterialCardView
-        android:id="@+id/toolPanelCard"
-        android:layout_width="0dp"
+    <!-- Selection controls (icons only) -->
+    <LinearLayout
+        android:id="@+id/panelSelect"
+        android:visibility="gone"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:visibility="visible"
-        app:cardElevation="4dp"
-        app:cardUseCompatPadding="true"
-        app:layout_constraintTop_toBottomOf="@id/toolRowsContainer"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent">
+        android:orientation="horizontal"
+        android:padding="8dp"
+        android:background="#112196F3"
+        android:gravity="center_vertical">
 
-        <FrameLayout
-            android:id="@+id/panelContainer"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:padding="12dp">
+        <ImageButton
+            android:id="@+id/ibRect"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Rect selection" />
 
-            <include
-                android:id="@+id/panelStylus"
-                layout="@layout/panel_stylus"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:visibility="visible"/>
+        <ImageButton
+            android:id="@+id/ibLasso"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Lasso selection" />
 
-            <include
-                android:id="@+id/panelHighlighter"
-                layout="@layout/panel_highlighter"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:visibility="gone"/>
+        <Space android:layout_width="12dp" android:layout_height="0dp" />
 
-            <include
-                android:id="@+id/panelEraser"
-                layout="@layout/panel_eraser"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:visibility="gone"/>
+        <ImageButton
+            android:id="@+id/ibSelClear"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Clear selection" />
 
-            <include
-                android:id="@+id/panelColor"
-                layout="@layout/panel_color"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:visibility="gone"/>
-        </FrameLayout>
-    </com.google.android.material.card.MaterialCardView>
+        <ImageButton
+            android:id="@+id/ibSelDelete"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:contentDescription="Delete selection" />
+    </LinearLayout>
 
-    <!-- The canvas -->
-    <com.pelicankb.jobnotes.canvas.NoteCanvasView
-        android:id="@+id/noteCanvas"
-        android:layout_width="0dp"
+    <!-- Canvas -->
+    <FrameLayout
+        android:id="@+id/canvasHost"
+        android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:background="@android:color/white"
-        app:layout_constraintTop_toBottomOf="@id/toolPanelCard"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        tools:ignore="SpeakableTextPresentCheck" />
+        android:layout_weight="1">
 
-</androidx.constraintlayout.widget.ConstraintLayout>
+        <com.pelicankb.jobnotes.NoteCanvasView
+            android:id="@+id/noteCanvas"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="#FFFFFFFF" />
+    </FrameLayout>
+
+</LinearLayout>

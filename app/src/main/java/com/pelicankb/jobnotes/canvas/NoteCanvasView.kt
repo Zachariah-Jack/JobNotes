@@ -1,4 +1,4 @@
-package com.pelicankb.jobnotes.canvas
+package com.pelicankb.jobnotes
 
 import android.content.Context
 import android.graphics.*
@@ -6,415 +6,257 @@ import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
 import kotlin.math.max
+import kotlin.math.min
 
 class NoteCanvasView @JvmOverloads constructor(
-    context: Context, attrs: AttributeSet? = null, defStyleAttr: Int = 0
+    context: Context,
+    attrs: AttributeSet? = null,
+    defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
-    enum class Tool { STYLUS, HIGHLIGHTER, ERASER }
-    enum class StylusBrush { FOUNTAIN, MARKER }
-    enum class HighlightMode { FREEFORM, STRAIGHT }
-    enum class EraserMode { STROKE, AREA }
-    private enum class Layer { INK, HL }
+    enum class Tool { STYLUS, HIGHLIGHTER, ERASER, SELECT }
+    enum class SelectionMode { RECT, LASSO }
 
-    // ---------------- State ----------------
-    private var tool = Tool.STYLUS
-
-    private var stylusBrush = StylusBrush.FOUNTAIN
-    private var stylusSize = 8f
-    private var stylusColor = Color.BLACK
-
-    private var highlighterSize = 24f
-    private var highlighterColor = Color.YELLOW
-    private var highlighterOpacity = 0.5f // 0..1
-    private var highlightMode = HighlightMode.FREEFORM
-
-    private var eraserMode = EraserMode.STROKE
-    private var eraserSize = 30f
-    private var eraseHighlightsOnly = false
-
-    // Two layers for selective erasing
-    private var inkBitmap: Bitmap? = null
-    private var inkCanvas: Canvas? = null
-    private var hlBitmap: Bitmap? = null
-    private var hlCanvas: Canvas? = null
-
-    // Live paints
-    private val penPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        color = stylusColor
-        strokeWidth = stylusSize
-        strokeCap = Paint.Cap.ROUND
-        strokeJoin = Paint.Join.ROUND
+    private data class Stroke(
+        val path: Path,
+        val paint: Paint,
+        val tool: Tool
+    ) {
+        val bounds: RectF = RectF().also { path.computeBounds(it, true) }
     }
 
-    private val hlPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        color = highlighterColor
-        alpha = (255 * highlighterOpacity).toInt()
-        strokeWidth = highlighterSize
-        strokeCap = Paint.Cap.BUTT
-        strokeJoin = Paint.Join.ROUND
-    }
+    private val strokes = mutableListOf<Stroke>()
+    private val undone = mutableListOf<Stroke>()
 
-    private val eraserPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        strokeCap = Paint.Cap.ROUND
-        strokeJoin = Paint.Join.ROUND
-        strokeWidth = eraserSize
-        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
-    }
+    private var tool: Tool = Tool.STYLUS
+    private var selectionMode: SelectionMode = SelectionMode.RECT
 
-    private val eraserFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
-    }
+    private var penColor: Int = Color.BLACK
+    private var highlighterColor: Int = Color.YELLOW
+    private var penWidthPx: Float = 6f
+    private var highlighterWidthPx: Float = 18f
+    private var eraserWidthPx: Float = 28f
 
-    // Live gesture
-    private val path = Path()
+    private var currentPath: Path? = null
+    private var currentPaint: Paint? = null
     private var lastX = 0f
     private var lastY = 0f
-    private var downX = 0f
-    private var downY = 0f
 
-    // For AREA eraser (dot stamping)
-    private val areaDots = ArrayList<PointF>()
+    private var selectionRect: RectF? = null
 
-    // ---------------- History (command list) ----------------
-    private data class PaintParams(
-        val color: Int,
-        val alpha: Int,
-        val strokeWidth: Float,
-        val cap: Paint.Cap,
-        val join: Paint.Join
-    )
+    // Offscreen buffer so eraser (CLEAR) and undo/redo are reliable
+    private var bufferBitmap: Bitmap? = null
+    private var bufferCanvas: Canvas? = null
+    private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-    private sealed class Op {
-        data class DrawPath(val layer: Layer, val path: Path, val params: PaintParams) : Op()
-        data class DrawStraightHl(val startX: Float, val endX: Float, val y: Float, val params: PaintParams) : Op()
-        data class ErasePath(val path: Path, val strokeWidth: Float, val highlightsOnly: Boolean) : Op()
-        data class EraseDots(val dots: List<PointF>, val radius: Float, val highlightsOnly: Boolean) : Op()
-        object Clear : Op()
+    init {
+        setLayerType(LAYER_TYPE_HARDWARE, null)
     }
 
-    private val ops = mutableListOf<Op>()
-    private var cursor = -1 // index of last applied op; -1 means empty
-
-    var onStackChanged: (() -> Unit)? = null
-
-    fun canUndo(): Boolean = cursor >= 0
-    fun canRedo(): Boolean = cursor < ops.size - 1
-
-    fun undo() {
-        if (!canUndo()) return
-        cursor--
-        rebuildFromHistory()
-        onStackChanged?.invoke()
-    }
-
-    fun redo() {
-        if (!canRedo()) return
-        cursor++
-        rebuildFromHistory()
-        onStackChanged?.invoke()
-    }
-
-    private fun push(op: Op) {
-        // Drop any redo tail
-        if (cursor < ops.lastIndex) {
-            ops.subList(cursor + 1, ops.size).clear()
-        }
-        ops.add(op)
-        cursor = ops.lastIndex
-        onStackChanged?.invoke()
-    }
-
-    private fun toParams(p: Paint) = PaintParams(
-        color = p.color,
-        alpha = p.alpha,
-        strokeWidth = p.strokeWidth,
-        cap = p.strokeCap,
-        join = p.strokeJoin
-    )
-
-    private fun buildPaint(params: PaintParams): Paint =
-        Paint(Paint.ANTI_ALIAS_FLAG).apply {
-            style = Paint.Style.STROKE
-            color = params.color
-            alpha = params.alpha
-            strokeWidth = params.strokeWidth
-            strokeCap = params.cap
-            strokeJoin = params.join
-        }
-
-    private fun rebuildFromHistory() {
-        val ic = inkCanvas ?: return
-        val hc = hlCanvas ?: return
-        inkBitmap?.eraseColor(Color.TRANSPARENT)
-        hlBitmap?.eraseColor(Color.TRANSPARENT)
-        for (i in 0..cursor) {
-            val op = ops[i]
-            when (op) {
-                is Op.DrawPath -> {
-                    val p = buildPaint(op.params)
-                    when (op.layer) {
-                        Layer.INK -> ic.drawPath(op.path, p)
-                        Layer.HL -> hc.drawPath(op.path, p)
-                    }
-                }
-                is Op.DrawStraightHl -> {
-                    val p = buildPaint(op.params)
-                    hc.drawLine(op.startX, op.y, op.endX, op.y, p)
-                }
-                is Op.ErasePath -> {
-                    val p = Paint(eraserPaint)
-                    p.strokeWidth = op.strokeWidth
-                    if (op.highlightsOnly) {
-                        hc.drawPath(op.path, p)
-                    } else {
-                        ic.drawPath(op.path, p)
-                        hc.drawPath(op.path, p)
-                    }
-                }
-                is Op.EraseDots -> {
-                    val fill = Paint(eraserFillPaint)
-                    if (op.highlightsOnly) {
-                        for (pt in op.dots) hc.drawCircle(pt.x, pt.y, op.radius, fill)
-                    } else {
-                        for (pt in op.dots) {
-                            ic.drawCircle(pt.x, pt.y, op.radius, fill)
-                            hc.drawCircle(pt.x, pt.y, op.radius, fill)
-                        }
-                    }
-                }
-                Op.Clear -> {
-                    inkBitmap?.eraseColor(Color.TRANSPARENT)
-                    hlBitmap?.eraseColor(Color.TRANSPARENT)
-                }
-            }
-        }
-        invalidate()
-    }
-
-    // ---------------- Lifecycle ----------------
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (w <= 0 || h <= 0) return
-
-        fun newBitmap(): Bitmap =
-            Bitmap.createBitmap(max(1, w), max(1, h), Bitmap.Config.ARGB_8888)
-
-        inkBitmap?.recycle()
-        hlBitmap?.recycle()
-
-        inkBitmap = newBitmap()
-        hlBitmap = newBitmap()
-        inkCanvas = Canvas(inkBitmap!!)
-        hlCanvas = Canvas(hlBitmap!!)
-
-        // Repaint from history on size (e.g., rotation)
-        rebuildFromHistory()
+        bufferBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+        bufferCanvas = Canvas(bufferBitmap!!)
+        rebuildBuffer()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        inkBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
-        hlBitmap?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+        bufferBitmap?.let { canvas.drawBitmap(it, 0f, 0f, bitmapPaint) }
+
+        // Selection overlay
+        val sel = selectionRect
+        if (tool == Tool.SELECT && sel != null) {
+            val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0x6633B5E5 // translucent blue
+                style = Paint.Style.FILL
+            }
+            val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0xFF33B5E5.toInt()
+                style = Paint.Style.STROKE
+                strokeWidth = 2f
+            }
+            canvas.drawRect(sel, fill)
+            canvas.drawRect(sel, border)
+        }
     }
 
-    // ---------------- Input ----------------
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val x = event.x
         val y = event.y
-
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                parent?.requestDisallowInterceptTouchEvent(true)
-                downX = x
-                downY = y
-                lastX = x
-                lastY = y
-                path.reset()
-                path.moveTo(x, y)
-                areaDots.clear()
-
-                if (tool == Tool.ERASER && eraserMode == EraserMode.AREA) {
-                    stampEraseDot(x, y)
-                }
-                invalidate()
-            }
-
-            MotionEvent.ACTION_MOVE -> {
-                val midX = (lastX + x) / 2f
-                val midY = (lastY + y) / 2f
-                path.quadTo(lastX, lastY, midX, midY)
-                lastX = x
-                lastY = y
-
+                undone.clear()
                 when (tool) {
-                    Tool.STYLUS -> inkCanvas?.drawPath(path, penPaint)
-                    Tool.HIGHLIGHTER -> {
-                        if (highlightMode == HighlightMode.FREEFORM) {
-                            hlCanvas?.drawPath(path, hlPaint)
-                        }
-                    }
-                    Tool.ERASER -> {
-                        if (eraserMode == EraserMode.STROKE) {
-                            erasePathLive(path)
-                        } else {
-                            stampEraseDot(x, y)
-                        }
+                    Tool.STYLUS -> beginStroke(newPenPaint())
+                    Tool.HIGHLIGHTER -> beginStroke(newHighlighterPaint())
+                    Tool.ERASER -> beginStroke(newEraserPaint())
+                    Tool.SELECT -> { beginSelection(x, y); return true }
+                }
+                lastX = x; lastY = y
+                currentPath?.moveTo(x, y)
+                invalidate()
+                return true
+            }
+            MotionEvent.ACTION_MOVE -> {
+                when (tool) {
+                    Tool.SELECT -> { updateSelection(x, y); return true }
+                    else -> {
+                        val path = currentPath ?: return false
+                        val midX = (x + lastX) / 2f
+                        val midY = (y + lastY) / 2f
+                        path.quadTo(lastX, lastY, midX, midY)
+                        bufferCanvas?.drawPath(path, currentPaint ?: return false)
+                        lastX = x; lastY = y
+                        invalidate()
+                        return true
                     }
                 }
-                invalidate()
             }
-
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 when (tool) {
-                    Tool.STYLUS -> {
-                        // Commit stroke to history
-                        push(Op.DrawPath(Layer.INK, Path(path), toParams(penPaint)))
-                    }
-                    Tool.HIGHLIGHTER -> {
-                        if (highlightMode == HighlightMode.FREEFORM) {
-                            push(Op.DrawPath(Layer.HL, Path(path), toParams(hlPaint)))
-                        } else {
-                            // Straight horizontal
-                            hlCanvas?.drawLine(downX, downY, x, downY, hlPaint)
-                            push(
-                                Op.DrawStraightHl(
-                                    startX = downX, endX = x, y = downY, params = toParams(hlPaint)
-                                )
-                            )
-                        }
-                    }
-                    Tool.ERASER -> {
-                        if (eraserMode == EraserMode.STROKE) {
-                            push(
-                                Op.ErasePath(
-                                    path = Path(path),
-                                    strokeWidth = eraserSize,
-                                    highlightsOnly = eraseHighlightsOnly
-                                )
-                            )
-                        } else {
-                            // area dots
-                            if (areaDots.isNotEmpty()) {
-                                push(
-                                    Op.EraseDots(
-                                        dots = ArrayList(areaDots),
-                                        radius = eraserSize / 2f,
-                                        highlightsOnly = eraseHighlightsOnly
-                                    )
-                                )
-                            }
-                        }
+                    Tool.SELECT -> { finalizeSelection(); return true }
+                    else -> {
+                        val path = currentPath ?: return false
+                        // Already drawn during move; just commit stroke record
+                        addStroke(path, currentPaint ?: return false)
+                        currentPath = null
+                        currentPaint = null
+                        invalidate()
+                        return true
                     }
                 }
-                path.reset()
-                areaDots.clear()
-                invalidate()
-                parent?.requestDisallowInterceptTouchEvent(false)
             }
         }
-        return true
+        return super.onTouchEvent(event)
     }
 
-    private fun erasePathLive(p: Path) {
-        val cStroke = Paint(eraserPaint).apply { strokeWidth = eraserSize }
-        if (eraseHighlightsOnly) {
-            hlCanvas?.drawPath(p, cStroke)
-        } else {
-            inkCanvas?.drawPath(p, cStroke)
-            hlCanvas?.drawPath(p, cStroke)
+    private fun beginStroke(paint: Paint) {
+        currentPath = Path()
+        currentPaint = paint
+    }
+
+    private fun addStroke(path: Path, paint: Paint) {
+        val copyPath = Path(path)
+        val copyPaint = Paint(paint)
+        val s = Stroke(copyPath, copyPaint, tool)
+        s.path.computeBounds(s.bounds, true)
+        strokes.add(s)
+    }
+
+    // Selection (lasso is treated like rect for now)
+    private fun beginSelection(x: Float, y: Float) {
+        selectionRect = RectF(x, y, x, y)
+        invalidate()
+    }
+
+    private fun updateSelection(x: Float, y: Float) {
+        val r = selectionRect ?: return
+        r.right = x
+        r.bottom = y
+        invalidate()
+    }
+
+    private fun finalizeSelection() {
+        selectionRect?.let { r ->
+            val l = min(r.left, r.right)
+            val t = min(r.top, r.bottom)
+            val rt = max(r.left, r.right)
+            val b = max(r.top, r.bottom)
+            r.set(l, t, rt, b)
         }
+        invalidate()
     }
 
-    private fun stampEraseDot(x: Float, y: Float) {
-        val r = eraserSize / 2f
-        areaDots.add(PointF(x, y))
-        val fill = eraserFillPaint
-        if (eraseHighlightsOnly) {
-            hlCanvas?.drawCircle(x, y, r, fill)
-        } else {
-            inkCanvas?.drawCircle(x, y, r, fill)
-            hlCanvas?.drawCircle(x, y, r, fill)
-        }
+    private fun newPenPaint(): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = penColor
+        style = Paint.Style.STROKE
+        strokeWidth = penWidthPx
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
     }
 
-    // ---------------- Public API ----------------
-    fun setTool(t: Tool) { tool = t }
+    private fun newHighlighterPaint(): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        // force ~40% alpha to mimic a marker
+        val base = highlighterColor and 0x00FFFFFF
+        color = base or 0x66000000
+        style = Paint.Style.STROKE
+        strokeWidth = highlighterWidthPx
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
 
-    fun setStylusBrush(b: StylusBrush) {
-        stylusBrush = b
-        when (b) {
-            StylusBrush.FOUNTAIN -> {
-                penPaint.strokeCap = Paint.Cap.ROUND
-                penPaint.strokeJoin = Paint.Join.ROUND
-                penPaint.alpha = 255
+    private fun newEraserPaint(): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
+        color = Color.TRANSPARENT
+        style = Paint.Style.STROKE
+        strokeWidth = eraserWidthPx
+        strokeCap = Paint.Cap.ROUND
+        strokeJoin = Paint.Join.ROUND
+    }
+
+    private fun rebuildBuffer() {
+        val c = bufferCanvas ?: return
+        val b = bufferBitmap ?: return
+        val clear = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR) }
+        c.drawRect(0f, 0f, b.width.toFloat(), b.height.toFloat(), clear)
+        for (s in strokes) c.drawPath(s.path, s.paint)
+        invalidate()
+    }
+
+    // --- public API ---
+
+    fun setTool(t: Tool) {
+        tool = t
+        currentPath = null
+        currentPaint = null
+    }
+
+    fun setSelectionMode(mode: SelectionMode) {
+        selectionMode = mode // (lasso currently behaves like rect)
+    }
+
+    fun clearSelection() {
+        selectionRect = null
+        invalidate()
+    }
+
+    fun deleteSelection() {
+        val r = selectionRect ?: return
+        val it = strokes.iterator()
+        var removed = false
+        while (it.hasNext()) {
+            val s = it.next()
+            if (RectF.intersects(s.bounds, r)) {
+                it.remove()
+                removed = true
             }
-            StylusBrush.MARKER -> {
-                penPaint.strokeCap = Paint.Cap.SQUARE
-                penPaint.strokeJoin = Paint.Join.BEVEL
-                penPaint.alpha = 230
-            }
         }
-        invalidate()
+        if (removed) {
+            undone.clear()
+            rebuildBuffer()
+        }
+        selectionRect = null
     }
 
-    fun setStylusSize(px: Float) {
-        stylusSize = px.coerceAtLeast(1f)
-        penPaint.strokeWidth = stylusSize
-        invalidate()
+    fun setPenColor(color: Int) { penColor = color }
+    fun setHighlighterColor(color: Int) { highlighterColor = color }
+    fun setPenWidthPx(px: Float) { penWidthPx = px }
+    fun setHighlighterWidthPx(px: Float) { highlighterWidthPx = px }
+    fun setEraserWidthPx(px: Float) { eraserWidthPx = px }
+
+    fun undo() {
+        if (strokes.isNotEmpty()) {
+            undone.add(strokes.removeAt(strokes.size - 1))
+            rebuildBuffer()
+        }
     }
 
-    fun setStylusColor(color: Int) {
-        stylusColor = color
-        penPaint.color = stylusColor
-        invalidate()
-    }
-
-    fun setHighlighterSize(px: Float) {
-        highlighterSize = px.coerceAtLeast(1f)
-        hlPaint.strokeWidth = highlighterSize
-        invalidate()
-    }
-
-    fun setHighlighterOpacity(opacity01: Float) {
-        val op = opacity01.coerceIn(0f, 1f)
-        highlighterOpacity = op
-        hlPaint.alpha = (255 * op).toInt()
-        invalidate()
-    }
-
-    fun setHighlighterColor(color: Int) {
-        highlighterColor = color
-        hlPaint.color = color
-        invalidate()
-    }
-
-    fun setHighlightMode(mode: HighlightMode) {
-        highlightMode = mode
-    }
-
-    fun setEraserMode(mode: EraserMode) {
-        eraserMode = mode
-    }
-
-    fun setEraserSize(px: Float) {
-        eraserSize = px.coerceAtLeast(1f)
-        eraserPaint.strokeWidth = eraserSize
-        invalidate()
-    }
-
-    fun setEraseHighlightsOnly(only: Boolean) {
-        eraseHighlightsOnly = only
-    }
-
-    fun clearAll() {
-        inkBitmap?.eraseColor(Color.TRANSPARENT)
-        hlBitmap?.eraseColor(Color.TRANSPARENT)
-        push(Op.Clear)
-        invalidate()
+    fun redo() {
+        if (undone.isNotEmpty()) {
+            strokes.add(undone.removeAt(undone.size - 1))
+            rebuildBuffer()
+        }
     }
 }
