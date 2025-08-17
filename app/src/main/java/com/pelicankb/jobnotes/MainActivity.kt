@@ -4,8 +4,11 @@ import android.graphics.Color
 import android.os.Bundle
 import android.view.Menu
 import android.view.MenuItem
-import android.widget.*
+import android.view.View
 import android.widget.FrameLayout
+import android.widget.ImageButton
+import android.widget.LinearLayout
+import android.widget.SeekBar
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 
@@ -48,21 +51,21 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        canvasView = findViewById(R.id.noteCanvas)
+        canvasView = findViewById<NoteCanvasView>(R.id.noteCanvas)
 
         // --- panels ---
-        panelSelect = findViewById(R.id.panelSelect)
-        panelText = findViewById(R.id.panelText)
-        panelFontSize = findViewById(R.id.panelFontSize)
+        panelSelect = findViewById<LinearLayout>(R.id.panelSelect)
+        panelText = findViewById<LinearLayout>(R.id.panelText)
+        panelFontSize = findViewById<LinearLayout>(R.id.panelFontSize)
 
         // --- toolbar icons ---
-        ibPen = findViewById(R.id.ibPen)
-        ibHighlighter = findViewById(R.id.ibHighlighter)
-        ibEraser = findViewById(R.id.ibEraser)
-        ibSelect = findViewById(R.id.ibSelect)
-        ibUndo = findViewById(R.id.ibUndo)
-        ibRedo = findViewById(R.id.ibRedo)
-        ibClear = findViewById(R.id.ibClear)
+        ibPen = findViewById<ImageButton>(R.id.ibPen)
+        ibHighlighter = findViewById<ImageButton>(R.id.ibHighlighter)
+        ibEraser = findViewById<ImageButton>(R.id.ibEraser)
+        ibSelect = findViewById<ImageButton>(R.id.ibSelect)
+        ibUndo = findViewById<ImageButton>(R.id.ibUndo)
+        ibRedo = findViewById<ImageButton>(R.id.ibRedo)
+        ibClear = findViewById<ImageButton>(R.id.ibClear)
 
         // Try your drawables first; fall back to a system icon if not found.
         setIcon(ibPen, arrayOf("ic_pen", "ic_stylus", "ic_brush", "ic_edit"), android.R.drawable.ic_menu_edit)
@@ -82,10 +85,10 @@ class MainActivity : AppCompatActivity() {
         ibClear.setOnClickListener { recreateCanvas() }
 
         // --- selection controls (icons) ---
-        ibRect = findViewById(R.id.ibRect)
-        ibLasso = findViewById(R.id.ibLasso)
-        ibSelClear = findViewById(R.id.ibSelClear)
-        ibSelDelete = findViewById(R.id.ibSelDelete)
+        ibRect = findViewById<ImageButton>(R.id.ibRect)
+        ibLasso = findViewById<ImageButton>(R.id.ibLasso)
+        ibSelClear = findViewById<ImageButton>(R.id.ibSelClear)
+        ibSelDelete = findViewById<ImageButton>(R.id.ibSelDelete)
 
         setIcon(ibRect, arrayOf("ic_select_rect", "ic_rect", "ic_crop"), android.R.drawable.ic_menu_crop)
         setIcon(ibLasso, arrayOf("ic_lasso", "ic_select_lasso"), android.R.drawable.ic_menu_crop)
@@ -104,9 +107,9 @@ class MainActivity : AppCompatActivity() {
         ibSelDelete.setOnClickListener { canvasView.deleteSelection() }
 
         // --- sliders ---
-        seekPenSize = findViewById(R.id.seekPenSize)
-        seekHighlighterSize = findViewById(R.id.seekHighlighterSize)
-        seekEraserSize = findViewById(R.id.seekEraserSize)
+        seekPenSize = findViewById<SeekBar>(R.id.seekPenSize)
+        seekHighlighterSize = findViewById<SeekBar>(R.id.seekHighlighterSize)
+        seekEraserSize = findViewById<SeekBar>(R.id.seekEraserSize)
 
         seekPenSize.max = 40
         seekPenSize.progress = 6
@@ -127,10 +130,10 @@ class MainActivity : AppCompatActivity() {
         })
 
         // --- color swatches for pen/highlighter ---
-        btnColorBlack = findViewById(R.id.btnColorBlack)
-        btnColorBlue = findViewById(R.id.btnColorBlue)
-        btnColorRed = findViewById(R.id.btnColorRed)
-        btnColorYellow = findViewById(R.id.btnColorYellow)
+        btnColorBlack = findViewById<View>(R.id.btnColorBlack)
+        btnColorBlue = findViewById<View>(R.id.btnColorBlue)
+        btnColorRed = findViewById<View>(R.id.btnColorRed)
+        btnColorYellow = findViewById<View>(R.id.btnColorYellow)
 
         btnColorBlack.setOnClickListener { canvasView.setPenColor(Color.BLACK) }
         btnColorBlue.setOnClickListener { canvasView.setPenColor(0xFF1976D2.toInt()) }
@@ -189,10 +192,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateSelectionIconState() {
-        // simple visual hint
         if (panelSelect.isVisible) {
+            // highlight both rect/lasso while in selection tool
             ibRect.alpha = 1f
-            ibLasso.alpha = 0.55f
+            ibLasso.alpha = 1f
         } else {
             ibRect.alpha = 0.55f
             ibLasso.alpha = 0.55f
@@ -206,12 +209,11 @@ class MainActivity : AppCompatActivity() {
             val id = resources.getIdentifier(name, "drawable", pkg)
             if (id != 0) { found = id; break }
         }
-        if (found != 0) view.setImageResource(found) else view.setImageResource(fallbackAndroidRes)
+        view.setImageResource(if (found != 0) found else fallbackAndroidRes)
         view.contentDescription = preferredNames.firstOrNull() ?: "icon"
     }
 
     private fun recreateCanvas() {
-        // Replace the view as a quick "clear page"
         val parent = canvasView.parent as FrameLayout
         val index = parent.indexOfChild(canvasView)
         parent.removeViewAt(index)
