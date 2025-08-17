@@ -1,232 +1,275 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools"
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:orientation="vertical">
+    android:background="@android:color/white"
+    android:orientation="vertical"
+    tools:context=".MainActivity">
 
-    <!-- Icon toolbar (ImageButtons; icons set in code so you can keep your own drawables) -->
-    <HorizontalScrollView
-        android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:fillViewport="true">
-
-        <LinearLayout
-            android:id="@+id/toolbarRow"
-            android:layout_width="wrap_content"
-            android:layout_height="match_parent"
-            android:orientation="horizontal"
-            android:paddingStart="4dp"
-            android:paddingEnd="4dp"
-            android:gravity="center_vertical">
-
-            <ImageButton
-                android:id="@+id/ibPen"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Pen" />
-
-            <ImageButton
-                android:id="@+id/ibHighlighter"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Highlighter" />
-
-            <ImageButton
-                android:id="@+id/ibEraser"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Eraser" />
-
-            <ImageButton
-                android:id="@+id/ibSelect"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Select" />
-
-            <Space android:layout_width="12dp" android:layout_height="0dp" />
-
-            <ImageButton
-                android:id="@+id/ibUndo"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Undo" />
-
-            <ImageButton
-                android:id="@+id/ibRedo"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Redo" />
-
-            <ImageButton
-                android:id="@+id/ibClear"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:contentDescription="Clear page" />
-
-        </LinearLayout>
-    </HorizontalScrollView>
-
-    <!-- Brush/highlighter/eraser settings (kept IDs from your older code) -->
-    <LinearLayout
-        android:id="@+id/panelText"
+    <!-- Title header -->
+    <EditText
+        android:id="@+id/noteTitle"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="8dp"
-        android:background="#11CCCCCC">
+        android:layout_marginStart="16dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginTop="12dp"
+        android:hint="Untitled"
+        android:singleLine="true"
+        android:imeOptions="actionDone"
+        android:inputType="textCapWords|textPersonName"
+        android:textSize="18sp"
+        android:padding="8dp"/>
 
+    <!-- Divider above toolbar -->
+    <View
+        android:id="@+id/dividerToolbarTop"
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:layout_marginTop="8dp"
+        android:background="#33000000" />
+
+    <!-- Toolbar container (spacing so title and tools don't touch) -->
+    <FrameLayout
+        android:id="@+id/toolbarContainer"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingTop="12dp"
+        android:paddingBottom="8dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp">
+
+        <!-- Pen menu (default visible) -->
         <LinearLayout
-            android:id="@+id/panelFontSize"
-            android:layout_width="0dp"
+            android:id="@+id/panelPen"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Pen size" />
-
-            <SeekBar
-                android:id="@+id/seekPenSize"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Highlighter size" />
-
-            <SeekBar
-                android:id="@+id/seekHighlighterSize"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:orientation="vertical">
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Eraser size" />
-
-            <SeekBar
-                android:id="@+id/seekEraserSize"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content" />
-        </LinearLayout>
-
-        <!-- Quick color swatches -->
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="match_parent"
             android:orientation="horizontal"
             android:gravity="center_vertical"
-            android:paddingStart="8dp">
+            android:baselineAligned="false">
 
-            <View
-                android:id="@+id/btnColorBlack"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:layout_margin="4dp"
-                android:background="#000000" />
+            <!-- Left-most: switch to Keyboard -->
+            <ImageButton
+                android:id="@+id/btnKeyboardToggle"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:src="@drawable/ic_tool_keyboard"
+                android:onClick="onKeyboardToggleClicked"
+                android:contentDescription="@null" />
 
-            <View
-                android:id="@+id/btnColorBlue"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:layout_margin="4dp"
-                android:background="#1976D2" />
+            <!-- Tools -->
+            <ImageButton
+                android:id="@+id/btnSelectRect"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:src="@drawable/ic_tool_select_rect"
+                android:contentDescription="@null" />
 
-            <View
-                android:id="@+id/btnColorRed"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:layout_margin="4dp"
-                android:background="#D32F2F" />
+            <ImageButton
+                android:id="@+id/btnSelectLasso"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:src="@drawable/ic_tool_select_lasso"
+                android:contentDescription="@null" />
 
-            <View
-                android:id="@+id/btnColorYellow"
-                android:layout_width="28dp"
-                android:layout_height="28dp"
-                android:layout_margin="4dp"
-                android:background="#FFFF00" />
+            <ImageButton
+                android:id="@+id/btnPencil"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:src="@drawable/ic_brush_pencil"
+                android:contentDescription="@null" />
+
+            <ImageButton
+                android:id="@+id/btnHighlighter"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:src="@drawable/ic_highlight_freeform"
+                android:contentDescription="@null" />
+
+            <ImageButton
+                android:id="@+id/btnEraser"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:src="@drawable/ic_tool_eraser"
+                android:contentDescription="@null" />
+
+            <!-- Undo / Redo -->
+            <ImageButton
+                android:id="@+id/btnUndoPen"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:src="@drawable/ic_tool_undo"
+                android:contentDescription="@null" />
+
+            <ImageButton
+                android:id="@+id/btnRedoPen"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:src="@drawable/ic_tool_redo"
+                android:contentDescription="@null" />
+
+            <!-- Color chips (Pen menu only) -->
+            <LinearLayout
+                android:id="@+id/groupPenChips"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:layout_marginStart="4dp">
+
+                <ImageButton
+                    android:id="@+id/chipColor1"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:padding="6dp"
+                    android:src="@drawable/ic_tool_color"
+                    android:tint="#000000"
+                    android:contentDescription="@null" />
+
+                <ImageButton
+                    android:id="@+id/chipColor2"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:padding="6dp"
+                    android:src="@drawable/ic_tool_color"
+                    android:tint="#FFD54F"
+                    android:contentDescription="@null" />
+
+                <ImageButton
+                    android:id="@+id/chipColor3"
+                    android:layout_width="36dp"
+                    android:layout_height="36dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:padding="6dp"
+                    android:src="@drawable/ic_tool_color"
+                    android:tint="#2196F3"
+                    android:contentDescription="@null" />
+            </LinearLayout>
         </LinearLayout>
-    </LinearLayout>
 
-    <!-- Selection controls (icons only) -->
-    <LinearLayout
-        android:id="@+id/panelSelect"
-        android:visibility="gone"
+        <!-- Keyboard menu (hidden initially) -->
+        <LinearLayout
+            android:id="@+id/panelKeyboard"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:visibility="gone"
+            android:baselineAligned="false">
+
+            <!-- Left-most: switch back to Pen -->
+            <ImageButton
+                android:id="@+id/btnPenToggle"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:src="@drawable/ic_tool_pen_toggle"
+                android:onClick="onPenToggleClicked"
+                android:contentDescription="@null" />
+
+            <!-- Keyboard tools -->
+            <ImageButton
+                android:id="@+id/btnText"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:src="@drawable/ic_kbd_text"
+                android:contentDescription="@null" />
+
+            <ImageButton
+                android:id="@+id/btnTextColor"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:src="@drawable/ic_kbd_text_color"
+                android:contentDescription="@null" />
+
+            <ImageButton
+                android:id="@+id/btnTextBg"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:src="@drawable/ic_kbd_text_bg"
+                android:contentDescription="@null" />
+
+            <ImageButton
+                android:id="@+id/btnCheckbox"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:src="@drawable/ic_kbd_checkbox"
+                android:contentDescription="@null" />
+
+            <!-- Undo / Redo -->
+            <ImageButton
+                android:id="@+id/btnUndoKbd"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:src="@drawable/ic_tool_undo"
+                android:contentDescription="@null" />
+
+            <ImageButton
+                android:id="@+id/btnRedoKbd"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:src="@drawable/ic_tool_redo"
+                android:contentDescription="@null" />
+        </LinearLayout>
+    </FrameLayout>
+
+    <!-- Divider below toolbar -->
+    <View
+        android:id="@+id/dividerToolbarBottom"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="8dp"
-        android:background="#112196F3"
-        android:gravity="center_vertical">
+        android:layout_height="1dp"
+        android:background="#33000000" />
 
-        <ImageButton
-            android:id="@+id/ibRect"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Rect selection" />
-
-        <ImageButton
-            android:id="@+id/ibLasso"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Lasso selection" />
-
-        <Space android:layout_width="12dp" android:layout_height="0dp" />
-
-        <ImageButton
-            android:id="@+id/ibSelClear"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Clear selection" />
-
-        <ImageButton
-            android:id="@+id/ibSelDelete"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Delete selection" />
-    </LinearLayout>
-
-    <!-- Canvas -->
-    <FrameLayout
+    <!-- Canvas host (gray outside page) -->
+    <com.pelicankb.jobnotes.canvas.CanvasHostLayout
         android:id="@+id/canvasHost"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_weight="1">
+        android:layout_marginTop="16dp"
+        android:layout_weight="1"
+        android:background="#EFEFF2">
 
-        <com.pelicankb.jobnotes.NoteCanvasView
+        <!-- Zoomable white page inside; gray shows outside -->
+        <com.pelicankb.jobnotes.canvas.ZoomableCanvasView
             android:id="@+id/noteCanvas"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="#FFFFFFFF" />
-    </FrameLayout>
+            android:contentDescription="@string/cd_canvas"
+            android:background="@android:color/transparent"/>
+    </com.pelicankb.jobnotes.canvas.CanvasHostLayout>
+
 
 </LinearLayout>

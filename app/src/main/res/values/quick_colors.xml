@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Defaults you approved -->
+    <color name="quick_color_1">#000000</color> <!-- Black -->
+    <color name="quick_color_2">#FFEB3B</color> <!-- Yellow 500 -->
+    <color name="quick_color_3">#2196F3</color> <!-- Blue 500 -->
+</resources>

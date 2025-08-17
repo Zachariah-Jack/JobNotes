@@ -1,3 +1,22 @@
 <resources>
-    <string name="app_name">Job Notes</string>
+<string name="app_name">Job Notes</string>
+<string name="content_desc_toggle_keyboard">Toggle to keyboard menu</string>
+<string name="content_desc_toggle_pen">Toggle to pen menu</string>
+<string name="content_desc_pen">Pen</string>
+<string name="content_desc_highlighter">Highlighter</string>
+<string name="content_desc_eraser">Eraser</string>
+<string name="content_desc_select_rect">Rectangular select</string>
+<string name="content_desc_select_lasso">Lasso select</string>
+<string name="content_desc_text">Insert text</string>
+<string name="content_desc_text_color">Text color</string>
+<string name="content_desc_text_bg">Text background</string>
+<string name="content_desc_checkbox">Checkbox</string>
+<string name="content_desc_undo">Undo</string>
+<string name="content_desc_redo">Redo</string>
+<string name="content_desc_clear_all">Clear all</string>
+<string name="content_desc_color_1">Quick color 1</string>
+<string name="content_desc_color_2">Quick color 2</string>
+<string name="content_desc_color_3">Quick color 3</string>
+<string name="cd_canvas">Note canvas</string>
+
 </resources>

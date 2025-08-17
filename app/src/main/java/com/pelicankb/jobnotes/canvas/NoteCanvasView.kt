@@ -1,262 +1,149 @@
-package com.pelicankb.jobnotes
+package com.pelicankb.jobnotes.canvas
 
 import android.content.Context
 import android.graphics.*
 import android.util.AttributeSet
+import android.view.GestureDetector
 import android.view.MotionEvent
+import android.view.ScaleGestureDetector
 import android.view.View
 import kotlin.math.max
 import kotlin.math.min
 
+/**
+ * A simple zoom/pan page canvas.
+ * - Draws a white “page” the size of this view.
+ * - The parent should have a gray background so areas outside the page show gray.
+ * - Pinch to zoom, one-finger drag to pan.
+ */
 class NoteCanvasView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
-    enum class Tool { STYLUS, HIGHLIGHTER, ERASER, SELECT }
-    enum class SelectionMode { RECT, LASSO }
+    // Scale & pan state
+    private var scaleFactor = 1f
+    private val minScale = 0.5f
+    private val maxScale = 4f
+    private var offsetX = 0f
+    private var offsetY = 0f
 
-    private data class Stroke(
-        val path: Path,
-        val paint: Paint,
-        val tool: Tool
-    ) {
-        val bounds: RectF = RectF().also { path.computeBounds(it, true) }
+    // Content (“page”) rect = the white area we draw.
+    // For now we make the page exactly the size of this view (fits width by default).
+    private val pageRect = RectF()
+
+    // Paints
+    private val pagePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.WHITE
+        style = Paint.Style.FILL
+    }
+    private val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = Color.argb(40, 0, 0, 0) // subtle hairline border
+        style = Paint.Style.STROKE
+        strokeWidth = resources.displayMetrics.density * 1f
     }
 
-    private val strokes = mutableListOf<Stroke>()
-    private val undone = mutableListOf<Stroke>()
+    // Gestures
+    private val scaleDetector = ScaleGestureDetector(context,
+        object : ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScale(detector: ScaleGestureDetector): Boolean {
+                val prevScale = scaleFactor
+                // Apply scale and clamp
+                scaleFactor = (scaleFactor * detector.scaleFactor).coerceIn(minScale, maxScale)
 
-    private var tool: Tool = Tool.STYLUS
-    private var selectionMode: SelectionMode = SelectionMode.RECT
+                // Keep the pinch focus point stable while scaling
+                val focusX = detector.focusX
+                val focusY = detector.focusY
+                val scaleChange = scaleFactor / prevScale
+                offsetX = (offsetX - focusX) * scaleChange + focusX
+                offsetY = (offsetY - focusY) * scaleChange + focusY
 
-    private var penColor: Int = Color.BLACK
-    private var highlighterColor: Int = Color.YELLOW
-    private var penWidthPx: Float = 6f
-    private var highlighterWidthPx: Float = 18f
-    private var eraserWidthPx: Float = 28f
+                clampOffsets()
+                invalidate()
+                return true
+            }
+        })
 
-    private var currentPath: Path? = null
-    private var currentPaint: Paint? = null
-    private var lastX = 0f
-    private var lastY = 0f
+    private val gestureDetector = GestureDetector(context,
+        object : GestureDetector.SimpleOnGestureListener() {
+            override fun onDown(e: MotionEvent): Boolean = true
 
-    private var selectionRect: RectF? = null
-
-    // Offscreen buffer so eraser (CLEAR) and undo/redo are reliable
-    private var bufferBitmap: Bitmap? = null
-    private var bufferCanvas: Canvas? = null
-    private val bitmapPaint = Paint(Paint.ANTI_ALIAS_FLAG)
-
-    init {
-        setLayerType(LAYER_TYPE_HARDWARE, null)
-    }
+            override fun onScroll(
+                e1: MotionEvent?,
+                e2: MotionEvent,
+                distanceX: Float,
+                distanceY: Float
+            ): Boolean {
+                // Pan (note: distanceX is the scroll delta, so subtract to move with the finger)
+                offsetX -= distanceX
+                offsetY -= distanceY
+                clampOffsets()
+                invalidate()
+                return true
+            }
+        })
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
-        if (w <= 0 || h <= 0) return
-        bufferBitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        bufferCanvas = Canvas(bufferBitmap!!)
-        rebuildBuffer()
+        // Page matches the view size initially (fits screen width as requested)
+        pageRect.set(0f, 0f, w.toFloat(), h.toFloat())
+        // Reset zoom/pan so the page fits perfectly
+        scaleFactor = 1f
+        // Center page if needed (here content == view, so offsets end up 0)
+        centerOrClamp()
+        invalidate()
     }
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        bufferBitmap?.let { canvas.drawBitmap(it, 0f, 0f, bitmapPaint) }
 
-        // Selection overlay
-        val sel = selectionRect
-        if (tool == Tool.SELECT && sel != null) {
-            val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = 0x6633B5E5 // translucent blue
-                style = Paint.Style.FILL
-            }
-            val border = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = 0xFF33B5E5.toInt()
-                style = Paint.Style.STROKE
-                strokeWidth = 2f
-            }
-            canvas.drawRect(sel, fill)
-            canvas.drawRect(sel, border)
-        }
+        // We rely on the parent’s gray background to show “outside the page”.
+        // We only draw the white page + a subtle border at the current transform.
+        canvas.save()
+        canvas.translate(offsetX, offsetY)
+        canvas.scale(scaleFactor, scaleFactor)
+
+        // White page
+        canvas.drawRect(pageRect, pagePaint)
+        // Border
+        canvas.drawRect(pageRect, borderPaint)
+
+        canvas.restore()
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        val x = event.x
-        val y = event.y
+        // Make sure parents (if scrollable) don't intercept our gestures
         when (event.actionMasked) {
-            MotionEvent.ACTION_DOWN -> {
-                undone.clear()
-                when (tool) {
-                    Tool.STYLUS -> beginStroke(newPenPaint())
-                    Tool.HIGHLIGHTER -> beginStroke(newHighlighterPaint())
-                    Tool.ERASER -> beginStroke(newEraserPaint())
-                    Tool.SELECT -> { beginSelection(x, y); return true }
-                }
-                lastX = x; lastY = y
-                currentPath?.moveTo(x, y)
-                invalidate()
-                return true
-            }
-            MotionEvent.ACTION_MOVE -> {
-                when (tool) {
-                    Tool.SELECT -> { updateSelection(x, y); return true }
-                    else -> {
-                        val path = currentPath ?: return false
-                        val midX = (x + lastX) / 2f
-                        val midY = (y + lastY) / 2f
-                        path.quadTo(lastX, lastY, midX, midY)
-                        bufferCanvas?.drawPath(path, currentPaint ?: return false)
-                        lastX = x; lastY = y
-                        invalidate()
-                        return true
-                    }
-                }
-            }
-            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
-                when (tool) {
-                    Tool.SELECT -> { finalizeSelection(); return true }
-                    else -> {
-                        val path = currentPath ?: return false
-                        // Already drawn during move; just commit stroke record
-                        addStroke(path, currentPaint ?: return false)
-                        currentPath = null
-                        currentPaint = null
-                        invalidate()
-                        return true
-                    }
-                }
-            }
+            MotionEvent.ACTION_DOWN -> parent.requestDisallowInterceptTouchEvent(true)
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL ->
+                parent.requestDisallowInterceptTouchEvent(false)
         }
-        return super.onTouchEvent(event)
+
+        var handled = scaleDetector.onTouchEvent(event)
+        handled = gestureDetector.onTouchEvent(event) || handled
+        return handled || super.onTouchEvent(event)
     }
 
-    private fun beginStroke(paint: Paint) {
-        currentPath = Path()
-        currentPaint = paint
+    private fun clampOffsets() {
+        val vw = width.toFloat()
+        val vh = height.toFloat()
+        val cw = pageRect.width() * scaleFactor
+        val ch = pageRect.height() * scaleFactor
+
+        // If content larger than viewport: allow panning within bounds.
+        // If smaller: keep it centered.
+        val minX = if (cw >= vw) vw - cw else (vw - cw) / 2f
+        val maxX = if (cw >= vw) 0f else minX
+        val minY = if (ch >= vh) vh - ch else (vh - ch) / 2f
+        val maxY = if (ch >= vh) 0f else minY
+
+        offsetX = offsetX.coerceIn(minX, maxX)
+        offsetY = offsetY.coerceIn(minY, maxY)
     }
 
-    private fun addStroke(path: Path, paint: Paint) {
-        val copyPath = Path(path)
-        val copyPaint = Paint(paint)
-        val s = Stroke(copyPath, copyPaint, tool)
-        s.path.computeBounds(s.bounds, true)
-        strokes.add(s)
-    }
-
-    // Selection (lasso is treated like rect for now)
-    private fun beginSelection(x: Float, y: Float) {
-        selectionRect = RectF(x, y, x, y)
-        invalidate()
-    }
-
-    private fun updateSelection(x: Float, y: Float) {
-        val r = selectionRect ?: return
-        r.right = x
-        r.bottom = y
-        invalidate()
-    }
-
-    private fun finalizeSelection() {
-        selectionRect?.let { r ->
-            val l = min(r.left, r.right)
-            val t = min(r.top, r.bottom)
-            val rt = max(r.left, r.right)
-            val b = max(r.top, r.bottom)
-            r.set(l, t, rt, b)
-        }
-        invalidate()
-    }
-
-    private fun newPenPaint(): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = penColor
-        style = Paint.Style.STROKE
-        strokeWidth = penWidthPx
-        strokeCap = Paint.Cap.ROUND
-        strokeJoin = Paint.Join.ROUND
-    }
-
-    private fun newHighlighterPaint(): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        // force ~40% alpha to mimic a marker
-        val base = highlighterColor and 0x00FFFFFF
-        color = base or 0x66000000
-        style = Paint.Style.STROKE
-        strokeWidth = highlighterWidthPx
-        strokeCap = Paint.Cap.ROUND
-        strokeJoin = Paint.Join.ROUND
-    }
-
-    private fun newEraserPaint(): Paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
-        color = Color.TRANSPARENT
-        style = Paint.Style.STROKE
-        strokeWidth = eraserWidthPx
-        strokeCap = Paint.Cap.ROUND
-        strokeJoin = Paint.Join.ROUND
-    }
-
-    private fun rebuildBuffer() {
-        val c = bufferCanvas ?: return
-        val b = bufferBitmap ?: return
-        val clear = Paint().apply { xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR) }
-        c.drawRect(0f, 0f, b.width.toFloat(), b.height.toFloat(), clear)
-        for (s in strokes) c.drawPath(s.path, s.paint)
-        invalidate()
-    }
-
-    // --- public API ---
-
-    fun setTool(t: Tool) {
-        tool = t
-        currentPath = null
-        currentPaint = null
-    }
-
-    fun setSelectionMode(mode: SelectionMode) {
-        selectionMode = mode // (lasso currently behaves like rect)
-    }
-
-    fun clearSelection() {
-        selectionRect = null
-        invalidate()
-    }
-
-    fun deleteSelection() {
-        val r = selectionRect ?: return
-        val it = strokes.iterator()
-        var removed = false
-        while (it.hasNext()) {
-            val s = it.next()
-            if (RectF.intersects(s.bounds, r)) {
-                it.remove()
-                removed = true
-            }
-        }
-        if (removed) {
-            undone.clear()
-            rebuildBuffer()
-        }
-        selectionRect = null
-    }
-
-    fun setPenColor(color: Int) { penColor = color }
-    fun setHighlighterColor(color: Int) { highlighterColor = color }
-    fun setPenWidthPx(px: Float) { penWidthPx = px }
-    fun setHighlighterWidthPx(px: Float) { highlighterWidthPx = px }
-    fun setEraserWidthPx(px: Float) { eraserWidthPx = px }
-
-    fun undo() {
-        if (strokes.isNotEmpty()) {
-            undone.add(strokes.removeAt(strokes.size - 1))
-            rebuildBuffer()
-        }
-    }
-
-    fun redo() {
-        if (undone.isNotEmpty()) {
-            strokes.add(undone.removeAt(undone.size - 1))
-            rebuildBuffer()
-        }
+    private fun centerOrClamp() {
+        // Called on size changes / resets
+        clampOffsets()
     }
 }
