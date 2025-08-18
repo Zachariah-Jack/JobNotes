@@ -27,12 +27,17 @@ import androidx.core.content.ContextCompat
 import com.skydoves.colorpickerview.ColorPickerDialog
 import com.skydoves.colorpickerview.listeners.ColorEnvelopeListener
 
-// Your brush preview view
+// Your custom views / types
 import com.pelicankb.jobnotes.ui.BrushPreviewView
+import com.pelicankb.jobnotes.drawing.InkCanvasView
+import com.pelicankb.jobnotes.drawing.BrushType
 
 class MainActivity : AppCompatActivity() {
 
-    // ───────── Panels / groups ─────────
+    // Canvas
+    private lateinit var inkCanvas: InkCanvasView
+
+    // Panels / groups
     private lateinit var panelPen: View
     private lateinit var panelKeyboard: View
     private lateinit var groupPenChips: View
@@ -47,49 +52,30 @@ class MainActivity : AppCompatActivity() {
     private var selectedChipId: Int = R.id.chipColor1
 
     // Stylus menu state
-    private enum class BrushType { FOUNTAIN, CALLIGRAPHY, PEN, PENCIL, MARKER }
     private var brushType: BrushType = BrushType.PEN
     private var brushSizeDp: Float = 4f
     private var stylusPopup: PopupWindow? = null
 
     // 24 rounded-out presets (Material-ish)
     private val PRESET_COLORS = intArrayOf(
-        0xFFF44336.toInt(), // red
-        0xFFE91E63.toInt(), // pink
-        0xFF9C27B0.toInt(), // purple
-        0xFF673AB7.toInt(), // deep purple
-        0xFF3F51B5.toInt(), // indigo
-        0xFF2196F3.toInt(), // blue
-        0xFF03A9F4.toInt(), // light blue
-        0xFF00BCD4.toInt(), // cyan
-        0xFF009688.toInt(), // teal
-        0xFF4CAF50.toInt(), // green
-        0xFF8BC34A.toInt(), // light green
-        0xFFCDDC39.toInt(), // lime
-        0xFFFFEB3B.toInt(), // yellow
-        0xFFFFC107.toInt(), // amber
-        0xFFFF9800.toInt(), // orange
-        0xFFFF5722.toInt(), // deep orange
-        0xFF795548.toInt(), // brown
-        0xFF9E9E9E.toInt(), // gray
-        0xFF607D8B.toInt(), // blue gray
-        0xFF000000.toInt(), // black
-        0xFFFFFFFF.toInt(), // white
-        0xFF7E57C2.toInt(), // violet alt
-        0xFF26A69A.toInt(), // teal alt
-        0xFFB2FF59.toInt()  // lime A200
+        0xFFF44336.toInt(), 0xFFE91E63.toInt(), 0xFF9C27B0.toInt(), 0xFF673AB7.toInt(),
+        0xFF3F51B5.toInt(), 0xFF2196F3.toInt(), 0xFF03A9F4.toInt(), 0xFF00BCD4.toInt(),
+        0xFF009688.toInt(), 0xFF4CAF50.toInt(), 0xFF8BC34A.toInt(), 0xFFCDDC39.toInt(),
+        0xFFFFEB3B.toInt(), 0xFFFFC107.toInt(), 0xFFFF9800.toInt(), 0xFFFF5722.toInt(),
+        0xFF795548.toInt(), 0xFF9E9E9E.toInt(), 0xFF607D8B.toInt(), 0xFF000000.toInt(),
+        0xFFFFFFFF.toInt(), 0xFF7E57C2.toInt(), 0xFF26A69A.toInt(), 0xFFB2FF59.toInt()
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        // ───────── Bind views ─────────
+        // Bind views we use early
+        inkCanvas = findViewById(R.id.inkCanvas)
         noteTitle = findViewById(R.id.noteTitle)
         panelPen = findViewById(R.id.panelPen)
         panelKeyboard = findViewById(R.id.panelKeyboard)
         groupPenChips = findViewById(R.id.groupPenChips)
-
         chip1 = findViewById(R.id.chipColor1)
         chip2 = findViewById(R.id.chipColor2)
         chip3 = findViewById(R.id.chipColor3)
@@ -108,17 +94,11 @@ class MainActivity : AppCompatActivity() {
             showKeyboard(noteTitle)
         }
         noteTitle.setOnFocusChangeListener { v, hasFocus ->
-            if (hasFocus) {
-                noteTitle.post { noteTitle.selectAll() }
-            } else {
-                hideKeyboard(v)
-            }
+            if (hasFocus) noteTitle.post { noteTitle.selectAll() } else hideKeyboard(v)
         }
         noteTitle.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
-                hideKeyboard(v)
-                v.clearFocus()
-                true
+                hideKeyboard(v); v.clearFocus(); true
             } else false
         }
         if (savedInstanceState == null && noteTitle.text.isNullOrBlank()) {
@@ -128,21 +108,23 @@ class MainActivity : AppCompatActivity() {
         // Color chips: tap once to select active chip, tap again to open palette
         val chipClick = View.OnClickListener { v ->
             val chip = v as ImageButton
-            if (chip.id != selectedChipId) {
-                selectChip(chip.id)
-            } else {
-                showColorPaletteDialog(chip)
-            }
+            if (chip.id != selectedChipId) selectChip(chip.id) else showColorPaletteDialog(chip)
         }
         chip1.setOnClickListener(chipClick)
         chip2.setOnClickListener(chipClick)
         chip3.setOnClickListener(chipClick)
-        selectChip(selectedChipId)
+        selectChip(selectedChipId) // sets selection AND sends color to canvas
 
-        // Stylus menu button (2nd icon in Pen toolbar must have id: btnStylus)
-        findViewById<View>(R.id.btnStylus).setOnClickListener { v ->
-            toggleStylusPopup(v)
-        }
+        // Initialize canvas *after* chips are bound/selected
+        inkCanvas.setBrush(brushType)
+        inkCanvas.setStrokeWidthDp(brushSizeDp)
+
+        // Wire undo/redo (Pen toolbar buttons)
+        findViewById<View>(R.id.btnUndoPen).setOnClickListener { inkCanvas.undo() }
+        findViewById<View>(R.id.btnRedoPen).setOnClickListener { inkCanvas.redo() }
+
+        // Stylus menu button (2nd icon)
+        findViewById<View>(R.id.btnStylus).setOnClickListener { v -> toggleStylusPopup(v) }
     }
 
     // Tap outside EditText: clear focus & hide keyboard
@@ -154,8 +136,7 @@ class MainActivity : AppCompatActivity() {
                 val outRect = Rect()
                 v.getGlobalVisibleRect(outRect)
                 if (!outRect.contains(ev.rawX.toInt(), ev.rawY.toInt())) {
-                    v.clearFocus()
-                    hideKeyboard(v)
+                    v.clearFocus(); hideKeyboard(v)
                 }
             }
         }
@@ -191,7 +172,15 @@ class MainActivity : AppCompatActivity() {
         chip1.isSelected = (id == chip1.id)
         chip2.isSelected = (id == chip2.id)
         chip3.isSelected = (id == chip3.id)
-        // (Later: propagate active color to drawing tool)
+
+        // Send active color to the canvas
+        val activeColor = when (selectedChipId) {
+            chip1.id -> chip1.imageTintList?.defaultColor
+            chip2.id -> chip2.imageTintList?.defaultColor
+            chip3.id -> chip3.imageTintList?.defaultColor
+            else -> null
+        } ?: Color.BLACK
+        inkCanvas.setColor(activeColor)
     }
 
     private fun showColorPaletteDialog(targetChip: ImageButton) {
@@ -207,31 +196,27 @@ class MainActivity : AppCompatActivity() {
         var tempColor = targetChip.imageTintList?.defaultColor ?: Color.BLACK
         var selectedTile: View? = null
 
-        fun makeRow(): LinearLayout {
-            return LinearLayout(this).apply {
+        fun makeRow(): LinearLayout =
+            LinearLayout(this).apply {
                 orientation = LinearLayout.HORIZONTAL
                 layoutParams = LinearLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT,
                     ViewGroup.LayoutParams.WRAP_CONTENT
                 )
             }
-        }
 
-        fun makeTile(): ImageButton {
-            return ImageButton(this).apply {
+        fun makeTile(): ImageButton =
+            ImageButton(this).apply {
                 layoutParams = LinearLayout.LayoutParams(tileSize, tileSize).apply {
                     setMargins(tileMargin, tileMargin, tileMargin, tileMargin)
-                    weight = 0f
                 }
                 setImageResource(R.drawable.ic_tool_color)
                 background = ContextCompat.getDrawable(
                     this@MainActivity, R.drawable.bg_color_chip_selector
                 )
-                // avoid import confusion; use fully qualified ScaleType:
                 scaleType = android.widget.ImageView.ScaleType.CENTER_INSIDE
                 isSelected = false
             }
-        }
 
         // Add preset color tiles
         var row: LinearLayout = makeRow()
@@ -249,7 +234,6 @@ class MainActivity : AppCompatActivity() {
                     tempColor = color
                 }
             }
-            // Preselect if it matches current chip color
             if (color == tempColor) {
                 tile.isSelected = true
                 selectedTile = tile
@@ -294,17 +278,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun applyChipColor(chip: ImageButton, color: Int) {
         chip.imageTintList = ColorStateList.valueOf(color)
-        // (The chip remains selected/active)
+        if (chip.id == selectedChipId) {
+            inkCanvas.setColor(color)
+        }
     }
 
     private fun showAdvancedColorPicker(initialColor: Int, onSelected: (Int) -> Unit) {
         ColorPickerDialog.Builder(this)
             .setTitle("Pick any color")
             .setPreferenceName("note_color_picker")
-            .setPositiveButton(
-                "OK",
-                ColorEnvelopeListener { envelope, _ -> onSelected(envelope.color) }
-            )
+            .setPositiveButton("OK", ColorEnvelopeListener { envelope, _ -> onSelected(envelope.color) })
             .setNegativeButton("Cancel") { dialog, _ -> dialog.dismiss() }
             .attachBrightnessSlideBar(true)
             .attachAlphaSlideBar(false)
@@ -321,10 +304,9 @@ class MainActivity : AppCompatActivity() {
             return
         }
         stylusPopup = createStylusMenuPopup().also { popup ->
-            // showAsDropDown keeps it feeling like a “menu”
             popup.isOutsideTouchable = true
             popup.isFocusable = true
-            popup.showAsDropDown(anchor, /*xOff*/0, /*yOff*/8.dp())
+            popup.showAsDropDown(anchor, 0, 8.dp())
         }
     }
 
@@ -359,7 +341,11 @@ class MainActivity : AppCompatActivity() {
         sizeLabel.text = "${sizeSlider.progress} dp"
         preview.setSample(brushType.name, sizeSlider.progress.dp().toFloat())
 
-        // Brush button handlers
+        // Also apply current settings to the canvas
+        inkCanvas.setBrush(brushType)
+        inkCanvas.setStrokeWidthDp(brushSizeDp)
+
+        // Brush button handlers (now also live-update the canvas)
         val onBrushClick = View.OnClickListener { v ->
             brushType = when (v.id) {
                 R.id.iconFountain    -> BrushType.FOUNTAIN
@@ -370,9 +356,12 @@ class MainActivity : AppCompatActivity() {
                 else                 -> brushType
             }
             setBrushSelectionUI(brushType)
-            // Update preview with same size
             preview.setSample(brushType.name, sizeSlider.progress.dp().toFloat())
+
+            // LIVE APPLY to canvas
+            inkCanvas.setBrush(brushType)
         }
+
         btnFountain.setOnClickListener(onBrushClick)
         btnCallig.setOnClickListener(onBrushClick)
         btnPen.setOnClickListener(onBrushClick)
@@ -385,13 +374,16 @@ class MainActivity : AppCompatActivity() {
                 val clamped = value.coerceIn(1, 60)
                 sizeLabel.text = "$clamped dp"
                 preview.setSample(brushType.name, clamped.dp().toFloat())
+
+                // LIVE APPLY to canvas
+                inkCanvas.setStrokeWidthDp(clamped.toFloat())
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
-                // Persist in dp for tools
                 brushSizeDp = (seekBar?.progress ?: brushSizeDp.toInt()).toFloat().coerceIn(1f, 60f)
             }
         })
+
 
         return PopupWindow(
             content,
@@ -399,10 +391,7 @@ class MainActivity : AppCompatActivity() {
             ViewGroup.LayoutParams.WRAP_CONTENT,
             true
         ).apply {
-            // Card-like background + elevation for shadow
-            setBackgroundDrawable(
-                ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card_popup)
-            )
+            setBackgroundDrawable(ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card_popup))
             elevation = 8f
             setOnDismissListener { stylusPopup = null }
         }

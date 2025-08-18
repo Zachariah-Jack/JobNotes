@@ -263,12 +263,14 @@
         android:background="#EFEFF2">
 
         <!-- White page inside; gray shows outside -->
-        <com.pelicankb.jobnotes.canvas.NoteCanvasView
-            android:id="@+id/noteCanvas"
+        <com.pelicankb.jobnotes.drawing.InkCanvasView
+            android:id="@+id/inkCanvas"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:contentDescription="@string/cd_canvas"
-            android:background="@android:color/transparent"/>
+            android:background="@android:color/transparent" />
+
+
     </FrameLayout>
 
 </LinearLayout>
