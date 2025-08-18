@@ -1,24 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
 <selector xmlns:android="http://schemas.android.com/apk/res/android">
-    <!-- Selected: show a soft ring -->
     <item android:state_selected="true">
         <shape android:shape="oval">
-            <solid android:color="@android:color/transparent" />
-            <stroke
-                android:width="2dp"
-                android:color="#66FFFFFF" />
-            <padding
-                android:left="2dp"
-                android:top="2dp"
-                android:right="2dp"
-                android:bottom="2dp" />
+            <solid android:color="@android:color/transparent"/>
+            <stroke android:width="2dp" android:color="#FF6F00"/>
         </shape>
     </item>
-
-    <!-- Default: no ring -->
     <item>
         <shape android:shape="oval">
-            <solid android:color="@android:color/transparent" />
+            <solid android:color="@android:color/transparent"/>
         </shape>
     </item>
 </selector>

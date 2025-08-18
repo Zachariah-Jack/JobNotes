@@ -1,22 +1,69 @@
+<!-- app/src/main/res/values/strings.xml -->
 <resources>
-<string name="app_name">Job Notes</string>
-<string name="content_desc_toggle_keyboard">Toggle to keyboard menu</string>
-<string name="content_desc_toggle_pen">Toggle to pen menu</string>
-<string name="content_desc_pen">Pen</string>
-<string name="content_desc_highlighter">Highlighter</string>
-<string name="content_desc_eraser">Eraser</string>
-<string name="content_desc_select_rect">Rectangular select</string>
-<string name="content_desc_select_lasso">Lasso select</string>
-<string name="content_desc_text">Insert text</string>
-<string name="content_desc_text_color">Text color</string>
-<string name="content_desc_text_bg">Text background</string>
-<string name="content_desc_checkbox">Checkbox</string>
-<string name="content_desc_undo">Undo</string>
-<string name="content_desc_redo">Redo</string>
-<string name="content_desc_clear_all">Clear all</string>
-<string name="content_desc_color_1">Quick color 1</string>
-<string name="content_desc_color_2">Quick color 2</string>
-<string name="content_desc_color_3">Quick color 3</string>
-<string name="cd_canvas">Note canvas</string>
+
+    <!-- App -->
+    <string name="app_name">Job Notes</string>
+
+    <!-- Accessibility: toolbar toggles -->
+    <string name="cd_toggle_to_keyboard">Switch to keyboard menu</string>
+    <string name="cd_toggle_to_pen">Switch to pen menu</string>
+
+    <!-- Accessibility: pen menu tools -->
+    <string name="cd_pen_tool">Open stylus tools</string>
+    <string name="cd_highlighter_tool">Highlighter</string>
+    <string name="cd_eraser_tool">Eraser</string>
+    <string name="cd_select_rect_tool">Select (rectangle)</string>
+    <string name="cd_select_lasso_tool">Select (lasso)</string>
+    <string name="cd_undo">Undo</string>
+    <string name="cd_redo">Redo</string>
+
+    <!-- Accessibility: keyboard menu tools -->
+    <string name="cd_text_tool">Insert text</string>
+    <string name="cd_text_color">Text color</string>
+    <string name="cd_text_bg">Text background</string>
+    <string name="cd_checkbox">Checkbox</string>
+
+    <!-- Optional / misc -->
+    <string name="cd_clear_all">Clear all</string>
+
+    <!-- Color chips -->
+    <string name="cd_color_1">Quick color 1</string>
+    <string name="cd_color_2">Quick color 2</string>
+    <string name="cd_color_3">Quick color 3</string>
+
+    <!-- Canvas -->
+    <string name="cd_canvas">Note canvas</string>
+
+    <!-- Stylus popup -->
+    <string name="dialog_title_stylus">Stylus</string>
+    <string name="cd_brush_fountain">Fountain pen</string>
+    <string name="cd_brush_calligraphy">Calligraphy pen</string>
+    <string name="cd_brush_pen">Regular pen</string>
+    <string name="cd_brush_pencil">Pencil</string>
+    <string name="cd_brush_marker">Marker</string>
+    <string name="cd_brush_size">Brush size</string>
+    <string name="cd_brush_preview">Brush size preview</string>
+
+    <!-- Color dialog -->
+    <string name="dialog_title_color">Pick a color</string>
+    <string name="cd_custom_color">Custom color</string>
+
+    <!-- Compatibility aliases (so older names still resolve if referenced) -->
+    <string name="content_desc_toggle_keyboard">@string/cd_toggle_to_keyboard</string>
+    <string name="content_desc_toggle_pen">@string/cd_toggle_to_pen</string>
+    <string name="content_desc_pen">@string/cd_pen_tool</string>
+    <string name="content_desc_highlighter">@string/cd_highlighter_tool</string>
+    <string name="content_desc_eraser">@string/cd_eraser_tool</string>
+    <string name="content_desc_select_rect">@string/cd_select_rect_tool</string>
+    <string name="content_desc_select_lasso">@string/cd_select_lasso_tool</string>
+    <string name="content_desc_text">@string/cd_text_tool</string>
+    <string name="content_desc_text_color">@string/cd_text_color</string>
+    <string name="content_desc_text_bg">@string/cd_text_bg</string>
+    <string name="content_desc_checkbox">@string/cd_checkbox</string>
+    <string name="content_desc_undo">@string/cd_undo</string>
+    <string name="content_desc_redo">@string/cd_redo</string>
+
+    <!-- If you happened to reference this typo anywhere, use this real one instead. -->
+    <string name="cd_kbd_tool">Keyboard tool</string>
 
 </resources>

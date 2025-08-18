@@ -51,8 +51,11 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.3.3")
     implementation("androidx.camera:camera-view:1.3.3")
 
-    // For EXIF (optional but handy)
+    // EXIF
     implementation("androidx.exifinterface:exifinterface:1.3.7")
+
+    // Color picker (via version catalog)
+    implementation(libs.skydoves.colorpickerview)
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)

@@ -62,43 +62,30 @@
                 android:onClick="onKeyboardToggleClicked"
                 android:contentDescription="@null" />
 
-            <!-- Tools -->
+            <!-- 2nd icon: Pen tool button -->
             <ImageButton
-                android:id="@+id/btnSelectRect"
+
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:padding="8dp"
-                android:src="@drawable/ic_tool_select_rect"
-                android:contentDescription="@null" />
+                android:src="@drawable/ic_tool_pen"
+                android:id="@+id/btnStylus"
 
-            <ImageButton
-                android:id="@+id/btnSelectLasso"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:padding="8dp"
-                android:src="@drawable/ic_tool_select_lasso"
-                android:contentDescription="@null" />
+                android:contentDescription="@string/cd_pen_tool" />
 
-            <ImageButton
-                android:id="@+id/btnPencil"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
-                android:padding="8dp"
-                android:src="@drawable/ic_brush_pencil"
-                android:contentDescription="@null" />
 
+            <!-- 2) Highlighter -->
             <ImageButton
                 android:id="@+id/btnHighlighter"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:padding="8dp"
-                android:src="@drawable/ic_highlight_freeform"
+                android:src="@drawable/ic_tool_highlighter"
                 android:contentDescription="@null" />
 
+            <!-- 3) Eraser -->
             <ImageButton
                 android:id="@+id/btnEraser"
                 android:layout_width="48dp"
@@ -106,6 +93,16 @@
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:padding="8dp"
                 android:src="@drawable/ic_tool_eraser"
+                android:contentDescription="@null" />
+
+            <!-- 4) Select (rect) -->
+            <ImageButton
+                android:id="@+id/btnSelectRect"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:src="@drawable/ic_tool_select_rect"
                 android:contentDescription="@null" />
 
             <!-- Undo / Redo -->
@@ -135,11 +132,12 @@
                 android:orientation="horizontal"
                 android:layout_marginStart="4dp">
 
+                <!-- Filled circles (tint controls fill color) -->
                 <ImageButton
                     android:id="@+id/chipColor1"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:background="@drawable/bg_color_chip_selector"
                     android:padding="6dp"
                     android:src="@drawable/ic_tool_color"
                     android:tint="#000000"
@@ -149,7 +147,7 @@
                     android:id="@+id/chipColor2"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:background="@drawable/bg_color_chip_selector"
                     android:padding="6dp"
                     android:src="@drawable/ic_tool_color"
                     android:tint="#FFD54F"
@@ -159,13 +157,15 @@
                     android:id="@+id/chipColor3"
                     android:layout_width="36dp"
                     android:layout_height="36dp"
-                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:background="@drawable/bg_color_chip_selector"
                     android:padding="6dp"
                     android:src="@drawable/ic_tool_color"
                     android:tint="#2196F3"
                     android:contentDescription="@null" />
+
             </LinearLayout>
         </LinearLayout>
+
 
         <!-- Keyboard menu (hidden initially) -->
         <LinearLayout
@@ -254,7 +254,7 @@
         android:background="#33000000" />
 
     <!-- Canvas host (gray outside page) -->
-    <com.pelicankb.jobnotes.canvas.CanvasHostLayout
+    <FrameLayout
         android:id="@+id/canvasHost"
         android:layout_width="match_parent"
         android:layout_height="0dp"
@@ -262,14 +262,13 @@
         android:layout_weight="1"
         android:background="#EFEFF2">
 
-        <!-- Zoomable white page inside; gray shows outside -->
-        <com.pelicankb.jobnotes.canvas.ZoomableCanvasView
+        <!-- White page inside; gray shows outside -->
+        <com.pelicankb.jobnotes.canvas.NoteCanvasView
             android:id="@+id/noteCanvas"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:contentDescription="@string/cd_canvas"
             android:background="@android:color/transparent"/>
-    </com.pelicankb.jobnotes.canvas.CanvasHostLayout>
-
+    </FrameLayout>
 
 </LinearLayout>

@@ -1,0 +1,4 @@
+<!-- app/src/main/res/values/dimens.xml -->
+<resources>
+    <dimen name="popup_elevation">12dp</dimen>
+</resources>
