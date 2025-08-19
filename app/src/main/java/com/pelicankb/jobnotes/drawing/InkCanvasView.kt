@@ -60,7 +60,10 @@ class InkCanvasView @JvmOverloads constructor(
         val baseWidth: Float,
         val points: MutableList<Point> = mutableListOf(),
         var stampPhase: Float = 0f,
-        var lastDir: Float? = null          // smoothed direction cache (radians)
+        var lastDir: Float? = null,
+        // Final geometry snapshot for calligraphy (deep-copied Path;
+        // never mutated after pen-up)
+        var calligPath: Path? = null
     )
 
     private val strokes = mutableListOf<StrokeOp>()
@@ -93,7 +96,7 @@ class InkCanvasView @JvmOverloads constructor(
     private var lastX = 0f
     private var lastY = 0f
 
-    // Calligraphy nib angle (fixed 45°; tune if you want)
+    // Calligraphy nib angle (fixed, tweak to taste)
     private val nibAngleRad = Math.toRadians(45.0).toFloat()
     private val nibAngleDeg = Math.toDegrees(nibAngleRad.toDouble()).toFloat()
 
@@ -126,7 +129,7 @@ class InkCanvasView @JvmOverloads constructor(
     // ===== Input =====
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        // Always run scale detector (pinch zoom w/ fingers)
+        // Always run scale detector (pinch zoom via fingers)
         scaleDetector.onTouchEvent(event)
 
         when (event.actionMasked) {
@@ -134,14 +137,14 @@ class InkCanvasView @JvmOverloads constructor(
                 if (isStylus(event, event.actionIndex)) {
                     startStroke(event, event.actionIndex)
                 } else {
-                    // Finger: no drawing on single-finger down
+                    // Finger alone: no drawing
                     drawing = false
                     activePointerId = -1
                 }
             }
 
             MotionEvent.ACTION_POINTER_DOWN -> {
-                // Multi-touch → pan/zoom mode; never draw
+                // Multi-touch → pan/zoom; never draw
                 drawing = false
                 activePointerId = -1
                 lastPanFocusX = averageX(event)
@@ -190,6 +193,7 @@ class InkCanvasView @JvmOverloads constructor(
         ).also {
             it.points.add(Point(x, y))
             it.lastDir = null
+            it.calligPath = null
         }
 
         // Reset scratch for the new stroke
@@ -210,23 +214,25 @@ class InkCanvasView @JvmOverloads constructor(
         val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
         if (dist <= 0.01f) return
 
-        // Append point for committed rebuild later
+        // Append point for committed history
         op.points.add(Point(x, y))
 
         val c = scratchCanvas ?: return
 
         if (op.type == BrushType.CALLIGRAPHY) {
-            // Rebuild current calligraphy stroke as *one ribbon path* for smooth edges.
+            // Live preview: rebuild as union of segment trapezoids.
             scratchBitmap?.eraseColor(Color.TRANSPARENT)
-            drawCalligraphyStroke(c, op)
+            val path = buildCalligraphyPath(op) // working path
+            calligPaint.color = op.color
+            c.drawPath(path, calligPaint)
         } else {
-            // Render only the newest segment on scratch
+            // Render newest segment for other tools
             when (op.type) {
-                BrushType.PEN        -> drawPenSegment(c, sx, sy, x, y, op)
-                BrushType.FOUNTAIN   -> drawFountainSegment(c, sx, sy, x, y, op, dist)
-                BrushType.MARKER     -> drawMarkerSegment(c, sx, sy, x, y, op, dist)
-                BrushType.PENCIL     -> drawPencilSegment(c, sx, sy, x, y, op, dist)
-                else -> { /* handled above */ }
+                BrushType.PEN      -> drawPenSegment(c, sx, sy, x, y, op)
+                BrushType.FOUNTAIN -> drawFountainSegment(c, sx, sy, x, y, op, dist)
+                BrushType.MARKER   -> drawMarkerSegment(c, sx, sy, x, y, op, dist)
+                BrushType.PENCIL   -> drawPencilSegment(c, sx, sy, x, y, op, dist)
+                else -> { /* no-op */ }
             }
         }
 
@@ -236,18 +242,25 @@ class InkCanvasView @JvmOverloads constructor(
 
     private fun finishStroke() {
         if (!drawing) return
-        current?.let { stroke -> strokes.add(stroke) }
+        current?.let { stroke ->
+            if (stroke.type == BrushType.CALLIGRAPHY) {
+                // Snapshot (deep copy) so later strokes cannot mutate it.
+                val work = buildCalligraphyPath(stroke)
+                stroke.calligPath = Path(work)
+            }
+            strokes.add(stroke)
+        }
         current = null
         drawing = false
         activePointerId = -1
 
-        // Merge scratch into committed by rebuilding
+        // Commit everything
         rebuildCommitted()
         scratchBitmap?.eraseColor(Color.TRANSPARENT)
         invalidate()
     }
 
-    // ===== Segment renderers (incremental, except calligraphy which is whole-stroke) =====
+    // ===== Segment renderers (incremental, except calligraphy which uses whole-stroke path) =====
 
     private fun newStrokePaint(color: Int, width: Float): Paint =
         Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
@@ -256,6 +269,7 @@ class InkCanvasView @JvmOverloads constructor(
             strokeCap = Paint.Cap.ROUND
             strokeJoin = Paint.Join.ROUND
             strokeWidth = width
+            xfermode = null
         }
 
     private fun newFillPaint(color: Int, alpha: Int = 255): Paint =
@@ -263,6 +277,7 @@ class InkCanvasView @JvmOverloads constructor(
             style = Paint.Style.FILL
             this.color = color
             this.alpha = alpha.coerceIn(0, 255)
+            xfermode = null
         }
 
     private fun drawPenSegment(
@@ -287,6 +302,7 @@ class InkCanvasView @JvmOverloads constructor(
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
+        xfermode = null
     }
 
     private fun drawMarkerSegment(
@@ -301,7 +317,7 @@ class InkCanvasView @JvmOverloads constructor(
     private fun drawPencilSegment(
         canvas: Canvas, x0: Float, y0: Float, x1: Float, y1: Float, op: StrokeOp, dist: Float
     ) {
-        // Core graphite line (a bit darker than before)
+        // Core graphite line (a bit darker)
         val core = newStrokePaint(op.color, max(1f, op.baseWidth * 0.9f)).apply {
             alpha = 235
             maskFilter = BlurMaskFilter(max(0.5f, op.baseWidth * 0.10f), BlurMaskFilter.Blur.NORMAL)
@@ -314,11 +330,11 @@ class InkCanvasView @JvmOverloads constructor(
         val dx = x1 - x0
         val dy = y1 - y0
         val len = dist
-        val nx = -dy / (len + 1e-4f) // unit-ish normal
+        val nx = -dy / (len + 1e-4f)
         val ny =  dx / (len + 1e-4f)
 
         val speckPaint = newFillPaint(op.color, 90)
-        val radiusMax = max(0.6f, op.baseWidth * 0.12f)   // keep specks close
+        val radiusMax = max(0.6f, op.baseWidth * 0.12f)
         val specksPerStamp = when {
             op.baseWidth < 4f  -> 1
             op.baseWidth < 8f  -> 2
@@ -341,75 +357,101 @@ class InkCanvasView @JvmOverloads constructor(
         op.stampPhase = t - dist
     }
 
-    // ===== Calligraphy (single ribbon path) =====
+    // ===== Calligraphy (union of segment trapezoids; no caps; no self-cancel) =====
 
-    // Reused scratch for building the polygon
-    private val calligPath = Path()
-    private val calligPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+    // Working path reused for live preview (never stored in strokes).
+    private val workCalligPath = Path().apply { fillType = Path.FillType.WINDING }
+    private val tmpPath = Path()
+    private val segPath = Path()
+    private val calligPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
         style = Paint.Style.FILL
         isDither = true
+        xfermode = null          // SRC_OVER blending (no erasing)
     }
-    private val tmpLeft = ArrayList<PointF>(1024)
-    private val tmpRight = ArrayList<PointF>(1024)
 
-    /** Build and draw the whole calligraphy stroke (used during drawing). */
-    private fun drawCalligraphyStroke(canvas: Canvas, op: StrokeOp) {
-        if (op.points.size < 2) return
-        calligPath.reset()
-        tmpLeft.clear()
-        tmpRight.clear()
+    /**
+     * Build the calligraphy stroke into a *non self-cancelling* path by
+     * unioning a sequence of small convex trapezoids between resampled
+     * points. This avoids gaps when the stroke crosses itself.
+     */
+    private fun buildCalligraphyPath(op: StrokeOp): Path {
+        workCalligPath.rewind()
+        workCalligPath.fillType = Path.FillType.WINDING
 
-        val pts = op.points
+        // Speed‑adaptive resampling to reduce scallops.
+        val step = max(0.33f * op.baseWidth, 0.9f)
+        val pts = resample(op.points, step)
+        if (pts.size < 2) return workCalligPath
+
+        // Precompute smoothed directions at each resampled point.
+        fun rawDirAt(i: Int): Float = when (i) {
+            0 -> atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x)
+            pts.lastIndex -> atan2(pts[i].y - pts[i - 1].y, pts[i].x - pts[i - 1].x)
+            else -> atan2(pts[i + 1].y - pts[i - 1].y, pts[i + 1].x - pts[i - 1].x)
+        }
+        val dirs = FloatArray(pts.size)
+        var dirLPF = rawDirAt(0)
+        dirs[0] = dirLPF
+        for (i in 1 until pts.size) {
+            val raw = rawDirAt(i)
+            val d = shortestAngleDiff(raw, dirLPF)
+            dirLPF += d * 0.35f
+            dirs[i] = dirLPF
+        }
+
+        // Constant nib normal (chisel nib).
         val nx = -sin(nibAngleRad)
         val ny =  cos(nibAngleRad)
 
-        // direction smoothing (reduce pulsing)
-        fun dirAt(i: Int): Float {
-            return when (i) {
-                0 -> atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x)
-                pts.lastIndex -> atan2(pts[i].y - pts[i - 1].y, pts[i].x - pts[i - 1].x)
-                else -> atan2(pts[i + 1].y - pts[i - 1].y, pts[i + 1].x - pts[i - 1].x)
+        var hasAccum = false
+        for (i in 1 until pts.size) {
+            val p0 = pts[i - 1]
+            val p1 = pts[i]
+            val w0 = calligWidth(op, dirs[i - 1])
+            val w1 = calligWidth(op, dirs[i])
+
+            // Clamp to avoid degenerates near hairlines
+            val hw0 = max(0.5f, 0.5f * w0)
+            val hw1 = max(0.5f, 0.5f * w1)
+
+            val l0x = p0.x + nx * hw0
+            val l0y = p0.y + ny * hw0
+            val r0x = p0.x - nx * hw0
+            val r0y = p0.y - ny * hw0
+            val l1x = p1.x + nx * hw1
+            val l1y = p1.y + ny * hw1
+            val r1x = p1.x - nx * hw1
+            val r1y = p1.y - ny * hw1
+
+            // Trapezoid for this segment
+            segPath.rewind()
+            segPath.moveTo(l0x, l0y)
+            segPath.lineTo(l1x, l1y)
+            segPath.lineTo(r1x, r1y)
+            segPath.lineTo(r0x, r0y)
+            segPath.close()
+
+            if (!hasAccum) {
+                workCalligPath.set(segPath)
+                hasAccum = true
+            } else {
+                // dst = union(accum, seg)
+                tmpPath.set(workCalligPath)
+                workCalligPath.rewind()
+                workCalligPath.fillType = Path.FillType.WINDING
+                workCalligPath.op(tmpPath, segPath, Path.Op.UNION)
             }
         }
-        var dirLPF = dirAt(0)
 
-        for (i in pts.indices) {
-            val p = pts[i]
-            val rawDir = dirAt(i)
-            // low‑pass filter angle to avoid width flutter
-            val d = shortestAngleDiff(rawDir, dirLPF)
-            dirLPF += d * 0.35f
-
-            val w = calligWidth(op, dirLPF)
-            tmpLeft.add(PointF(p.x + nx * (w * 0.5f), p.y + ny * (w * 0.5f)))
-            tmpRight.add(PointF(p.x - nx * (w * 0.5f), p.y - ny * (w * 0.5f)))
-        }
-
-        // Build closed polygon: left edge forward, right edge back
-        calligPath.moveTo(tmpLeft[0].x, tmpLeft[0].y)
-        for (i in 1 until tmpLeft.size) calligPath.lineTo(tmpLeft[i].x, tmpLeft[i].y)
-        for (i in tmpRight.size - 1 downTo 0) calligPath.lineTo(tmpRight[i].x, tmpRight[i].y)
-        calligPath.close()
-
-        calligPaint.color = op.color
-        canvas.drawPath(calligPath, calligPaint)
-
-        // Single caps at ends for nicer tips
-        val headDir = dirAt(pts.lastIndex)
-        val tailDir = dirAt(0)
-        val headW = calligWidth(op, headDir)
-        val tailW = calligWidth(op, tailDir)
-        drawRotatedOval(canvas, pts.first().x, pts.first().y,
-            max(1f, tailW), max(1f, op.baseWidth * 0.45f), nibAngleDeg, op.color, 255)
-        drawRotatedOval(canvas, pts.last().x,  pts.last().y,
-            max(1f, headW), max(1f, op.baseWidth * 0.45f), nibAngleDeg, op.color, 255)
+        return workCalligPath
     }
 
-    /** Width function: pencil‑thin when aligned with nib, bold when perpendicular. */
+    /** Width: hairline when aligned with nib; bold when perpendicular. */
     private fun calligWidth(op: StrokeOp, dir: Float): Float {
-        val rel = abs(sin(dir - nibAngleRad))                 // 0..1
-        val minW = max(0.4f, op.baseWidth * 0.04f)            // allow true thin lines
-        val maxW = max(minW + 1f, op.baseWidth * 1.05f)       // stay slender (no fat look)
+        val rel = abs(sin(dir - nibAngleRad))               // 0..1
+        // Slightly higher floor avoids degenerate quads at tight hairlines
+        val minW = max(0.7f, op.baseWidth * 0.06f)
+        val maxW = max(minW + 1f, op.baseWidth * 1.05f)     // slender look
         return minW + (maxW - minW) * rel
     }
 
@@ -420,27 +462,40 @@ class InkCanvasView @JvmOverloads constructor(
         return d
     }
 
-    // Draw a filled oval rotated by angleDeg around (cx, cy)
-    private fun drawRotatedOval(
-        canvas: Canvas,
-        cx: Float,
-        cy: Float,
-        width: Float,
-        height: Float,
-        angleDeg: Float,
-        color: Int,
-        alpha: Int,
-        blur: BlurMaskFilter? = null
-    ) {
-        val paint = newFillPaint(color, alpha).apply { maskFilter = blur }
-        val rect = RectF(
-            cx - width / 2f, cy - height / 2f,
-            cx + width / 2f, cy + height / 2f
-        )
-        canvas.save()
-        canvas.rotate(angleDeg, cx, cy)
-        canvas.drawOval(rect, paint)
-        canvas.restore()
+    // Resample a polyline to (approximately) fixed arc‑length steps
+    private fun resample(src: List<Point>, step: Float): List<Point> {
+        if (src.isEmpty()) return emptyList()
+        val s = max(0.1f, step)
+        val out = ArrayList<Point>(max(2, src.size))
+        var ax = src[0].x
+        var ay = src[0].y
+        out.add(Point(ax, ay))
+        var remaining = s
+        for (i in 1 until src.size) {
+            var bx = src[i].x
+            var by = src[i].y
+            var dx = bx - ax
+            var dy = by - ay
+            var seg = hypot(dx.toDouble(), dy.toDouble()).toFloat()
+            if (seg <= 1e-6f) continue
+            while (seg >= remaining) {
+                val t = remaining / seg
+                ax += dx * t
+                ay += dy * t
+                out.add(Point(ax, ay))
+                dx = bx - ax
+                dy = by - ay
+                seg = hypot(dx.toDouble(), dy.toDouble()).toFloat()
+                remaining = s
+            }
+            remaining -= seg
+            ax = bx
+            ay = by
+        }
+        if (out.size == 1 || out.last().x != src.last().x || out.last().y != src.last().y) {
+            out.add(src.last())
+        }
+        return out
     }
 
     // ===== Rebuild committed layer from the stroke list =====
@@ -452,30 +507,28 @@ class InkCanvasView @JvmOverloads constructor(
         for (op in strokes) {
             op.stampPhase = 0f
             op.lastDir = null
+            if (op.type == BrushType.CALLIGRAPHY) {
+                // Use stored snapshot; if missing (old data), rebuild and cache it.
+                val path = op.calligPath ?: Path(buildCalligraphyPath(op)).also { op.calligPath = it }
+                calligPaint.color = op.color
+                c.drawPath(path, calligPaint)   // SRC_OVER + WINDING
+                continue
+            }
+
             val pts = op.points
             if (pts.size < 2) continue
-
-            when (op.type) {
-                BrushType.CALLIGRAPHY -> {
-                    // Whole-stroke ribbon (same as while drawing)
-                    drawCalligraphyStroke(c, op)
-                }
-                else -> {
-                    // Replay segment-by-segment for the others
-                    for (i in 1 until pts.size) {
-                        val a = pts[i - 1]
-                        val b = pts[i]
-                        val dx = b.x - a.x
-                        val dy = b.y - a.y
-                        val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
-                        when (op.type) {
-                            BrushType.PEN       -> drawPenSegment(c, a.x, a.y, b.x, b.y, op)
-                            BrushType.FOUNTAIN  -> drawFountainSegment(c, a.x, a.y, b.x, b.y, op, dist)
-                            BrushType.MARKER    -> drawMarkerSegment(c, a.x, a.y, b.x, b.y, op, dist)
-                            BrushType.PENCIL    -> drawPencilSegment(c, a.x, a.y, b.x, b.y, op, dist)
-                            BrushType.CALLIGRAPHY -> {} // handled above
-                        }
-                    }
+            for (i in 1 until pts.size) {
+                val a = pts[i - 1]
+                val b = pts[i]
+                val dx = b.x - a.x
+                val dy = b.y - a.y
+                val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
+                when (op.type) {
+                    BrushType.PEN      -> drawPenSegment(c, a.x, a.y, b.x, b.y, op)
+                    BrushType.FOUNTAIN -> drawFountainSegment(c, a.x, a.y, b.x, b.y, op, dist)
+                    BrushType.MARKER   -> drawMarkerSegment(c, a.x, a.y, b.x, b.y, op, dist)
+                    BrushType.PENCIL   -> drawPencilSegment(c, a.x, a.y, b.x, b.y, op, dist)
+                    BrushType.CALLIGRAPHY -> {} // handled above
                 }
             }
         }
