@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootHighlighterMenu"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="12dp">
+
+    <!-- Row: mode toggle (freeform / straight) -->
+    <LinearLayout
+        android:id="@+id/rowToolModeHL"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp">
+
+        <ImageButton
+            android:id="@+id/iconHLFreeform"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@drawable/bg_tool_toggle"
+            android:padding="8dp"
+            android:src="@drawable/ic_highlight_freeform"
+            android:tint="@android:color/black"
+            android:contentDescription="@null" />
+
+        <ImageButton
+            android:id="@+id/iconHLStraight"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@drawable/bg_tool_toggle"
+            android:padding="8dp"
+            android:layout_marginStart="6dp"
+            android:src="@drawable/ic_highlight_straight"
+            android:tint="@android:color/black"
+            android:contentDescription="@null" />
+    </LinearLayout>
+
+    <!-- Color chip (HL-only color) -->
+    <ImageButton
+        android:id="@+id/chipHLColor"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:background="@drawable/bg_color_chip_selector"
+        android:padding="6dp"
+        android:src="@drawable/ic_tool_color"
+        android:contentDescription="@null"
+        android:layout_gravity="center_horizontal" />
+
+    <!-- Size slider + value -->
+    <LinearLayout
+        android:id="@+id/rowHLSize"
+        android:layout_width="200dp"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginTop="10dp">
+
+        <SeekBar
+            android:id="@+id/sizeSliderHL"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:max="60" />
+
+        <TextView
+            android:id="@+id/sizeValueHL"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="12 dp" />
+    </LinearLayout>
+
+    <!-- Live preview -->
+    <com.pelicankb.jobnotes.ui.BrushPreviewView
+        android:id="@+id/previewHL"
+        android:layout_width="200dp"
+        android:layout_height="48dp"
+        android:layout_marginTop="8dp" />
+</LinearLayout>
