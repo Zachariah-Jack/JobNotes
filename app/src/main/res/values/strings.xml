@@ -4,6 +4,10 @@
     <!-- App -->
     <string name="app_name">Job Notes</string>
 
+    <!-- res/values/strings.xml -->
+    <string name="cd_eraser">Eraser</string>
+
+
     <!-- Accessibility: toolbar toggles -->
     <string name="cd_toggle_to_keyboard">Switch to keyboard menu</string>
     <string name="cd_toggle_to_pen">Switch to pen menu</string>
@@ -43,6 +47,7 @@
     <string name="cd_brush_marker">Marker</string>
     <string name="cd_brush_size">Brush size</string>
     <string name="cd_brush_preview">Brush size preview</string>
+
 
     <!-- Color dialog -->
     <string name="dialog_title_color">Pick a color</string>

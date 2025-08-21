@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootEraserMenu"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="12dp">
+
+    <!-- Row: Mode toggle (Stroke / Area) -->
+    <LinearLayout
+        android:id="@+id/rowEraserMode"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="8dp">
+
+        <ImageButton
+            android:id="@+id/iconEraseStroke"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@drawable/bg_tool_toggle"
+            android:padding="8dp"
+            android:src="@drawable/ic_tool_eraser"
+            android:tint="@android:color/black"
+            android:contentDescription="@null" />
+
+        <ImageButton
+            android:id="@+id/iconEraseArea"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_tool_toggle"
+            android:padding="8dp"
+            android:src="@drawable/ic_tool_eraser"
+            android:tint="@android:color/darker_gray"
+            android:contentDescription="@null" />
+    </LinearLayout>
+
+    <!-- “Erase highlighter only” -->
+    <LinearLayout
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:layout_marginBottom="6dp">
+
+        <Switch
+            android:id="@+id/switchHLOnly"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Erase highlighter only" />
+    </LinearLayout>
+
+    <!-- Size slider + value -->
+    <LinearLayout
+        android:id="@+id/rowEraserSize"
+        android:layout_width="200dp"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
+
+        <SeekBar
+            android:id="@+id/sizeSliderEraser"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:max="100" />
+
+        <TextView
+            android:id="@+id/sizeValueEraser"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="20 dp" />
+    </LinearLayout>
+
+    <!-- Live preview: circle that grows/shrinks -->
+    <com.pelicankb.jobnotes.ui.EraserPreviewView
+        android:id="@+id/previewEraser"
+        android:layout_width="200dp"
+        android:layout_height="70dp"
+        android:layout_marginTop="8dp" />
+</LinearLayout>

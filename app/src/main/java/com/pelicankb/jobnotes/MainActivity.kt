@@ -19,12 +19,14 @@ import android.widget.PopupWindow
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
+import android.widget.Switch
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.pelicankb.jobnotes.drawing.BrushType
 import com.pelicankb.jobnotes.drawing.InkCanvasView
 import com.pelicankb.jobnotes.ui.BrushPreviewView
+import com.pelicankb.jobnotes.ui.EraserPreviewView
 import com.skydoves.colorpickerview.ColorPickerDialog
 import com.skydoves.colorpickerview.listeners.ColorEnvelopeListener
 
@@ -47,7 +49,7 @@ class MainActivity : AppCompatActivity() {
     private var selectedChipId: Int = R.id.chipColor1
 
     // Which “family” is active on the canvas
-    private enum class ToolFamily { PEN_FAMILY, HIGHLIGHTER }
+    private enum class ToolFamily { PEN_FAMILY, HIGHLIGHTER, ERASER }
     private var toolFamily: ToolFamily = ToolFamily.PEN_FAMILY
 
     // Stylus (pen family) popup + state
@@ -65,6 +67,13 @@ class MainActivity : AppCompatActivity() {
     private var highlighterPopup: PopupWindow? = null
     private var highlighterColor: Int = 0x66FFD54F.toInt() // amber ~60% alpha
     private var highlighterSizeDp: Float = 12f
+
+    // ——— Eraser state ———
+    private enum class EraserMode { STROKE, AREA }
+    private var eraserMode: EraserMode = EraserMode.AREA
+    private var eraserSizeDp: Float = 22f
+    private var eraseHighlighterOnly: Boolean = false
+    private var eraserPopup: PopupWindow? = null
 
     // Preset colors (used by both palettes)
     private val PRESET_COLORS = intArrayOf(
@@ -165,6 +174,18 @@ class MainActivity : AppCompatActivity() {
             toolFamily = ToolFamily.PEN_FAMILY
             inkCanvas.setColor(penFamilyColor)
             toggleStylusPopup(v)
+        }
+
+        // ERASER button → switch to eraser family, push eraser state, open popup
+        // Change R.id.btnEraser if your id is different.
+        findViewById<View>(R.id.btnEraser)?.setOnClickListener { anchor ->
+            toolFamily = ToolFamily.ERASER
+            inkCanvas.setBrush(
+                if (eraserMode == EraserMode.AREA) BrushType.ERASER_AREA else BrushType.ERASER_STROKE
+            )
+            inkCanvas.setStrokeWidthDp(eraserSizeDp)
+            inkCanvas.setEraserHighlighterOnly(eraseHighlighterOnly)
+            toggleEraserPopup(anchor)
         }
     }
 
@@ -539,6 +560,93 @@ class MainActivity : AppCompatActivity() {
             )
             elevation = 8f
             setOnDismissListener { highlighterPopup = null }
+        }
+    }
+
+    // ───────── Eraser popup (mode + size + HL-only + preview) ─────────
+    private fun toggleEraserPopup(anchor: View) {
+        val existing = eraserPopup
+        if (existing != null && existing.isShowing) {
+            existing.dismiss()
+            eraserPopup = null
+            return
+        }
+        eraserPopup = createEraserPopup().also { p ->
+            p.isOutsideTouchable = true
+            p.isFocusable = true
+            p.showAsDropDown(anchor, 0, 8.dp())
+        }
+    }
+
+    private fun createEraserPopup(): PopupWindow {
+        val content = layoutInflater.inflate(R.layout.popup_eraser_menu, null, false)
+
+        val btnStroke = content.findViewById<ImageButton>(R.id.iconEraseStroke)
+        val btnArea   = content.findViewById<ImageButton>(R.id.iconEraseArea)
+        val sizeBar   = content.findViewById<SeekBar>(R.id.sizeSliderEraser)
+        val sizeTxt   = content.findViewById<TextView>(R.id.sizeValueEraser)
+        val preview   = content.findViewById<EraserPreviewView>(R.id.previewEraser)
+        val hlOnlySw  = content.findViewById<Switch>(R.id.switchHLOnly)
+
+        fun updateModeUI() {
+            btnStroke.isSelected = (eraserMode == EraserMode.STROKE)
+            btnArea.isSelected   = (eraserMode == EraserMode.AREA)
+        }
+        updateModeUI()
+
+        val onModeClick = View.OnClickListener { v ->
+            eraserMode = if (v.id == R.id.iconEraseStroke) EraserMode.STROKE else EraserMode.AREA
+            updateModeUI()
+            if (toolFamily == ToolFamily.ERASER) {
+                inkCanvas.setBrush(
+                    if (eraserMode == EraserMode.AREA) BrushType.ERASER_AREA else BrushType.ERASER_STROKE
+                )
+            }
+        }
+        btnStroke.setOnClickListener(onModeClick)
+        btnArea.setOnClickListener(onModeClick)
+
+        // Size slider
+        sizeBar.max = 100
+        sizeBar.progress = eraserSizeDp.toInt().coerceIn(1, 100)
+        sizeTxt.text = "${sizeBar.progress} dp"
+        preview.setDiameterPx(sizeBar.progress.dp().toFloat())
+
+        sizeBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
+                val v = value.coerceIn(1, 100)
+                sizeTxt.text = "$v dp"
+                preview.setDiameterPx(v.dp().toFloat())
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                eraserSizeDp = (seekBar?.progress ?: eraserSizeDp.toInt())
+                    .toFloat()
+                    .coerceIn(1f, 100f)
+                if (toolFamily == ToolFamily.ERASER) {
+                    inkCanvas.setStrokeWidthDp(eraserSizeDp)
+                }
+            }
+        })
+
+        // Highlighter‑only
+        hlOnlySw.isChecked = eraseHighlighterOnly
+        hlOnlySw.setOnCheckedChangeListener { _, checked ->
+            eraseHighlighterOnly = checked
+            if (toolFamily == ToolFamily.ERASER) {
+                inkCanvas.setEraserHighlighterOnly(eraseHighlighterOnly)
+            }
+        }
+
+        return PopupWindow(
+            content,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            true
+        ).apply {
+            setBackgroundDrawable(ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card_popup))
+            elevation = 8f
+            setOnDismissListener { eraserPopup = null }
         }
     }
 
