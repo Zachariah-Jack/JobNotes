@@ -55,8 +55,7 @@ class InkCanvasView @JvmOverloads constructor(
             BrushType.ERASER_STROKE -> {
                 // remove again
                 op.erased?.let { removed ->
-                    // remove by identity (object reference) to be safe
-                    removed.forEach { e -> strokes.remove(e.stroke) }
+                    removed.forEach { e -> strokes.remove(e.stroke) } // by identity
                 }
                 strokes.add(op) // keep the eraser op on the timeline
             }
@@ -93,6 +92,8 @@ class InkCanvasView @JvmOverloads constructor(
         // Geometry snapshots for union-based tools
         var calligPath: Path? = null,
         var fountainPath: Path? = null,
+        var hlFreePath: Path? = null,       // freeform highlighter snapshot
+        var hlStraightPath: Path? = null,   // straight highlighter snapshot
         // Eraser-specific
         var eraseHLOnly: Boolean = false,
         var erased: MutableList<ErasedEntry>? = null
@@ -138,7 +139,15 @@ class InkCanvasView @JvmOverloads constructor(
 
     // Calligraphy nib angle (fixed)
     private val nibAngleRad = Math.toRadians(45.0).toFloat()
-    private val nibAngleDeg = Math.toDegrees(nibAngleRad.toDouble()).toFloat()
+    @Suppress("unused") private val nibAngleDeg = Math.toDegrees(nibAngleRad.toDouble()).toFloat()
+
+    // ===== Highlighter rendering =====
+    private val hlPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
+        style = Paint.Style.FILL
+        isDither = true
+        xfermode = null  // SRC_OVER; respects alpha in color
+    }
+    private val hlStraightWorkPath = Path().apply { fillType = Path.FillType.WINDING }
 
     // ===== View lifecycle =====
 
@@ -163,10 +172,10 @@ class InkCanvasView @JvmOverloads constructor(
         canvas.withSave {
             translate(translationX, translationY)
             scale(scaleFactor, scaleFactor)
-            // Draw HL underneath ink for a natural “highlight behind text” look
+            // HL under ink for natural “highlight behind text”
             committedHL?.let { drawBitmap(it, 0f, 0f, null) }
             committedInk?.let { drawBitmap(it, 0f, 0f, null) }
-            // scratches on top
+            // live previews
             scratchHL?.let { drawBitmap(it, 0f, 0f, null) }
             scratchInk?.let { drawBitmap(it, 0f, 0f, null) }
         }
@@ -234,6 +243,8 @@ class InkCanvasView @JvmOverloads constructor(
             it.lastDir = null
             it.calligPath = null
             it.fountainPath = null
+            it.hlFreePath = null
+            it.hlStraightPath = null
             it.eraseHLOnly = eraserHLOnly
             if (baseBrush == BrushType.ERASER_STROKE) it.erased = mutableListOf()
         }
@@ -242,9 +253,7 @@ class InkCanvasView @JvmOverloads constructor(
         when (baseBrush) {
             BrushType.HIGHLIGHTER_FREEFORM,
             BrushType.HIGHLIGHTER_STRAIGHT -> scratchHL?.eraseColor(Color.TRANSPARENT)
-            BrushType.ERASER_AREA -> {
-                // area eraser clears committed layers directly; no scratch needed
-            }
+            BrushType.ERASER_AREA -> { /* area eraser clears committed layers directly */ }
             else -> scratchInk?.eraseColor(Color.TRANSPARENT)
         }
 
@@ -263,22 +272,30 @@ class InkCanvasView @JvmOverloads constructor(
         val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
         if (dist <= 0.01f) return
 
-        // append point for history
-        op.points.add(Point(x, y))
+        // Append/update point for history (special-case straight HL to keep 2 points)
+        when (op.type) {
+            BrushType.HIGHLIGHTER_STRAIGHT -> {
+                if (op.points.size == 1) op.points.add(Point(x, y))
+                else op.points[op.points.lastIndex] = Point(x, y)
+            }
+            else -> op.points.add(Point(x, y))
+        }
 
         when (op.type) {
             // ========== Highlighter ==========
             BrushType.HIGHLIGHTER_FREEFORM -> {
-                // Simple rounded translucent stroke
+                // Draw ONE unioned ribbon per frame (no alpha stacking in preview)
                 val c = scratchCanvasHL ?: return
-                val p = newStrokePaint(op.color, op.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
-                c.drawLine(sx, sy, x, y, p)
+                scratchHL?.eraseColor(Color.TRANSPARENT)
+                hlPaint.color = op.color
+                c.drawPath(buildHighlighterFreeformPath(op), hlPaint)
             }
             BrushType.HIGHLIGHTER_STRAIGHT -> {
-                // Locked to straight segments between sample points
+                // Rubber-band quad from anchor → current, clearing preview each move
                 val c = scratchCanvasHL ?: return
-                val p = newStrokePaint(op.color, op.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
-                c.drawLine(op.points.first().x, op.points.first().y, x, y, p)
+                scratchHL?.eraseColor(Color.TRANSPARENT)
+                hlPaint.color = op.color
+                c.drawPath(buildHighlighterStraightPath(op), hlPaint)
             }
 
             // ========== Eraser: AREA ==========
@@ -295,9 +312,7 @@ class InkCanvasView @JvmOverloads constructor(
                     val t = i / steps.toFloat()
                     val px = sx + dx * t
                     val py = sy + dy * t
-                    if (!targetHL) {
-                        cx?.drawCircle(px, py, half, clearPaint)
-                    }
+                    if (!targetHL) cx?.drawCircle(px, py, half, clearPaint)
                     ch?.drawCircle(px, py, half, clearPaint)
                 }
             }
@@ -307,7 +322,6 @@ class InkCanvasView @JvmOverloads constructor(
                 // As you drag, knock out strokes you touch (respect HL-only)
                 val radius = max(6f, op.baseWidth * 0.5f)
                 val hlOnly = op.eraseHLOnly
-                // from topmost down (last drawn first)
                 for (i in strokes.size - 1 downTo 0) {
                     val s = strokes[i]
                     if (s === op) continue
@@ -316,20 +330,20 @@ class InkCanvasView @JvmOverloads constructor(
                     if (hitStroke(s, x, y, radius)) {
                         strokes.removeAt(i)
                         op.erased?.add(ErasedEntry(i, s))
-                        // remove only one at a time (topmost)
-                        break
+                        break // remove only topmost per drag step
                     }
                 }
             }
 
             // ========== Ink tools ==========
             BrushType.CALLIGRAPHY -> {
-                scratchHL?.eraseColor(Color.TRANSPARENT) // not used here; keep surface tidy
                 val c = scratchCanvasInk ?: return
+                scratchInk?.eraseColor(Color.TRANSPARENT)
                 c.drawPath(buildCalligraphyPath(op), fillPaint(op.color))
             }
             BrushType.FOUNTAIN -> {
                 val c = scratchCanvasInk ?: return
+                scratchInk?.eraseColor(Color.TRANSPARENT)
                 c.drawPath(buildFountainPath(op), fillPaint(op.color))
             }
             BrushType.PENCIL -> {
@@ -356,6 +370,8 @@ class InkCanvasView @JvmOverloads constructor(
             when (stroke.type) {
                 BrushType.CALLIGRAPHY -> stroke.calligPath = Path(buildCalligraphyPath(stroke))
                 BrushType.FOUNTAIN -> stroke.fountainPath = Path(buildFountainPath(stroke))
+                BrushType.HIGHLIGHTER_FREEFORM -> stroke.hlFreePath = Path(buildHighlighterFreeformPath(stroke))
+                BrushType.HIGHLIGHTER_STRAIGHT -> stroke.hlStraightPath = Path(buildHighlighterStraightPath(stroke))
                 else -> {}
             }
             // Keep the eraser op as a timeline item (for undo/redo)
@@ -686,6 +702,50 @@ class InkCanvasView @JvmOverloads constructor(
         return workCalligPath
     }
 
+    // ===== Highlighter path builders =====
+
+    /** Freeform highlighter: constant-width unioned ribbon (no alpha stacking). */
+    private fun buildHighlighterFreeformPath(op: StrokeOp): Path = buildFountainPath(op)
+
+    /** Straight highlighter: quad from anchor → current (flat ends). */
+    private fun buildHighlighterStraightPath(op: StrokeOp): Path {
+        hlStraightWorkPath.rewind()
+        val pts = op.points
+        if (pts.isEmpty()) return hlStraightWorkPath
+
+        val a = pts.first()
+        val b = pts.last()
+        val dx = b.x - a.x
+        val dy = b.y - a.y
+        val len = hypot(dx.toDouble(), dy.toDouble()).toFloat()
+
+        val halfW = max(0.5f, 0.5f * op.baseWidth)
+        if (len < 1e-3f) {
+            hlStraightWorkPath.addCircle(a.x, a.y, halfW, Path.Direction.CW)
+            return hlStraightWorkPath
+        }
+
+        val dir = atan2(dy, dx)
+        val nx = -sin(dir)
+        val ny =  cos(dir)
+
+        val l0x = a.x + nx * halfW
+        val l0y = a.y + ny * halfW
+        val r0x = a.x - nx * halfW
+        val r0y = a.y - ny * halfW
+        val l1x = b.x + nx * halfW
+        val l1y = b.y + ny * halfW
+        val r1x = b.x - nx * halfW
+        val r1y = b.y - ny * halfW
+
+        hlStraightWorkPath.moveTo(l0x, l0y)
+        hlStraightWorkPath.lineTo(l1x, l1y)
+        hlStraightWorkPath.lineTo(r1x, r1y)
+        hlStraightWorkPath.lineTo(r0x, r0y)
+        hlStraightWorkPath.close()
+        return hlStraightWorkPath
+    }
+
     /** Width: hairline when aligned with nib; bold when perpendicular. */
     private fun calligWidth(op: StrokeOp, dir: Float): Float {
         val rel = abs(sin(dir - nibAngleRad))
@@ -748,29 +808,22 @@ class InkCanvasView @JvmOverloads constructor(
         for (op in strokes) {
             when (op.type) {
                 BrushType.HIGHLIGHTER_FREEFORM -> {
-                    // Replay as a stroked path on HL layer
-                    val pts = op.points
-                    if (pts.size < 2) continue
-                    val p = newStrokePaint(op.color, op.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
-                    for (i in 1 until pts.size) {
-                        val a = pts[i - 1]; val b = pts[i]
-                        ch.drawLine(a.x, a.y, b.x, b.y, p)
-                    }
+                    val path = op.hlFreePath ?: Path(buildHighlighterFreeformPath(op)).also { op.hlFreePath = it }
+                    hlPaint.color = op.color
+                    ch.drawPath(path, hlPaint)
                 }
                 BrushType.HIGHLIGHTER_STRAIGHT -> {
-                    val pts = op.points
-                    if (pts.size < 2) continue
-                    val p = newStrokePaint(op.color, op.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
-                    ch.drawLine(pts.first().x, pts.first().y, pts.last().x, pts.last().y, p)
+                    val path = op.hlStraightPath ?: Path(buildHighlighterStraightPath(op)).also { op.hlStraightPath = it }
+                    hlPaint.color = op.color
+                    ch.drawPath(path, hlPaint)
                 }
                 BrushType.CALLIGRAPHY -> {
-                    (op.calligPath ?: Path(buildCalligraphyPath(op)).also { op.calligPath = it })
-                    ch.save(); ch.restore() // no-op to keep symmetry
-                    ci.drawPath(op.calligPath!!, fillPaint(op.color))
+                    val path = op.calligPath ?: Path(buildCalligraphyPath(op)).also { op.calligPath = it }
+                    ci.drawPath(path, fillPaint(op.color))
                 }
                 BrushType.FOUNTAIN -> {
-                    (op.fountainPath ?: Path(buildFountainPath(op)).also { op.fountainPath = it })
-                    ci.drawPath(op.fountainPath!!, fillPaint(op.color))
+                    val path = op.fountainPath ?: Path(buildFountainPath(op)).also { op.fountainPath = it }
+                    ci.drawPath(path, fillPaint(op.color))
                 }
                 BrushType.PEN -> {
                     val pts = op.points
@@ -832,16 +885,15 @@ class InkCanvasView @JvmOverloads constructor(
     // ===== Hit testing for stroke eraser =====
 
     private fun hitStroke(s: StrokeOp, x: Float, y: Float, tol: Float): Boolean {
-        // Quick reject by bounds if we have a path
-        val path = s.calligPath ?: s.fountainPath
+        // Prefer geometric path if present
+        val path = s.calligPath ?: s.fountainPath ?: s.hlFreePath ?: s.hlStraightPath
         if (path != null) {
             val r = RectF()
             path.computeBounds(r, true)
             r.inset(-tol, -tol)
             if (!r.contains(x, y)) {
-                // still try segment snap if caller wants
+                // fall through to segment test
             } else {
-                // Region-based hit
                 val region = Region()
                 val clip = Region(
                     floor(r.left).toInt(), floor(r.top).toInt(),
