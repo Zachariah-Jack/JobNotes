@@ -96,7 +96,7 @@ class MainActivity : AppCompatActivity() {
         inkCanvas.setBrush(BrushType.PEN)
         inkCanvas.setStrokeWidthDp(brushSizeDp)
 
-        // Undo/Redo on pen toolbar (ids may differ)
+        // Undo/Redo (ids may differ)
         findViewById<View?>(R.id.btnUndoPen)?.setOnClickListener { inkCanvas.undo() }
         findViewById<View?>(R.id.btnRedoPen)?.setOnClickListener { inkCanvas.redo() }
 
@@ -148,7 +148,6 @@ class MainActivity : AppCompatActivity() {
         // Toolbar buttons
         findViewById<View>(R.id.btnStylus).setOnClickListener { v ->
             toolFamily = ToolFamily.PEN_FAMILY
-            // restore pen color and brush
             applyPenFamilyBrush()
             toggleStylusPopup(v)
         }
@@ -161,12 +160,13 @@ class MainActivity : AppCompatActivity() {
 
         findViewById<View>(R.id.btnEraser).setOnClickListener { v ->
             toolFamily = ToolFamily.ERASER
-            applyEraserBrush()
+            applyEraserBrush()                         // sets brush + size
+            inkCanvas.setEraserHighlighterOnly(eraseHighlighterOnly) // << critical
             toggleEraserPopup(v)
         }
     }
 
-    // ───────── Menu show/hide (existing) ─────────
+    // ───────── Menu show/hide ─────────
     fun onKeyboardToggleClicked(@Suppress("UNUSED_PARAMETER") v: View) {
         showKeyboardMenu()
         Toast.makeText(this, "Keyboard menu", Toast.LENGTH_SHORT).show()
@@ -383,7 +383,8 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        return PopupWindow(content,
+        return PopupWindow(
+            content,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             true
@@ -483,7 +484,8 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        return PopupWindow(content,
+        return PopupWindow(
+            content,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             true
@@ -540,6 +542,8 @@ class MainActivity : AppCompatActivity() {
                 inkCanvas.setBrush(
                     if (eraserMode == EraserMode.AREA) BrushType.ERASER_AREA else BrushType.ERASER_STROKE
                 )
+                inkCanvas.setStrokeWidthDp(eraserSizeDp)
+                inkCanvas.setEraserHighlighterOnly(eraseHighlighterOnly) // keep canvas in sync
             }
         }
         btnStroke.setOnClickListener(onModeClick)
@@ -566,11 +570,12 @@ class MainActivity : AppCompatActivity() {
         hlOnlySw.isChecked = eraseHighlighterOnly
         hlOnlySw.setOnCheckedChangeListener { _, checked ->
             eraseHighlighterOnly = checked
-            // If your InkCanvasView has a setter for this, call it here:
-            // inkCanvas.setEraserHighlighterOnly(eraseHighlighterOnly)
+            // push immediately so dragging mid-stroke respects it
+            inkCanvas.setEraserHighlighterOnly(checked)
         }
 
-        return PopupWindow(content,
+        return PopupWindow(
+            content,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             true
@@ -586,8 +591,7 @@ class MainActivity : AppCompatActivity() {
             if (eraserMode == EraserMode.AREA) BrushType.ERASER_AREA else BrushType.ERASER_STROKE
         )
         inkCanvas.setStrokeWidthDp(eraserSizeDp)
-        // If you add per-family behavior for HL-only, pass it to the canvas here.
-        // inkCanvas.setEraserHighlighterOnly(eraseHighlighterOnly)
+        inkCanvas.setEraserHighlighterOnly(eraseHighlighterOnly)
     }
 
     // ───────── General helpers ─────────
