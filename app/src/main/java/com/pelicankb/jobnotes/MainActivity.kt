@@ -5,11 +5,7 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Rect
 import android.os.Bundle
-import android.view.LayoutInflater
-import android.view.MotionEvent
-import android.view.TouchDelegate
-import android.view.View
-import android.view.ViewGroup
+import android.view.*
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.*
@@ -36,7 +32,7 @@ class MainActivity : AppCompatActivity() {
     // ───────── Title ─────────
     private lateinit var noteTitle: EditText
 
-    // ───────── Top-level tool family (what the canvas is currently using) ─────────
+    // ───────── Top-level tool family ─────────
     private enum class ToolFamily { PEN_FAMILY, HIGHLIGHTER, ERASER }
     private var toolFamily: ToolFamily = ToolFamily.PEN_FAMILY
 
@@ -46,7 +42,7 @@ class MainActivity : AppCompatActivity() {
     private var brushSizeDp: Float = 4f
     private var stylusPopup: PopupWindow? = null
 
-    // Pen color chips (left of pen toolbar)
+    // Pen color chips
     private lateinit var chip1: ImageButton
     private lateinit var chip2: ImageButton
     private lateinit var chip3: ImageButton
@@ -66,6 +62,9 @@ class MainActivity : AppCompatActivity() {
     private var eraserSizeDp: Float = 22f
     private var eraseHighlighterOnly: Boolean = false
     private var eraserPopup: PopupWindow? = null
+
+    // ───────── Selection popup ─────────
+    private var selectPopup: PopupWindow? = null
 
     // ───────── Palette presets ─────────
     private val PRESET_COLORS = intArrayOf(
@@ -96,14 +95,14 @@ class MainActivity : AppCompatActivity() {
         inkCanvas.setBrush(BrushType.PEN)
         inkCanvas.setStrokeWidthDp(brushSizeDp)
 
-        // Undo/Redo (ids may differ)
+        // Undo/Redo on pen toolbar
         findViewById<View?>(R.id.btnUndoPen)?.setOnClickListener { inkCanvas.undo() }
         findViewById<View?>(R.id.btnRedoPen)?.setOnClickListener { inkCanvas.redo() }
 
         // Show pen toolbar
         showPenMenu()
 
-        // Make small buttons easier to hit
+        // Enlarge small touch targets
         findViewById<View>(R.id.btnKeyboardToggle).expandTouchTarget(12)
         findViewById<View>(R.id.btnPenToggle).expandTouchTarget(12)
 
@@ -130,7 +129,7 @@ class MainActivity : AppCompatActivity() {
         chip2.imageTintList = ColorStateList.valueOf(0xFFFFD54F.toInt())
         chip3.imageTintList = ColorStateList.valueOf(0xFF2196F3.toInt())
 
-        // Chip clicks (pen family only)
+        // Chip clicks (pen family)
         val chipClick = View.OnClickListener { v ->
             val chip = v as ImageButton
             if (chip.id != selectedChipId) {
@@ -142,27 +141,37 @@ class MainActivity : AppCompatActivity() {
         chip1.setOnClickListener(chipClick)
         chip2.setOnClickListener(chipClick)
         chip3.setOnClickListener(chipClick)
-        selectChip(selectedChipId)            // sets penFamilyColor + pushes to canvas
+        selectChip(selectedChipId)
         penFamilyColor = currentPenColor()
 
-        // Toolbar buttons
+        // Toolbar: Stylus
         findViewById<View>(R.id.btnStylus).setOnClickListener { v ->
             toolFamily = ToolFamily.PEN_FAMILY
             applyPenFamilyBrush()
             toggleStylusPopup(v)
         }
 
+        // Toolbar: Highlighter
         findViewById<View>(R.id.btnHighlighter).setOnClickListener { v ->
             toolFamily = ToolFamily.HIGHLIGHTER
             applyHighlighterBrush()
             toggleHighlighterPopup(v)
         }
 
+        // Toolbar: Eraser
         findViewById<View>(R.id.btnEraser).setOnClickListener { v ->
             toolFamily = ToolFamily.ERASER
-            applyEraserBrush()                         // sets brush + size
-            inkCanvas.setEraserHighlighterOnly(eraseHighlighterOnly) // << critical
+            val brush = if (eraserMode == EraserMode.AREA)
+                BrushType.ERASER_AREA else BrushType.ERASER_STROKE
+            inkCanvas.setBrush(brush)
+            inkCanvas.setStrokeWidthDp(eraserSizeDp)
+            inkCanvas.setEraserHighlighterOnly(eraseHighlighterOnly)
             toggleEraserPopup(v)
+        }
+
+        // Toolbar: Select (this is the button you already have in activity_main.xml)
+        findViewById<View>(R.id.btnSelectRect).setOnClickListener { v ->
+            toggleSelectPopup(v)
         }
     }
 
@@ -457,7 +466,7 @@ class MainActivity : AppCompatActivity() {
         chip.imageTintList = ColorStateList.valueOf(highlighterColor)
         chip.setOnClickListener {
             showAdvancedColorPicker(highlighterColor) { picked ->
-                // Convert opaque -> ~60% alpha to keep proper HL look
+                // Opaque -> ~60% alpha for HL look
                 highlighterColor = if ((picked ushr 24) == 0xFF) {
                     (0x66 shl 24) or (picked and 0x00FFFFFF)
                 } else picked
@@ -542,8 +551,6 @@ class MainActivity : AppCompatActivity() {
                 inkCanvas.setBrush(
                     if (eraserMode == EraserMode.AREA) BrushType.ERASER_AREA else BrushType.ERASER_STROKE
                 )
-                inkCanvas.setStrokeWidthDp(eraserSizeDp)
-                inkCanvas.setEraserHighlighterOnly(eraseHighlighterOnly) // keep canvas in sync
             }
         }
         btnStroke.setOnClickListener(onModeClick)
@@ -570,8 +577,7 @@ class MainActivity : AppCompatActivity() {
         hlOnlySw.isChecked = eraseHighlighterOnly
         hlOnlySw.setOnCheckedChangeListener { _, checked ->
             eraseHighlighterOnly = checked
-            // push immediately so dragging mid-stroke respects it
-            inkCanvas.setEraserHighlighterOnly(checked)
+            inkCanvas.setEraserHighlighterOnly(eraseHighlighterOnly)
         }
 
         return PopupWindow(
@@ -586,6 +592,63 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    // ───────── Selection popup (inflates your XML) ─────────
+    private fun toggleSelectPopup(anchor: View) {
+        selectPopup?.let {
+            if (it.isShowing) { it.dismiss(); selectPopup = null; return }
+        }
+        selectPopup = createSelectPopup().also { p ->
+            p.isOutsideTouchable = true
+            p.isFocusable = true
+            p.showAsDropDown(anchor, 0, 8.dp())
+        }
+    }
+
+    private fun createSelectPopup(): PopupWindow {
+        val content = layoutInflater.inflate(R.layout.popup_select_menu, null, false)
+
+        val iconLasso = content.findViewById<ImageButton>(R.id.iconSelectLasso)
+        val iconRect  = content.findViewById<ImageButton>(R.id.iconSelectRect)
+        val btnClear  = content.findViewById<Button>(R.id.btnSelectClear)
+        val btnDelete = content.findViewById<Button>(R.id.btnSelectDelete)
+
+        // Mode buttons
+        val modeClick = View.OnClickListener { v ->
+            if (v.id == R.id.iconSelectLasso) {
+                inkCanvas.enterSelectionLasso()
+                iconLasso.isSelected = true
+                iconRect.isSelected = false
+                Toast.makeText(this, "Lasso: draw to select", Toast.LENGTH_SHORT).show()
+            } else {
+                inkCanvas.enterSelectionRect()
+                iconLasso.isSelected = false
+                iconRect.isSelected = true
+                Toast.makeText(this, "Rect: drag to select", Toast.LENGTH_SHORT).show()
+            }
+        }
+        iconLasso.setOnClickListener(modeClick)
+        iconRect.setOnClickListener(modeClick)
+
+        // Actions
+        btnClear.setOnClickListener { inkCanvas.clearSelection() }
+        btnDelete.setOnClickListener {
+            if (inkCanvas.hasSelection()) inkCanvas.deleteSelection()
+            else Toast.makeText(this, "No selection", Toast.LENGTH_SHORT).show()
+        }
+
+        return PopupWindow(
+            content,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            true
+        ).apply {
+            setBackgroundDrawable(ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card_popup))
+            elevation = 8f
+            setOnDismissListener { selectPopup = null }
+        }
+    }
+
+    // ───────── Helpers ─────────
     private fun applyEraserBrush() {
         inkCanvas.setBrush(
             if (eraserMode == EraserMode.AREA) BrushType.ERASER_AREA else BrushType.ERASER_STROKE
@@ -594,7 +657,6 @@ class MainActivity : AppCompatActivity() {
         inkCanvas.setEraserHighlighterOnly(eraseHighlighterOnly)
     }
 
-    // ───────── General helpers ─────────
     private fun showKeyboard(target: View) {
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         target.post { target.requestFocus(); imm.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT) }
@@ -607,7 +669,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun Int.dp(): Int = (this * resources.displayMetrics.density).toInt()
 
-    // Tap outside EditText: clear focus & hide keyboard
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         val handled = super.dispatchTouchEvent(ev)
         if (ev.action == MotionEvent.ACTION_DOWN) {
@@ -625,7 +686,7 @@ class MainActivity : AppCompatActivity() {
     }
 }
 
-/** Expands a view's tap target by [extraDp] on all sides (requires parent is a View). */
+/** Expands a view's tap target by [extraDp] on all sides. */
 private fun View.expandTouchTarget(extraDp: Int) {
     val parentView = this.parent as? View ?: return
     parentView.post {

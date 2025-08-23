@@ -19,12 +19,74 @@ class InkCanvasView @JvmOverloads constructor(
 
     // ===== Public API =====
 
-    fun setBrush(type: BrushType) { baseBrush = type }
+    fun setBrush(type: BrushType) {
+        baseBrush = type
+        // Exit selection mode when switching tools
+        if (selectionInput != SelectionInput.NONE || selected.isNotEmpty()) {
+            selectionInput = SelectionInput.NONE
+            selectionDrawing = false
+            selectionPreviewPath.rewind()
+            invalidate()
+        }
+    }
     fun setStrokeWidthDp(sizeDp: Float) { baseWidthPx = dpToPx(sizeDp) }
     fun setColor(color: Int) { baseColor = color }
 
     /** Eraser option (applies to both eraser modes). Can be toggled mid‑stroke. */
     fun setEraserHighlighterOnly(hlOnly: Boolean) { eraserHLOnly = hlOnly }
+
+    // ---- Selection API ----
+    fun enterSelectionLasso() {
+        selectionInput = SelectionInput.LASSO
+        selectionPreviewPath.rewind()
+        selectionDrawing = false
+        drawing = false
+        activePointerId = -1
+        invalidate()
+    }
+
+    fun enterSelectionRect() {
+        selectionInput = SelectionInput.RECT
+        selectionPreviewPath.rewind()
+        selectionDrawing = false
+        drawing = false
+        activePointerId = -1
+        invalidate()
+    }
+
+    fun clearSelection() {
+        selected.clear()
+        selectionPreviewPath.rewind()
+        selectionDrawing = false
+        invalidate()
+    }
+
+    fun hasSelection(): Boolean = selected.isNotEmpty()
+
+    fun deleteSelection() {
+        if (selected.isEmpty()) return
+        // Build a synthetic ERASER_STROKE op so undo/redo works correctly
+        val op = StrokeOp(
+            type = BrushType.ERASER_STROKE,
+            color = Color.TRANSPARENT,
+            baseWidth = dpToPx(1f),
+            eraseHLOnly = false,
+            erased = mutableListOf()
+        )
+        // Remove selected strokes (top-down to preserve indices)
+        for (i in strokes.size - 1 downTo 0) {
+            val s = strokes[i]
+            if (s in selected) {
+                op.erased!!.add(ErasedEntry(i, s))
+                strokes.removeAt(i)
+            }
+        }
+        selected.clear()
+        // Keep deletion on timeline for undo
+        strokes.add(op)
+        rebuildCommitted()
+        invalidate()
+    }
 
     fun undo() {
         if (strokes.isEmpty()) return
@@ -69,6 +131,10 @@ class InkCanvasView @JvmOverloads constructor(
         committedHL?.eraseColor(Color.TRANSPARENT)
         scratchInk?.eraseColor(Color.TRANSPARENT)
         scratchHL?.eraseColor(Color.TRANSPARENT)
+        selected.clear()
+        selectionPreviewPath.rewind()
+        selectionDrawing = false
+        selectionInput = SelectionInput.NONE
         invalidate()
     }
 
@@ -139,6 +205,35 @@ class InkCanvasView @JvmOverloads constructor(
     private val nibAngleRad = Math.toRadians(45.0).toFloat()
     private val nibAngleDeg = Math.toDegrees(nibAngleRad.toDouble()).toFloat()
 
+    // ===== Selection =====
+    private enum class SelectionInput { NONE, LASSO, RECT }
+    private var selectionInput: SelectionInput = SelectionInput.NONE
+
+    private val selected = LinkedHashSet<StrokeOp>()
+    private val selectionPreviewPath = Path()
+    private var selectionPreviewRect = RectF()
+    private var selectionDrawing = false
+    private var selStartX = 0f
+    private var selStartY = 0f
+
+    // paints for selection overlay
+    private val selStrokePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0xFF2979FF.toInt()
+        strokeWidth = dpToPx(1.5f)
+        pathEffect = DashPathEffect(floatArrayOf(dpToPx(6f), dpToPx(6f)), 0f)
+    }
+    private val selFillPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0x332979FF
+    }
+    private val selBoundsPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0xFF2979FF.toInt()
+        strokeWidth = dpToPx(1.5f)
+        pathEffect = DashPathEffect(floatArrayOf(dpToPx(8f), dpToPx(6f)), 0f)
+    }
+
     // ===== View lifecycle =====
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
@@ -171,14 +266,81 @@ class InkCanvasView @JvmOverloads constructor(
             scratchHL?.let { drawBitmap(it, 0f, 0f, null) }
             committedInk?.let { drawBitmap(it, 0f, 0f, null) }
             scratchInk?.let { drawBitmap(it, 0f, 0f, null) }
+
+            // ---- Selection overlay (in the same transform) ----
+            if (selectionDrawing) {
+                if (selectionInput == SelectionInput.LASSO) {
+                    drawPath(selectionPreviewPath, selFillPaint)
+                    drawPath(selectionPreviewPath, selStrokePaint)
+                } else if (selectionInput == SelectionInput.RECT) {
+                    drawRect(selectionPreviewRect, selFillPaint)
+                    drawRect(selectionPreviewRect, selStrokePaint)
+                }
+            } else if (selected.isNotEmpty()) {
+                selectionBounds()?.let { r ->
+                    drawRect(r, selBoundsPaint)
+                }
+            }
         }
     }
 
     // ===== Input =====
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // Always run pinch zoom detector
         scaleDetector.onTouchEvent(event)
 
+        // ---- Selection gesture handling (consumes events when active) ----
+        if (selectionInput != SelectionInput.NONE) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    val (cx, cy) = toContent(event.getX(event.actionIndex), event.getY(event.actionIndex))
+                    selectionDrawing = true
+                    selStartX = cx; selStartY = cy
+                    selectionPreviewPath.rewind()
+                    if (selectionInput == SelectionInput.LASSO) {
+                        selectionPreviewPath.moveTo(cx, cy)
+                    } else {
+                        selectionPreviewRect.set(cx, cy, cx, cy)
+                    }
+                    invalidate()
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val idx = event.actionIndex.coerceAtMost(event.pointerCount - 1)
+                    val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
+                    if (selectionDrawing) {
+                        if (selectionInput == SelectionInput.LASSO) {
+                            selectionPreviewPath.lineTo(cx, cy)
+                        } else {
+                            selectionPreviewRect.set(
+                                min(selStartX, cx), min(selStartY, cy),
+                                max(selStartX, cx), max(selStartY, cy)
+                            )
+                        }
+                        invalidate()
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (selectionDrawing) {
+                        // finalize selection
+                        selected.clear()
+                        if (selectionInput == SelectionInput.LASSO) {
+                            selectionPreviewPath.close()
+                            performLassoSelection(selectionPreviewPath)
+                        } else {
+                            performRectSelection(selectionPreviewRect)
+                        }
+                        selectionPreviewPath.rewind()
+                        selectionDrawing = false
+                        invalidate()
+                    }
+                }
+                // We ignore pointer multi-touch here; zoom is handled by ScaleGestureDetector above
+            }
+            return true
+        }
+
+        // ---- Normal drawing / panning flow ----
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 if (isStylus(event, event.actionIndex)) {
@@ -287,7 +449,7 @@ class InkCanvasView @JvmOverloads constructor(
 
             // ========== Eraser: AREA ==========
             BrushType.ERASER_AREA -> {
-                // Use the LIVE toggle (so user can flip mid‑stroke).
+                // Use the LIVE toggle (user can flip mid‑stroke)
                 val clearInk = !eraserHLOnly
                 val half = op.baseWidth * 0.5f
                 val steps = max(1, (dist / max(1f, half)).toInt())
@@ -871,6 +1033,123 @@ class InkCanvasView @JvmOverloads constructor(
         val cx = ax + t * abx; val cy = ay + t * aby
         val dx = px - cx; val dy = py - cy
         return dx * dx + dy * dy
+    }
+
+    // ===== Selection helpers =====
+
+    private fun selectionBounds(): RectF? {
+        if (selected.isEmpty()) return null
+        val r = RectF()
+        var first = true
+        for (s in selected) {
+            val b = strokeBounds(s)
+            if (b != null) {
+                if (first) { r.set(b); first = false } else { r.union(b) }
+            }
+        }
+        return if (first) null else r
+    }
+
+    private fun performRectSelection(rect: RectF) {
+        if (rect.width() <= 0.5f || rect.height() <= 0.5f) return
+        val tolRegion = RectF(rect)
+        for (s in strokes) {
+            if (s.type == BrushType.ERASER_STROKE || s.type == BrushType.ERASER_AREA) continue
+            val b = strokeBounds(s) ?: continue
+            if (RectF.intersects(b, tolRegion)) selected.add(s)
+        }
+    }
+
+    private fun performLassoSelection(path: Path) {
+        if (path.isEmpty) return
+        val r = RectF()
+        path.computeBounds(r, true)
+        if (r.isEmpty) return
+        val clip = Region(
+            r.left.toInt() - 2, r.top.toInt() - 2,
+            r.right.toInt() + 2, r.bottom.toInt() + 2
+        )
+        val lassoRegion = Region()
+        lassoRegion.setPath(path, clip)
+
+        for (s in strokes) {
+            if (s.type == BrushType.ERASER_STROKE || s.type == BrushType.ERASER_AREA) continue
+            if (strokeHitRegion(s, lassoRegion)) selected.add(s)
+        }
+    }
+
+    private fun strokeBounds(s: StrokeOp): RectF? {
+        return when (s.type) {
+            BrushType.CALLIGRAPHY -> s.calligPath?.let { pathBounds(it) } ?: pointsBounds(s.points, s.baseWidth)
+            BrushType.FOUNTAIN    -> s.fountainPath?.let { pathBounds(it) } ?: pointsBounds(s.points, s.baseWidth)
+            BrushType.HIGHLIGHTER_STRAIGHT,
+            BrushType.HIGHLIGHTER_FREEFORM,
+            BrushType.PEN, BrushType.MARKER, BrushType.PENCIL -> pointsBounds(s.points, s.baseWidth)
+            BrushType.ERASER_AREA, BrushType.ERASER_STROKE -> null
+        }
+    }
+
+    private fun pathBounds(p: Path): RectF {
+        val r = RectF()
+        p.computeBounds(r, true)
+        return r
+    }
+
+    private fun pointsBounds(pts: List<Point>, width: Float): RectF? {
+        if (pts.isEmpty()) return null
+        var minX = pts[0].x; var minY = pts[0].y
+        var maxX = pts[0].x; var maxY = pts[0].y
+        for (i in 1 until pts.size) {
+            val x = pts[i].x; val y = pts[i].y
+            if (x < minX) minX = x
+            if (y < minY) minY = y
+            if (x > maxX) maxX = x
+            if (y > maxY) maxY = y
+        }
+        val pad = max(2f, width * 0.6f)
+        return RectF(minX - pad, minY - pad, maxX + pad, maxY + pad)
+    }
+
+    private fun strokeHitRegion(s: StrokeOp, region: Region): Boolean {
+        // Fast bounds test
+        val b = strokeBounds(s) ?: return false
+        val rb = android.graphics.Rect()
+        region.getBounds(rb)
+        if (!RectF.intersects(b, RectF(rb))) return false
+
+        // Path-based precise check for filled paths
+        val p = s.calligPath ?: s.fountainPath
+        if (p != null) {
+            val pr = RectF()
+            p.computeBounds(pr, true)
+            val cx = (pr.left + pr.right) * 0.5f
+            val cy = (pr.top + pr.bottom) * 0.5f
+            if (region.contains(cx.toInt(), cy.toInt())) return true
+            // sample corners
+            if (region.contains(pr.left.toInt(), pr.top.toInt())) return true
+            if (region.contains(pr.right.toInt(), pr.top.toInt())) return true
+            if (region.contains(pr.left.toInt(), pr.bottom.toInt())) return true
+            if (region.contains(pr.right.toInt(), pr.bottom.toInt())) return true
+            // fallthrough to polyline sampling
+        }
+
+        // Polyline sampling
+        val pts = s.points
+        if (pts.size < 2) return false
+        val stepPx = 6f
+        for (i in 1 until pts.size) {
+            val a = pts[i - 1]; val bpt = pts[i]
+            val dx = bpt.x - a.x; val dy = bpt.y - a.y
+            val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
+            val steps = max(1, (dist / stepPx).toInt())
+            for (k in 0..steps) {
+                val t = k / steps.toFloat()
+                val x = a.x + dx * t
+                val y = a.y + dy * t
+                if (region.contains(x.toInt(), y.toInt())) return true
+            }
+        }
+        return false
     }
 
     // ===== Utilities =====
