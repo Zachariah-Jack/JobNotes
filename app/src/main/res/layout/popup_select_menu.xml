@@ -6,7 +6,7 @@
     android:orientation="vertical"
     android:padding="12dp">
 
-    <!-- Row: selection mode -->
+    <!-- Row: selection tool -->
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -35,26 +35,18 @@
             android:contentDescription="@null" />
     </LinearLayout>
 
-    <!-- Actions -->
+    <!-- Mode toggle -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal">
+        android:orientation="horizontal"
+        android:gravity="center_vertical">
 
-        <Button
-            android:id="@+id/btnSelectClear"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
-            android:text="Clear" />
-
-        <Button
-            android:id="@+id/btnSelectDelete"
-            android:layout_width="0dp"
-            android:layout_height="40dp"
-            android:layout_weight="1"
-            android:layout_marginStart="8dp"
-            android:text="Delete" />
+        <Switch
+            android:id="@+id/switchStrokeSelect"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Stroke select" />
     </LinearLayout>
 
 </LinearLayout>

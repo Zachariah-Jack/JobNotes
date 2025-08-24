@@ -14,6 +14,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.pelicankb.jobnotes.drawing.BrushType
 import com.pelicankb.jobnotes.drawing.InkCanvasView
+import com.pelicankb.jobnotes.drawing.InkCanvasView.SelectionPolicy
 import com.pelicankb.jobnotes.ui.BrushPreviewView
 import com.pelicankb.jobnotes.ui.EraserPreviewView
 import com.skydoves.colorpickerview.ColorPickerDialog
@@ -53,7 +54,7 @@ class MainActivity : AppCompatActivity() {
     private enum class HighlighterMode { FREEFORM, STRAIGHT }
     private var highlighterMode: HighlighterMode = HighlighterMode.FREEFORM
     private var highlighterPopup: PopupWindow? = null
-    private var highlighterColor: Int = 0x66FFD54F.toInt() // amber ~60% alpha
+    private var highlighterColor: Int = 0x66FFD54F.toInt()
     private var highlighterSizeDp: Float = 12f
 
     // ───────── Eraser state ─────────
@@ -99,6 +100,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<View?>(R.id.btnUndoPen)?.setOnClickListener { inkCanvas.undo() }
         findViewById<View?>(R.id.btnRedoPen)?.setOnClickListener { inkCanvas.redo() }
 
+        // NEW: right-side action buttons
+        wireEditActions()
+
         // Show pen toolbar
         showPenMenu()
 
@@ -132,11 +136,7 @@ class MainActivity : AppCompatActivity() {
         // Chip clicks (pen family)
         val chipClick = View.OnClickListener { v ->
             val chip = v as ImageButton
-            if (chip.id != selectedChipId) {
-                selectChip(chip.id)
-            } else {
-                showColorPaletteDialog(chip)
-            }
+            if (chip.id != selectedChipId) selectChip(chip.id) else showColorPaletteDialog(chip)
         }
         chip1.setOnClickListener(chipClick)
         chip2.setOnClickListener(chipClick)
@@ -169,29 +169,73 @@ class MainActivity : AppCompatActivity() {
             toggleEraserPopup(v)
         }
 
-        // Toolbar: Select (this is the button you already have in activity_main.xml)
+        // Selection popup (lasso/rect + mode)
         findViewById<View>(R.id.btnSelectRect).setOnClickListener { v ->
             toggleSelectPopup(v)
         }
     }
 
-    // ───────── Menu show/hide ─────────
+    private fun wireEditActions() {
+        findViewById<View?>(R.id.btnClear)?.setOnClickListener {
+            if (inkCanvas.hasSelection()) {
+                inkCanvas.deleteSelection()
+            } else {
+                Toast.makeText(this, "Nothing selected to clear", Toast.LENGTH_SHORT).show()
+            }
+        }
+        findViewById<View?>(R.id.btnCopy)?.setOnClickListener {
+            if (inkCanvas.hasSelection()) {
+                val ok = inkCanvas.copySelection()
+                Toast.makeText(this, if (ok) "Copied selection" else "Copy failed", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Nothing selected to copy", Toast.LENGTH_SHORT).show()
+            }
+        }
+        findViewById<View?>(R.id.btnCut)?.setOnClickListener {
+            if (inkCanvas.hasSelection()) {
+                val ok = inkCanvas.cutSelection()
+                if (!ok) Toast.makeText(this, "Cut failed", Toast.LENGTH_SHORT).show()
+                // if ok, selection is removed immediately (as requested)
+            } else {
+                Toast.makeText(this, "Nothing selected to cut", Toast.LENGTH_SHORT).show()
+            }
+        }
+        findViewById<View?>(R.id.btnPaste)?.setOnClickListener {
+            if (inkCanvas.hasClipboard()) {
+                val armed = inkCanvas.armPastePlacement()
+                if (armed) {
+                    Toast.makeText(this, "Tap on canvas to place paste", Toast.LENGTH_SHORT).show()
+                }
+            } else {
+                Toast.makeText(this, "Clipboard empty", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // Persist canvas across rotation
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putByteArray("ink_state_v1", inkCanvas.serialize())
+    }
+    override fun onRestoreInstanceState(savedInstanceState: Bundle) {
+        super.onRestoreInstanceState(savedInstanceState)
+        savedInstanceState.getByteArray("ink_state_v1")?.let { inkCanvas.deserialize(it) }
+    }
+
+    // ───────── Menu show/hide (existing) ─────────
     fun onKeyboardToggleClicked(@Suppress("UNUSED_PARAMETER") v: View) {
         showKeyboardMenu()
         Toast.makeText(this, "Keyboard menu", Toast.LENGTH_SHORT).show()
     }
-
     fun onPenToggleClicked(@Suppress("UNUSED_PARAMETER") v: View) {
         showPenMenu()
         Toast.makeText(this, "Pen menu", Toast.LENGTH_SHORT).show()
     }
-
     private fun showPenMenu() {
         panelPen.visibility = View.VISIBLE
         panelKeyboard.visibility = View.GONE
         groupPenChips.visibility = View.VISIBLE
     }
-
     private fun showKeyboardMenu() {
         panelPen.visibility = View.GONE
         panelKeyboard.visibility = View.VISIBLE
@@ -214,9 +258,7 @@ class MainActivity : AppCompatActivity() {
 
         val c = currentPenColor()
         penFamilyColor = c
-        if (toolFamily == ToolFamily.PEN_FAMILY) {
-            inkCanvas.setColor(c)
-        }
+        if (toolFamily == ToolFamily.PEN_FAMILY) inkCanvas.setColor(c)
     }
 
     private fun showColorPaletteDialog(targetChip: ImageButton) {
@@ -296,9 +338,7 @@ class MainActivity : AppCompatActivity() {
                 targetChip.imageTintList = ColorStateList.valueOf(tempColor)
                 if (targetChip.id == selectedChipId) {
                     penFamilyColor = tempColor
-                    if (toolFamily == ToolFamily.PEN_FAMILY) {
-                        inkCanvas.setColor(tempColor)
-                    }
+                    if (toolFamily == ToolFamily.PEN_FAMILY) inkCanvas.setColor(tempColor)
                 }
                 d.dismiss()
             }
@@ -321,9 +361,7 @@ class MainActivity : AppCompatActivity() {
 
     // ───────── Stylus (Pen family) popup ─────────
     private fun toggleStylusPopup(anchor: View) {
-        stylusPopup?.let {
-            if (it.isShowing) { it.dismiss(); stylusPopup = null; return }
-        }
+        stylusPopup?.let { if (it.isShowing) { it.dismiss(); stylusPopup = null; return } }
         stylusPopup = createStylusMenuPopup().also { popup ->
             popup.isOutsideTouchable = true
             popup.isFocusable = true
@@ -333,7 +371,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun createStylusMenuPopup(): PopupWindow {
         val content = layoutInflater.inflate(R.layout.popup_stylus_menu, null, false)
-
         val btnFountain = content.findViewById<ImageButton>(R.id.iconFountain)
         val btnCallig   = content.findViewById<ImageButton>(R.id.iconCalligraphy)
         val btnPen      = content.findViewById<ImageButton>(R.id.iconPen)
@@ -392,8 +429,7 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        return PopupWindow(
-            content,
+        return PopupWindow(content,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             true
@@ -421,9 +457,7 @@ class MainActivity : AppCompatActivity() {
 
     // ───────── Highlighter popup ─────────
     private fun toggleHighlighterPopup(anchor: View) {
-        highlighterPopup?.let {
-            if (it.isShowing) { it.dismiss(); highlighterPopup = null; return }
-        }
+        highlighterPopup?.let { if (it.isShowing) { it.dismiss(); highlighterPopup = null; return } }
         highlighterPopup = createHighlighterPopup().also { popup ->
             popup.isOutsideTouchable = true
             popup.isFocusable = true
@@ -466,7 +500,6 @@ class MainActivity : AppCompatActivity() {
         chip.imageTintList = ColorStateList.valueOf(highlighterColor)
         chip.setOnClickListener {
             showAdvancedColorPicker(highlighterColor) { picked ->
-                // Opaque -> ~60% alpha for HL look
                 highlighterColor = if ((picked ushr 24) == 0xFF) {
                     (0x66 shl 24) or (picked and 0x00FFFFFF)
                 } else picked
@@ -493,8 +526,7 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        return PopupWindow(
-            content,
+        return PopupWindow(content,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             true
@@ -518,9 +550,7 @@ class MainActivity : AppCompatActivity() {
 
     // ───────── Eraser popup ─────────
     private fun toggleEraserPopup(anchor: View) {
-        eraserPopup?.let {
-            if (it.isShowing) { it.dismiss(); eraserPopup = null; return }
-        }
+        eraserPopup?.let { if (it.isShowing) { it.dismiss(); eraserPopup = null; return } }
         eraserPopup = createEraserPopup().also { p ->
             p.isOutsideTouchable = true
             p.isFocusable = true
@@ -580,8 +610,7 @@ class MainActivity : AppCompatActivity() {
             inkCanvas.setEraserHighlighterOnly(eraseHighlighterOnly)
         }
 
-        return PopupWindow(
-            content,
+        return PopupWindow(content,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             true
@@ -592,11 +621,9 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // ───────── Selection popup (inflates your XML) ─────────
+    // ───────── Selection popup (correct icons + mode toggle) ─────────
     private fun toggleSelectPopup(anchor: View) {
-        selectPopup?.let {
-            if (it.isShowing) { it.dismiss(); selectPopup = null; return }
-        }
+        selectPopup?.let { if (it.isShowing) { it.dismiss(); selectPopup = null; return } }
         selectPopup = createSelectPopup().also { p ->
             p.isOutsideTouchable = true
             p.isFocusable = true
@@ -609,31 +636,30 @@ class MainActivity : AppCompatActivity() {
 
         val iconLasso = content.findViewById<ImageButton>(R.id.iconSelectLasso)
         val iconRect  = content.findViewById<ImageButton>(R.id.iconSelectRect)
-        val btnClear  = content.findViewById<Button>(R.id.btnSelectClear)
-        val btnDelete = content.findViewById<Button>(R.id.btnSelectDelete)
+        val modeSw    = content.findViewById<Switch>(R.id.switchStrokeSelect)
 
-        // Mode buttons
-        val modeClick = View.OnClickListener { v ->
-            if (v.id == R.id.iconSelectLasso) {
-                inkCanvas.enterSelectionLasso()
-                iconLasso.isSelected = true
-                iconRect.isSelected = false
-                Toast.makeText(this, "Lasso: draw to select", Toast.LENGTH_SHORT).show()
-            } else {
-                inkCanvas.enterSelectionRect()
-                iconLasso.isSelected = false
-                iconRect.isSelected = true
-                Toast.makeText(this, "Rect: drag to select", Toast.LENGTH_SHORT).show()
-            }
+        fun setToolUI(which: String) {
+            iconLasso.isSelected = which == "lasso"
+            iconRect.isSelected  = which == "rect"
         }
-        iconLasso.setOnClickListener(modeClick)
-        iconRect.setOnClickListener(modeClick)
+        setToolUI("lasso")
 
-        // Actions
-        btnClear.setOnClickListener { inkCanvas.clearSelection() }
-        btnDelete.setOnClickListener {
-            if (inkCanvas.hasSelection()) inkCanvas.deleteSelection()
-            else Toast.makeText(this, "No selection", Toast.LENGTH_SHORT).show()
+        iconLasso.setOnClickListener {
+            setToolUI("lasso")
+            inkCanvas.enterSelectionLasso()
+            Toast.makeText(this, "Lasso: draw to select. Tap elsewhere to start a new selection.", Toast.LENGTH_SHORT).show()
+        }
+        iconRect.setOnClickListener {
+            setToolUI("rect")
+            inkCanvas.enterSelectionRect()
+            Toast.makeText(this, "Rect: drag to select. Tap elsewhere to start a new selection.", Toast.LENGTH_SHORT).show()
+        }
+
+        modeSw.isChecked = inkCanvas.getSelectionPolicy() == SelectionPolicy.STROKE_WISE
+        modeSw.setOnCheckedChangeListener { _, checked ->
+            inkCanvas.setSelectionPolicy(
+                if (checked) SelectionPolicy.STROKE_WISE else SelectionPolicy.REGION_INSIDE
+            )
         }
 
         return PopupWindow(

@@ -62,20 +62,17 @@
                 android:onClick="onKeyboardToggleClicked"
                 android:contentDescription="@null" />
 
-            <!-- 2nd icon: Pen tool button -->
+            <!-- Stylus family button -->
             <ImageButton
-
+                android:id="@+id/btnStylus"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:padding="8dp"
                 android:src="@drawable/ic_tool_pen"
-                android:id="@+id/btnStylus"
-
                 android:contentDescription="@string/cd_pen_tool" />
 
-
-            <!-- 2) Highlighter -->
+            <!-- Highlighter -->
             <ImageButton
                 android:id="@+id/btnHighlighter"
                 android:layout_width="48dp"
@@ -85,6 +82,7 @@
                 android:src="@drawable/ic_tool_highlighter"
                 android:contentDescription="@null" />
 
+            <!-- Eraser -->
             <ImageButton
                 android:id="@+id/btnEraser"
                 android:layout_width="40dp"
@@ -94,8 +92,7 @@
                 android:src="@drawable/ic_tool_eraser"
                 android:contentDescription="@string/cd_eraser" />
 
-
-            <!-- 4) Select (rect) -->
+            <!-- Select (popup) -->
             <ImageButton
                 android:id="@+id/btnSelectRect"
                 android:layout_width="48dp"
@@ -132,7 +129,6 @@
                 android:orientation="horizontal"
                 android:layout_marginStart="4dp">
 
-                <!-- Filled circles (tint controls fill color) -->
                 <ImageButton
                     android:id="@+id/chipColor1"
                     android:layout_width="36dp"
@@ -162,12 +158,63 @@
                     android:src="@drawable/ic_tool_color"
                     android:tint="#2196F3"
                     android:contentDescription="@null" />
+            </LinearLayout>
 
+            <!-- Spacer pushes action group to the right edge -->
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1"/>
+
+            <!-- Edit actions (right side) -->
+            <LinearLayout
+                android:id="@+id/groupEditActions"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal">
+
+                <ImageButton
+                    android:id="@+id/btnClear"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:padding="8dp"
+                    android:src="@drawable/ic_tool_clear"
+                    android:contentDescription="@null" />
+
+                <ImageButton
+                    android:id="@+id/btnCopy"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:padding="8dp"
+                    android:layout_marginStart="2dp"
+                    android:src="@drawable/ic_tool_copy"
+                    android:contentDescription="@null" />
+
+                <ImageButton
+                    android:id="@+id/btnCut"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:padding="8dp"
+                    android:layout_marginStart="2dp"
+                    android:src="@drawable/ic_tool_cut"
+                    android:contentDescription="@null" />
+
+                <ImageButton
+                    android:id="@+id/btnPaste"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:padding="8dp"
+                    android:layout_marginStart="2dp"
+                    android:src="@drawable/ic_tool_paste"
+                    android:contentDescription="@null" />
             </LinearLayout>
         </LinearLayout>
 
-
-        <!-- Keyboard menu (hidden initially) -->
+        <!-- Keyboard menu (hidden initially; unchanged) -->
         <LinearLayout
             android:id="@+id/panelKeyboard"
             android:layout_width="match_parent"
@@ -177,7 +224,6 @@
             android:visibility="gone"
             android:baselineAligned="false">
 
-            <!-- Left-most: switch back to Pen -->
             <ImageButton
                 android:id="@+id/btnPenToggle"
                 android:layout_width="48dp"
@@ -188,7 +234,6 @@
                 android:onClick="onPenToggleClicked"
                 android:contentDescription="@null" />
 
-            <!-- Keyboard tools -->
             <ImageButton
                 android:id="@+id/btnText"
                 android:layout_width="48dp"
@@ -253,7 +298,7 @@
         android:layout_height="1dp"
         android:background="#33000000" />
 
-    <!-- Canvas host (gray outside page) -->
+    <!-- Canvas host -->
     <FrameLayout
         android:id="@+id/canvasHost"
         android:layout_width="match_parent"
@@ -262,15 +307,11 @@
         android:layout_weight="1"
         android:background="#EFEFF2">
 
-        <!-- White page inside; gray shows outside -->
         <com.pelicankb.jobnotes.drawing.InkCanvasView
             android:id="@+id/inkCanvas"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
             android:contentDescription="@string/cd_canvas"
             android:background="@android:color/transparent" />
-
-
     </FrameLayout>
-
 </LinearLayout>
