@@ -53,7 +53,9 @@
                 android:layout_height="wrap_content"
                 android:visibility="gone"
                 android:singleLine="true"
-                android:imeOptions="actionDone"
+                android:imeOptions="actionDone|flagNoExtractUi"
+                android:privateImeOptions="disableDirectWriting=true"
+                android:showSoftInputOnFocus="true"
                 android:inputType="textCapWords|textPersonName"
                 android:textSize="18sp"
                 android:padding="8dp"
@@ -202,7 +204,7 @@
                 android:layout_height="0dp"
                 android:layout_weight="1"/>
 
-            <!-- Edit actions (right side) -->
+            <!-- Right-side actions (Pen) -->
             <LinearLayout
                 android:id="@+id/groupEditActions"
                 android:layout_width="wrap_content"
@@ -246,6 +248,47 @@
                     android:padding="8dp"
                     android:layout_marginStart="2dp"
                     android:src="@drawable/ic_tool_paste"
+                    android:contentDescription="@null" />
+
+                <!-- New: hand, camera, gallery, overflow -->
+                <ImageButton
+                    android:id="@+id/btnHandPen"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:padding="8dp"
+                    android:layout_marginStart="6dp"
+                    android:src="@drawable/ic_tool_hand"
+                    android:contentDescription="@null" />
+
+                <ImageButton
+                    android:id="@+id/btnCameraPen"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:padding="8dp"
+                    android:layout_marginStart="2dp"
+                    android:src="@drawable/ic_tool_camera"
+                    android:contentDescription="@null" />
+
+                <ImageButton
+                    android:id="@+id/btnGalleryPen"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:padding="8dp"
+                    android:layout_marginStart="2dp"
+                    android:src="@drawable/ic_tool_gallery"
+                    android:contentDescription="@null" />
+
+                <ImageButton
+                    android:id="@+id/btnOverflowPen"
+                    android:layout_width="40dp"
+                    android:layout_height="40dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:padding="8dp"
+                    android:layout_marginStart="2dp"
+                    android:src="@drawable/ic_more_vert"
                     android:contentDescription="@null" />
             </LinearLayout>
         </LinearLayout>
@@ -324,6 +367,52 @@
                 android:padding="8dp"
                 android:src="@drawable/ic_tool_redo"
                 android:contentDescription="@null" />
+
+            <!-- Spacer -->
+            <View
+                android:layout_width="0dp"
+                android:layout_height="0dp"
+                android:layout_weight="1"/>
+
+            <!-- New: hand, camera, gallery, overflow (Keyboard panel) -->
+            <ImageButton
+                android:id="@+id/btnHandKbd"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:src="@drawable/ic_tool_hand"
+                android:contentDescription="@null" />
+
+            <ImageButton
+                android:id="@+id/btnCameraKbd"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:layout_marginStart="2dp"
+                android:src="@drawable/ic_tool_camera"
+                android:contentDescription="@null" />
+
+            <ImageButton
+                android:id="@+id/btnGalleryKbd"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:layout_marginStart="2dp"
+                android:src="@drawable/ic_tool_gallery"
+                android:contentDescription="@null" />
+
+            <ImageButton
+                android:id="@+id/btnOverflowKbd"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="?attr/selectableItemBackgroundBorderless"
+                android:padding="8dp"
+                android:layout_marginStart="2dp"
+                android:src="@drawable/ic_more_vert"
+                android:contentDescription="@null" />
         </LinearLayout>
     </FrameLayout>
 
@@ -347,7 +436,7 @@
             android:id="@+id/inkCanvas"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:background="@android:color/transparent"
+            android:background="@android:color/white"
             android:focusable="true"
             android:focusableInTouchMode="true"
             android:contentDescription="@string/cd_canvas" />
