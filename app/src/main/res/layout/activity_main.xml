@@ -2,6 +2,7 @@
 <LinearLayout
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -27,7 +28,7 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="6dp"
             android:src="@drawable/ic_tool_editicon"
-            android:contentDescription="Edit title"/>
+            android:contentDescription="@string/edit_title"/>
 
         <FrameLayout
             android:layout_width="0dp"
@@ -40,7 +41,7 @@
                 android:id="@+id/noteTitleView"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Untitled"
+                android:text="@string/untitled"
                 android:textSize="18sp"
                 android:singleLine="true"
                 android:ellipsize="end"
@@ -55,11 +56,10 @@
                 android:singleLine="true"
                 android:imeOptions="actionDone|flagNoExtractUi"
                 android:privateImeOptions="disableDirectWriting=true"
-                android:showSoftInputOnFocus="true"
                 android:inputType="textCapWords|textPersonName"
                 android:textSize="18sp"
                 android:padding="8dp"
-                android:hint="Untitled"/>
+                android:hint="@string/untitled"/>
         </FrameLayout>
     </LinearLayout>
 
@@ -174,7 +174,7 @@
                     android:background="@drawable/bg_color_chip_selector"
                     android:padding="6dp"
                     android:src="@drawable/ic_tool_color"
-                    android:tint="#000000"
+                    app:tint="#000000"
                     android:contentDescription="@null" />
 
                 <ImageButton
@@ -184,7 +184,7 @@
                     android:background="@drawable/bg_color_chip_selector"
                     android:padding="6dp"
                     android:src="@drawable/ic_tool_color"
-                    android:tint="#FFD54F"
+                    app:tint="#FFD54F"
                     android:contentDescription="@null" />
 
                 <ImageButton
@@ -194,7 +194,7 @@
                     android:background="@drawable/bg_color_chip_selector"
                     android:padding="6dp"
                     android:src="@drawable/ic_tool_color"
-                    android:tint="#2196F3"
+                    app:tint="#2196F3"
                     android:contentDescription="@null" />
             </LinearLayout>
 
