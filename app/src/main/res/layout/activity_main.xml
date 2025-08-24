@@ -9,30 +9,66 @@
     android:orientation="vertical"
     tools:context=".MainActivity">
 
-    <!-- Title header -->
-    <EditText
-        android:id="@+id/noteTitle"
+    <!-- Title header: edit button + display/edit swap -->
+    <LinearLayout
+        android:id="@+id/titleRow"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
-        android:layout_marginTop="12dp"
-        android:hint="Untitled"
-        android:singleLine="true"
-        android:imeOptions="actionDone"
-        android:inputType="textCapWords|textPersonName"
-        android:textSize="18sp"
-        android:padding="8dp"/>
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="12dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="12dp">
+
+        <ImageButton
+            android:id="@+id/btnTitleEdit"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:padding="6dp"
+            android:src="@drawable/ic_tool_editicon"
+            android:contentDescription="Edit title"/>
+
+        <FrameLayout
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp">
+
+            <!-- Display mode -->
+            <TextView
+                android:id="@+id/noteTitleView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Untitled"
+                android:textSize="18sp"
+                android:singleLine="true"
+                android:ellipsize="end"
+                android:padding="8dp"/>
+
+            <!-- Edit mode (hidden by default) -->
+            <EditText
+                android:id="@+id/noteTitleEdit"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone"
+                android:singleLine="true"
+                android:imeOptions="actionDone"
+                android:inputType="textCapWords|textPersonName"
+                android:textSize="18sp"
+                android:padding="8dp"
+                android:hint="Untitled"/>
+        </FrameLayout>
+    </LinearLayout>
 
     <!-- Divider above toolbar -->
     <View
         android:id="@+id/dividerToolbarTop"
         android:layout_width="match_parent"
         android:layout_height="1dp"
-        android:layout_marginTop="8dp"
         android:background="#33000000" />
 
-    <!-- Toolbar container (spacing so title and tools don't touch) -->
+    <!-- Toolbar container -->
     <FrameLayout
         android:id="@+id/toolbarContainer"
         android:layout_width="match_parent"
@@ -67,7 +103,7 @@
                 android:id="@+id/btnStylus"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
+                android:background="@drawable/bg_tool_toggle"
                 android:padding="8dp"
                 android:src="@drawable/ic_tool_pen"
                 android:contentDescription="@string/cd_pen_tool" />
@@ -77,7 +113,7 @@
                 android:id="@+id/btnHighlighter"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
+                android:background="@drawable/bg_tool_toggle"
                 android:padding="8dp"
                 android:src="@drawable/ic_tool_highlighter"
                 android:contentDescription="@null" />
@@ -85,8 +121,8 @@
             <!-- Eraser -->
             <ImageButton
                 android:id="@+id/btnEraser"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
                 android:background="@drawable/bg_tool_toggle"
                 android:padding="8dp"
                 android:src="@drawable/ic_tool_eraser"
@@ -97,7 +133,7 @@
                 android:id="@+id/btnSelectRect"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
-                android:background="?attr/selectableItemBackgroundBorderless"
+                android:background="@drawable/bg_tool_toggle"
                 android:padding="8dp"
                 android:src="@drawable/ic_tool_select_rect"
                 android:contentDescription="@null" />
@@ -160,7 +196,7 @@
                     android:contentDescription="@null" />
             </LinearLayout>
 
-            <!-- Spacer pushes action group to the right edge -->
+            <!-- Spacer -->
             <View
                 android:layout_width="0dp"
                 android:layout_height="0dp"
@@ -214,7 +250,7 @@
             </LinearLayout>
         </LinearLayout>
 
-        <!-- Keyboard menu (hidden initially; unchanged) -->
+        <!-- Keyboard menu (hidden initially) -->
         <LinearLayout
             android:id="@+id/panelKeyboard"
             android:layout_width="match_parent"
@@ -311,7 +347,9 @@
             android:id="@+id/inkCanvas"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:contentDescription="@string/cd_canvas"
-            android:background="@android:color/transparent" />
+            android:background="@android:color/transparent"
+            android:focusable="true"
+            android:focusableInTouchMode="true"
+            android:contentDescription="@string/cd_canvas" />
     </FrameLayout>
 </LinearLayout>

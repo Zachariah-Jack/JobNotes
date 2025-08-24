@@ -15,6 +15,16 @@ import java.nio.ByteBuffer
 import kotlin.math.*
 import kotlin.random.Random
 
+/**
+ * InkCanvasView
+ *
+ * Paste behavior:
+ *  - Call [armPastePlacement]. While armed, the *next stylus DOWN* on the canvas:
+ *      1) Pastes the clipboard centered at the tap.
+ *      2) Immediately enters a TRANSLATE transform so the user can drag to place in one gesture.
+ *  - Two-finger gestures (pinch/pan) cancel a pending paste (so you won't paste by accident).
+ *  - [cancelPastePlacement] is provided for the Activity to disarm manually if desired.
+ */
 class InkCanvasView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
@@ -28,6 +38,19 @@ class InkCanvasView @JvmOverloads constructor(
     fun setColor(color: Int) { baseColor = color }
     /** Eraser option (applies to both eraser modes). Can be toggled mid‑stroke. */
     fun setEraserHighlighterOnly(hlOnly: Boolean) { eraserHLOnly = hlOnly }
+
+    /** Turn off selection tool; keep or drop the current selection visuals. */
+    fun setSelectionToolNone(keepSelection: Boolean = true) {
+        selectionTool = SelTool.NONE
+        selectionSticky = false
+        selectionInteractive = false
+        if (!keepSelection) {
+            clearSelection()
+        } else {
+            clearMarquee()
+            invalidate()
+        }
+    }
 
     fun undo() {
         if (strokes.isEmpty()) return
@@ -87,22 +110,29 @@ class InkCanvasView @JvmOverloads constructor(
     fun enterSelectionLasso() {
         selectionTool = SelTool.LASSO
         selectionSticky = true
+        selectionInteractive = true
         cancelActiveOps()
         invalidate()
     }
     fun enterSelectionRect() {
         selectionTool = SelTool.RECT
         selectionSticky = true
+        selectionInteractive = true
         cancelActiveOps()
         invalidate()
     }
 
     fun hasSelection(): Boolean = selectedStrokes.isNotEmpty()
+    fun hasClipboard(): Boolean = clipboard.isNotEmpty()
 
     fun clearSelection() {
         cancelTransform()
+        // make absolutely sure nothing stays hidden
+        for (s in selectedStrokes) s.hidden = false
         selectedStrokes.clear()
         selectedBounds = null
+        selectionInteractive = false
+        overlayActive = false
         clearMarquee()
         invalidate()
     }
@@ -128,6 +158,8 @@ class InkCanvasView @JvmOverloads constructor(
 
         selectedStrokes.clear()
         selectedBounds = null
+        selectionInteractive = false
+        overlayActive = false
         rebuildCommitted()
         invalidate()
     }
@@ -162,22 +194,32 @@ class InkCanvasView @JvmOverloads constructor(
         strokes.addAll(copies)               // appended at top -> above old erasers
         selectedStrokes.addAll(copies)
         clipboardBounds?.let { selectedBounds = RectF(it).apply { offset(dx, dy) } }
+        selectionInteractive = true
 
         rebuildCommitted()
         invalidate()
         return true
     }
 
-    /** New behavior: arm tap‑to‑place paste; next stylus DOWN places the clipboard centered at the tap. */
     fun armPastePlacement(): Boolean {
         if (clipboard.isEmpty()) return false
         pasteArmed = true
+        // Place ghost in view center until stylus hover moves it
+        pastePreviewCx = width * 0.5f / max(1f, scaleFactor) - translationX / max(1f, scaleFactor)
+        pastePreviewCy = height * 0.5f / max(1f, scaleFactor) - translationY / max(1f, scaleFactor)
+        pastePreviewVisible = true
         invalidate()
         return true
     }
 
-    /** For enabling/disabling paste button in UI. */
-    fun hasClipboard(): Boolean = clipboard.isNotEmpty()
+
+    /** Optional: let the Activity cancel paste mode explicitly. */
+    fun cancelPastePlacement() {
+        if (pasteArmed) {
+            pasteArmed = false
+            invalidate()
+        }
+    }
 
     // ---- Save/restore (for rotation survival) ----
     fun serialize(): ByteArray {
@@ -223,6 +265,8 @@ class InkCanvasView @JvmOverloads constructor(
             cancelTransform()
             selectedStrokes.clear()
             selectedBounds = null
+            selectionInteractive = false
+            overlayActive = false
             clearMarquee()
             rebuildCommitted()
             invalidate()
@@ -234,7 +278,8 @@ class InkCanvasView @JvmOverloads constructor(
     data class Point(val x: Float, val y: Float)
     private data class ErasedEntry(val index: Int, val stroke: StrokeOp)
 
-    private data class StrokeOp(
+    /** NOTE: regular class (identity equality). */
+    private class StrokeOp(
         val type: BrushType,
         var color: Int,
         var baseWidth: Float,
@@ -299,6 +344,10 @@ class InkCanvasView @JvmOverloads constructor(
     private enum class SelTool { NONE, LASSO, RECT }
     private var selectionTool: SelTool = SelTool.NONE
     private var selectionSticky: Boolean = true
+
+    /** Only interactive when selection tool is armed (or we intentionally enable it after paste). */
+    private var selectionInteractive: Boolean = false
+
     private var selectionPolicy: SelectionPolicy = SelectionPolicy.STROKE_WISE
 
     // marquee during drag
@@ -362,15 +411,49 @@ class InkCanvasView @JvmOverloads constructor(
     private val handleSizeDp = 14f
     private val handleTouchPadDp = 18f
 
-    // Paste “tap‑to‑place”
-    private var pasteArmed = false
+    // --- Paste "ghost" preview ---
+    private var pasteArmed = false         // (you already have this)
+    private var pastePreviewVisible = false
+    private var pastePreviewCx = 0f
+    private var pastePreviewCy = 0f
+    private val ghostStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0xFF000000.toInt()
+        strokeWidth = dpToPx(1.5f)
+        pathEffect = DashPathEffect(floatArrayOf(8f, 8f), 0f)
+    }
+    private val ghostInk = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0x88000000.toInt()
+        strokeWidth = dpToPx(1.5f)
+    }
+    private val ghostFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = 0x33FFFFFF
+    }
+
     private val clipboard = mutableListOf<StrokeOp>()
     private var clipboardBounds: RectF? = null
 
-    // *** NEW: Suppress eraser replay while transforming selection (to avoid “ghost holes”) ***
-    private var suppressEraserDuringTransform = false
+    // Transform‑time overlay
+    private var overlayActive = false
 
     // ===== View lifecycle =====
+
+    override fun onHoverEvent(event: MotionEvent): Boolean {
+        if (pasteArmed && isStylus(event, event.actionIndex)) {
+            if (event.action == MotionEvent.ACTION_HOVER_MOVE) {
+                val (cx, cy) = toContent(event.x, event.y)
+                pastePreviewCx = cx
+                pastePreviewCy = cy
+                pastePreviewVisible = true
+                invalidate()
+                return true
+            }
+        }
+        return super.onHoverEvent(event)
+    }
+
 
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
@@ -393,11 +476,16 @@ class InkCanvasView @JvmOverloads constructor(
             translate(translationX, translationY)
             scale(scaleFactor, scaleFactor)
 
-            // draw layers
+            // base layers
             committedHL?.let { drawBitmap(it, 0f, 0f, null) }
             scratchHL?.let { drawBitmap(it, 0f, 0f, null) }
             committedInk?.let { drawBitmap(it, 0f, 0f, null) }
             scratchInk?.let { drawBitmap(it, 0f, 0f, null) }
+
+            // overlay (moving selection on top of everything)
+            if (overlayActive && selectedStrokes.isNotEmpty()) {
+                drawSelectionOverlay(this)
+            }
 
             // marquee
             marqueePath?.let { path ->
@@ -405,12 +493,14 @@ class InkCanvasView @JvmOverloads constructor(
                 drawPath(path, marqueeOutline)
             }
 
-            // selection overlay & handles
+            // selection overlay & handles (visuals)
             if (selectedStrokes.isNotEmpty()) {
                 drawSelectionHighlights(this)
                 selectedBounds?.let { r ->
                     drawRect(r, selectionOutline)
-                    drawHandles(this, r)
+                    if (selectionInteractive) {
+                        drawHandles(this, r)
+                    }
                 }
             }
         }
@@ -426,16 +516,20 @@ class InkCanvasView @JvmOverloads constructor(
                 if (isStylus(event, event.actionIndex)) {
                     val (cx, cy) = toContent(event.getX(event.actionIndex), event.getY(event.actionIndex))
 
-                    // 0) Paste tap‑to‑place?
+                    // Paste tap‑to‑place? Place and immediately enter a translate transform for one-gesture placement.
                     if (pasteArmed && clipboard.isNotEmpty()) {
                         performPasteAt(cx, cy)
                         pasteArmed = false
-                        activePointerId = -1
+
+                        // Start moving right away with the same pointer stream
+                        beginTransform(Handle.INSIDE, cx, cy)
+                        transforming = true
+                        activePointerId = event.getPointerId(event.actionIndex)
                         return true
                     }
 
-                    // 1) If there's an active selection, prefer transform if down is inside/handle.
-                    if (selectedStrokes.isNotEmpty()) {
+                    // Transform if selection exists and is interactive
+                    if (selectedStrokes.isNotEmpty() && selectionInteractive) {
                         val h = detectHandle(cx, cy)
                         val inside = selectedBounds?.contains(cx, cy) == true
                         if (h != Handle.NONE || inside) {
@@ -449,7 +543,7 @@ class InkCanvasView @JvmOverloads constructor(
                         }
                     }
 
-                    // 2) If a select tool is armed, begin marquee; otherwise draw/erase.
+                    // If a select tool is armed, begin marquee; otherwise draw/erase.
                     if (selectionTool != SelTool.NONE) {
                         startSelection(event, event.actionIndex)
                     } else {
@@ -463,6 +557,9 @@ class InkCanvasView @JvmOverloads constructor(
                 }
             }
             MotionEvent.ACTION_POINTER_DOWN -> {
+                // Any two-finger gesture cancels an armed paste to avoid accidental placements.
+                if (event.pointerCount >= 2 && pasteArmed) pasteArmed = false
+
                 drawing = false
                 selectingGesture = false
                 transforming = false
@@ -493,7 +590,7 @@ class InkCanvasView @JvmOverloads constructor(
                         if (idx != -1) {
                             val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
                             updateTransform(cx, cy)
-                            rebuildCommitted()
+                            // No rebuild here; we draw overlay on top
                             invalidate()
                         }
                     }
@@ -651,6 +748,7 @@ class InkCanvasView @JvmOverloads constructor(
             }
         }
         selectedBounds = computeSelectionBounds()
+        selectionInteractive = true  // remains interactive while selection tool is armed (or after paste)
     }
 
     // ===== Transform (drag/scale) =====
@@ -665,26 +763,25 @@ class InkCanvasView @JvmOverloads constructor(
         for (s in selectedStrokes) {
             savedPoints[s] = s.points.map { Point(it.x, it.y) }
             savedBaseWidth[s] = s.baseWidth
+            s.hidden = true           // hide from base while dragging
         }
 
-        when (handle) {
-            Handle.INSIDE -> {
-                transformKind = TransformKind.TRANSLATE
-                transformAnchorX = 0f; transformAnchorY = 0f
-            }
-            Handle.N -> { transformKind = TransformKind.SCALE_Y; transformAnchorX = r.centerX(); transformAnchorY = r.bottom }
-            Handle.S -> { transformKind = TransformKind.SCALE_Y; transformAnchorX = r.centerX(); transformAnchorY = r.top }
-            Handle.W -> { transformKind = TransformKind.SCALE_X; transformAnchorX = r.right;  transformAnchorY = r.centerY() }
-            Handle.E -> { transformKind = TransformKind.SCALE_X; transformAnchorX = r.left;   transformAnchorY = r.centerY() }
-            Handle.NW -> { transformKind = TransformKind.SCALE_UNIFORM; transformAnchorX = r.right; transformAnchorY = r.bottom }
-            Handle.NE -> { transformKind = TransformKind.SCALE_UNIFORM; transformAnchorX = r.left;  transformAnchorY = r.bottom }
-            Handle.SW -> { transformKind = TransformKind.SCALE_UNIFORM; transformAnchorX = r.right; transformAnchorY = r.top }
-            Handle.SE -> { transformKind = TransformKind.SCALE_UNIFORM; transformAnchorX = r.left;  transformAnchorY = r.top }
-            else -> {}
+        transformKind = when (handle) {
+            Handle.INSIDE -> { transformAnchorX = 0f; transformAnchorY = 0f; TransformKind.TRANSLATE }
+            Handle.N      -> { transformAnchorX = r.centerX(); transformAnchorY = r.bottom; TransformKind.SCALE_Y }
+            Handle.S      -> { transformAnchorX = r.centerX(); transformAnchorY = r.top;    TransformKind.SCALE_Y }
+            Handle.W      -> { transformAnchorX = r.right;  transformAnchorY = r.centerY(); TransformKind.SCALE_X }
+            Handle.E      -> { transformAnchorX = r.left;   transformAnchorY = r.centerY(); TransformKind.SCALE_X }
+            Handle.NW     -> { transformAnchorX = r.right;  transformAnchorY = r.bottom;    TransformKind.SCALE_UNIFORM }
+            Handle.NE     -> { transformAnchorX = r.left;   transformAnchorY = r.bottom;    TransformKind.SCALE_UNIFORM }
+            Handle.SW     -> { transformAnchorX = r.right;  transformAnchorY = r.top;       TransformKind.SCALE_UNIFORM }
+            Handle.SE     -> { transformAnchorX = r.left;   transformAnchorY = r.top;       TransformKind.SCALE_UNIFORM }
+            else -> null
         }
 
-        // *** NEW: Do not replay area erasers while transforming (no ghost punch‑outs) ***
-        suppressEraserDuringTransform = true
+        overlayActive = true
+
+        // Build base ONCE (with all erasers applied) for correct background during drag
         rebuildCommitted()
         invalidate()
     }
@@ -744,11 +841,12 @@ class InkCanvasView @JvmOverloads constructor(
         savedPoints.clear()
         savedBaseWidth.clear()
 
-        // *** NEW: bring moved selection to the top so past erasers don’t punch through ***
+        // bring moved selection to the top so past erasers don’t punch through
         moveSelectionToTop()
 
-        // *** NEW: enable erasers again after the transform is done ***
-        suppressEraserDuringTransform = false
+        // unhide strokes and drop overlay
+        for (s in selectedStrokes) s.hidden = false
+        overlayActive = false
 
         rebuildCommitted()
         invalidate()
@@ -762,15 +860,13 @@ class InkCanvasView @JvmOverloads constructor(
             s.calligPath = null
             s.fountainPath = null
             savedBaseWidth[s]?.let { s.baseWidth = it }
+            s.hidden = false
         }
         transforming = false
         transformKind = null
         savedPoints.clear()
         savedBaseWidth.clear()
-
-        // *** NEW: ensure erasers are re‑enabled if we canceled a transform ***
-        suppressEraserDuringTransform = false
-
+        overlayActive = false
         rebuildCommitted()
         invalidate()
     }
@@ -861,7 +957,6 @@ class InkCanvasView @JvmOverloads constructor(
     private fun ensurePencilStamp(): Bitmap {
         var bmp = pencilStamp
         if (bmp != null && !bmp.isRecycled) return bmp
-
         val size = 64
         val rnd = FloatArray(size * size) { Random.nextFloat() }
         fun blur(src: FloatArray, w: Int, h: Int, r: Int): FloatArray {
@@ -990,11 +1085,9 @@ class InkCanvasView @JvmOverloads constructor(
     private fun buildCalligraphyPath(op: StrokeOp): Path {
         workCalligPath.rewind()
         workCalligPath.fillType = Path.FillType.WINDING
-
         val step = max(0.33f * op.baseWidth, 0.9f)
         val pts = resample(op.points, step)
         if (pts.size < 2) return workCalligPath
-
         fun rawDirAt(i: Int): Float = when (i) {
             0 -> atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x)
             pts.lastIndex -> atan2(pts[i].y - pts[i - 1].y, pts[i].x - pts[i - 1].x)
@@ -1009,10 +1102,8 @@ class InkCanvasView @JvmOverloads constructor(
             dirLPF += d * 0.35f
             dirs[i] = dirLPF
         }
-
         val nx = -sin(nibAngleRad)
         val ny =  cos(nibAngleRad)
-
         var hasAccum = false
         for (i in 1 until pts.size) {
             val p0 = pts[i - 1]
@@ -1021,7 +1112,6 @@ class InkCanvasView @JvmOverloads constructor(
             val w1 = calligWidth(op, dirs[i])
             val hw0 = max(0.5f, 0.5f * w0)
             val hw1 = max(0.5f, 0.5f * w1)
-
             val l0x = p0.x + nx * hw0
             val l0y = p0.y + ny * hw0
             val r0x = p0.x - nx * hw0
@@ -1030,14 +1120,12 @@ class InkCanvasView @JvmOverloads constructor(
             val l1y = p1.y + ny * hw1
             val r1x = p1.x - nx * hw1
             val r1y = p1.y - ny * hw1
-
             segPath.rewind()
             segPath.moveTo(l0x, l0y)
             segPath.lineTo(l1x, l1y)
             segPath.lineTo(r1x, r1y)
             segPath.lineTo(r0x, r0y)
             segPath.close()
-
             if (!hasAccum) {
                 workCalligPath.set(segPath)
             } else {
@@ -1054,11 +1142,9 @@ class InkCanvasView @JvmOverloads constructor(
     private fun buildFountainPath(op: StrokeOp): Path {
         workCalligPath.rewind()
         workCalligPath.fillType = Path.FillType.WINDING
-
         val step = max(0.33f * op.baseWidth, 0.9f)
         val pts = resample(op.points, step)
         if (pts.size < 2) return workCalligPath
-
         fun rawDirAt(i: Int): Float = when (i) {
             0 -> atan2(pts[1].y - pts[0].y, pts[1].x - pts[0].x)
             pts.lastIndex -> atan2(pts[i].y - pts[i - 1].y, pts[i].x - pts[i - 1].x)
@@ -1073,17 +1159,13 @@ class InkCanvasView @JvmOverloads constructor(
             dirLPF += d * 0.35f
             dirs[i] = dirLPF
         }
-
         val halfW = max(0.5f, 0.5f * op.baseWidth)
-
         var hasAccum = false
         for (i in 1 until pts.size) {
             val p0 = pts[i - 1]
             val p1 = pts[i]
-
             val n0x = -sin(dirs[i - 1]); val n0y = cos(dirs[i - 1])
             val n1x = -sin(dirs[i]);     val n1y = cos(dirs[i])
-
             val l0x = p0.x + n0x * halfW
             val l0y = p0.y + n0y * halfW
             val r0x = p0.x - n0x * halfW
@@ -1092,14 +1174,12 @@ class InkCanvasView @JvmOverloads constructor(
             val l1y = p1.y + n1y * halfW
             val r1x = p1.x - n1x * halfW
             val r1y = p1.y - n1y * halfW
-
             segPath.rewind()
             segPath.moveTo(l0x, l0y)
             segPath.lineTo(l1x, l1y)
             segPath.lineTo(r1x, r1y)
             segPath.lineTo(r0x, r0y)
             segPath.close()
-
             if (!hasAccum) {
                 workCalligPath.set(segPath)
             } else {
@@ -1227,9 +1307,6 @@ class InkCanvasView @JvmOverloads constructor(
                     }
                 }
                 BrushType.ERASER_AREA -> {
-                    // *** NEW: skip area erasers during transform preview to avoid ghost holes ***
-                    if (suppressEraserDuringTransform) continue
-
                     val pts = op.points
                     if (pts.size < 2) continue
                     val half = op.baseWidth * 0.5f
@@ -1248,7 +1325,69 @@ class InkCanvasView @JvmOverloads constructor(
                         }
                     }
                 }
-                BrushType.ERASER_STROKE -> { /* already materialized when created */ }
+                BrushType.ERASER_STROKE -> { /* no-op on rebuild; already applied */ }
+            }
+        }
+    }
+
+    // ===== Selection overlay drawing =====
+
+    private fun drawSelectionOverlay(canvas: Canvas) {
+        // 1) highlighters first (to mirror base layering)
+        for (s in selectedStrokes) {
+            when (s.type) {
+                BrushType.HIGHLIGHTER_FREEFORM -> {
+                    val pts = s.points
+                    if (pts.size < 2) continue
+                    val p = newStrokePaint(s.color, s.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
+                    for (i in 1 until pts.size) canvas.drawLine(pts[i-1].x, pts[i-1].y, pts[i].x, pts[i].y, p)
+                }
+                BrushType.HIGHLIGHTER_STRAIGHT -> {
+                    val pts = s.points
+                    if (pts.size < 2) continue
+                    val p = newStrokePaint(s.color, s.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
+                    canvas.drawLine(pts.first().x, pts.first().y, pts.last().x, pts.last().y, p)
+                }
+                else -> {}
+            }
+        }
+        // 2) ink types on top
+        for (s in selectedStrokes) {
+            when (s.type) {
+                BrushType.CALLIGRAPHY -> {
+                    val path = s.calligPath ?: Path(buildCalligraphyPath(s)).also { s.calligPath = it }
+                    canvas.drawPath(path, fillPaint(s.color))
+                }
+                BrushType.FOUNTAIN -> {
+                    val path = s.fountainPath ?: Path(buildFountainPath(s)).also { s.fountainPath = it }
+                    canvas.drawPath(path, fillPaint(s.color))
+                }
+                BrushType.PEN -> {
+                    val pts = s.points
+                    if (pts.size < 2) continue
+                    val p = newStrokePaint(s.color, s.baseWidth)
+                    for (i in 1 until pts.size) canvas.drawLine(pts[i-1].x, pts[i-1].y, pts[i].x, pts[i].y, p)
+                }
+                BrushType.MARKER -> {
+                    val pts = s.points
+                    if (pts.size < 2) continue
+                    markerPaint.color = s.color
+                    markerPaint.strokeWidth = s.baseWidth * 1.30f
+                    markerPaint.maskFilter = BlurMaskFilter(s.baseWidth * 0.22f, BlurMaskFilter.Blur.NORMAL)
+                    for (i in 1 until pts.size) canvas.drawLine(pts[i-1].x, pts[i-1].y, pts[i].x, pts[i].y, markerPaint)
+                }
+                BrushType.PENCIL -> {
+                    val pts = s.points
+                    if (pts.size < 2) continue
+                    for (i in 1 until pts.size) {
+                        val a = pts[i - 1]; val b = pts[i]
+                        val dist = hypot((b.x - a.x).toDouble(), (b.y - a.y).toDouble()).toFloat()
+
+                        drawPencilSegment(canvas, a.x, a.y, b.x, b.y, s, dist)
+                    }
+                }
+                BrushType.ERASER_AREA, BrushType.ERASER_STROKE -> { /* never selected */ }
+                BrushType.HIGHLIGHTER_FREEFORM, BrushType.HIGHLIGHTER_STRAIGHT -> {} // already drawn
             }
         }
     }
@@ -1531,8 +1670,6 @@ class InkCanvasView @JvmOverloads constructor(
         }
     }
 
-    // ===== Helpers added for previous compiler errors =====
-
     private fun cancelActiveOps() {
         when {
             drawing -> finishStroke()
@@ -1563,6 +1700,7 @@ class InkCanvasView @JvmOverloads constructor(
         val op = current ?: return
         val sx = lastX
         val sy = lastY
+
         val dx = x - sx
         val dy = y - sy
         val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
@@ -1571,7 +1709,6 @@ class InkCanvasView @JvmOverloads constructor(
         op.points.add(Point(x, y))
 
         when (op.type) {
-            // ========== Highlighter ==========
             BrushType.HIGHLIGHTER_FREEFORM -> {
                 val c = scratchCanvasHL ?: return
                 val p = newStrokePaint(op.color, op.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
@@ -1584,8 +1721,6 @@ class InkCanvasView @JvmOverloads constructor(
                 val a = op.points.first()
                 c.drawLine(a.x, a.y, x, y, p)
             }
-
-            // ========== Eraser: AREA ==========
             BrushType.ERASER_AREA -> {
                 val clearInk = !eraserHLOnly
                 val half = op.baseWidth * 0.5f
@@ -1600,8 +1735,6 @@ class InkCanvasView @JvmOverloads constructor(
                     ch?.drawCircle(px, py, half, clearPaint)
                 }
             }
-
-            // ========== Eraser: STROKE ==========
             BrushType.ERASER_STROKE -> {
                 val radius = max(6f, op.baseWidth * 0.5f)
                 val hlOnly = eraserHLOnly
@@ -1621,8 +1754,6 @@ class InkCanvasView @JvmOverloads constructor(
                 }
                 if (removedOne) rebuildCommitted()
             }
-
-            // ========== Ink tools ==========
             BrushType.CALLIGRAPHY -> {
                 val c = scratchCanvasInk ?: return
                 c.drawPath(buildCalligraphyPath(op), fillPaint(op.color))
@@ -1690,6 +1821,7 @@ class InkCanvasView @JvmOverloads constructor(
         strokes.addAll(copies) // pasted to top
         selectedStrokes.addAll(copies)
         selectedBounds = RectF(src).apply { offset(dx, dy) }
+        selectionInteractive = true
 
         rebuildCommitted()
         invalidate()
@@ -1720,18 +1852,15 @@ class InkCanvasView @JvmOverloads constructor(
         s.fountainPath = null
     }
 
-    // *** NEW: after moving/resizing, bring selected strokes to the top to avoid past erasers ***
     private fun moveSelectionToTop() {
         if (selectedStrokes.isEmpty()) return
         val ordered = strokes.filter { selectedStrokes.contains(it) }
         if (ordered.isEmpty()) return
-        // remove by identity
         val set = selectedStrokes
         val it = strokes.iterator()
         while (it.hasNext()) {
             if (set.contains(it.next())) it.remove()
         }
-        // append at end (preserve relative order)
         strokes.addAll(ordered)
     }
 }

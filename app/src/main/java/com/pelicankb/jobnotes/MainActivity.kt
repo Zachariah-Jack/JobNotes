@@ -30,12 +30,23 @@ class MainActivity : AppCompatActivity() {
     private lateinit var panelKeyboard: View
     private lateinit var groupPenChips: View
 
-    // ───────── Title ─────────
-    private lateinit var noteTitle: EditText
+    // ───────── Title UI ─────────
+    private lateinit var titleDisplay: TextView
+    private lateinit var titleEdit: EditText
+    private lateinit var btnTitleEdit: ImageButton
+
+    // ───────── Toolbar buttons for active-state visuals ─────────
+    private lateinit var btnStylus: ImageButton
+    private lateinit var btnHighlighter: ImageButton
+    private lateinit var btnEraser: ImageButton
+    private lateinit var btnSelectRect: ImageButton
 
     // ───────── Top-level tool family ─────────
     private enum class ToolFamily { PEN_FAMILY, HIGHLIGHTER, ERASER }
     private var toolFamily: ToolFamily = ToolFamily.PEN_FAMILY
+
+    // Separate selection "armed" flag to color the select button
+    private var selectionArmed: Boolean = false
 
     // ───────── Pen family (Stylus) state ─────────
     private enum class BrushTypeLocal { FOUNTAIN, CALLIGRAPHY, PEN, PENCIL, MARKER }
@@ -83,16 +94,26 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         inkCanvas = findViewById(R.id.inkCanvas)
+        btnStylus = findViewById(R.id.btnStylus)
+        btnHighlighter = findViewById(R.id.btnHighlighter)
+        btnEraser = findViewById(R.id.btnEraser)
+        btnSelectRect = findViewById(R.id.btnSelectRect)
+
         panelPen = findViewById(R.id.panelPen)
         panelKeyboard = findViewById(R.id.panelKeyboard)
         groupPenChips = findViewById(R.id.groupPenChips)
-        noteTitle = findViewById(R.id.noteTitle)
+
+        titleDisplay = findViewById(R.id.noteTitleView)
+        titleEdit = findViewById(R.id.noteTitleEdit)
+        btnTitleEdit = findViewById(R.id.btnTitleEdit)
 
         chip1 = findViewById(R.id.chipColor1)
         chip2 = findViewById(R.id.chipColor2)
         chip3 = findViewById(R.id.chipColor3)
 
-        // Default: stylus pen, black color
+        // Canvas defaults
+        inkCanvas.isFocusableInTouchMode = true
+        inkCanvas.requestFocus()
         inkCanvas.setBrush(BrushType.PEN)
         inkCanvas.setStrokeWidthDp(brushSizeDp)
 
@@ -100,7 +121,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View?>(R.id.btnUndoPen)?.setOnClickListener { inkCanvas.undo() }
         findViewById<View?>(R.id.btnRedoPen)?.setOnClickListener { inkCanvas.redo() }
 
-        // NEW: right-side action buttons
+        // Right-side actions
         wireEditActions()
 
         // Show pen toolbar
@@ -109,23 +130,17 @@ class MainActivity : AppCompatActivity() {
         // Enlarge small touch targets
         findViewById<View>(R.id.btnKeyboardToggle).expandTouchTarget(12)
         findViewById<View>(R.id.btnPenToggle).expandTouchTarget(12)
+        btnTitleEdit.expandTouchTarget(12)
 
-        // Title behavior
-        noteTitle.setOnClickListener {
-            noteTitle.requestFocus()
-            noteTitle.selectAll()
-            showKeyboard(noteTitle)
-        }
-        noteTitle.setOnFocusChangeListener { v, hasFocus ->
-            if (hasFocus) noteTitle.post { noteTitle.selectAll() } else hideKeyboard(v)
-        }
-        noteTitle.setOnEditorActionListener { v, actionId, _ ->
+        // Title edit behavior (edit button only)
+        btnTitleEdit.setOnClickListener { enterTitleEditMode() }
+        titleEdit.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
-                hideKeyboard(v); v.clearFocus(); true
+                exitTitleEditMode(save = true); true
             } else false
         }
-        if (savedInstanceState == null && noteTitle.text.isNullOrBlank()) {
-            noteTitle.setText("Untitled")
+        if (savedInstanceState == null && titleDisplay.text.isNullOrBlank()) {
+            titleDisplay.text = "Untitled"
         }
 
         // Default chip colors
@@ -145,34 +160,50 @@ class MainActivity : AppCompatActivity() {
         penFamilyColor = currentPenColor()
 
         // Toolbar: Stylus
-        findViewById<View>(R.id.btnStylus).setOnClickListener { v ->
+        btnStylus.setOnClickListener { v ->
+            inkCanvas.setSelectionToolNone(keepSelection = true)
+            selectionArmed = false
+            selectPopup?.dismiss()
+
             toolFamily = ToolFamily.PEN_FAMILY
             applyPenFamilyBrush()
+            updateToolbarActiveStates()
+
             toggleStylusPopup(v)
         }
 
         // Toolbar: Highlighter
-        findViewById<View>(R.id.btnHighlighter).setOnClickListener { v ->
+        btnHighlighter.setOnClickListener { v ->
+            inkCanvas.setSelectionToolNone(keepSelection = true)
+            selectionArmed = false
+            selectPopup?.dismiss()
+
             toolFamily = ToolFamily.HIGHLIGHTER
             applyHighlighterBrush()
+            updateToolbarActiveStates()
+
             toggleHighlighterPopup(v)
         }
 
         // Toolbar: Eraser
-        findViewById<View>(R.id.btnEraser).setOnClickListener { v ->
+        btnEraser.setOnClickListener { v ->
+            inkCanvas.setSelectionToolNone(keepSelection = true)
+            selectionArmed = false
+            selectPopup?.dismiss()
+
             toolFamily = ToolFamily.ERASER
-            val brush = if (eraserMode == EraserMode.AREA)
-                BrushType.ERASER_AREA else BrushType.ERASER_STROKE
-            inkCanvas.setBrush(brush)
-            inkCanvas.setStrokeWidthDp(eraserSizeDp)
-            inkCanvas.setEraserHighlighterOnly(eraseHighlighterOnly)
+            applyEraserBrush()
+            updateToolbarActiveStates()
+
             toggleEraserPopup(v)
         }
 
         // Selection popup (lasso/rect + mode)
-        findViewById<View>(R.id.btnSelectRect).setOnClickListener { v ->
+        btnSelectRect.setOnClickListener { v ->
             toggleSelectPopup(v)
         }
+
+        updateToolbarActiveStates()
     }
 
     private fun wireEditActions() {
@@ -182,6 +213,7 @@ class MainActivity : AppCompatActivity() {
             } else {
                 Toast.makeText(this, "Nothing selected to clear", Toast.LENGTH_SHORT).show()
             }
+            inkCanvas.requestFocus()
         }
         findViewById<View?>(R.id.btnCopy)?.setOnClickListener {
             if (inkCanvas.hasSelection()) {
@@ -190,25 +222,25 @@ class MainActivity : AppCompatActivity() {
             } else {
                 Toast.makeText(this, "Nothing selected to copy", Toast.LENGTH_SHORT).show()
             }
+            inkCanvas.requestFocus()
         }
         findViewById<View?>(R.id.btnCut)?.setOnClickListener {
             if (inkCanvas.hasSelection()) {
                 val ok = inkCanvas.cutSelection()
                 if (!ok) Toast.makeText(this, "Cut failed", Toast.LENGTH_SHORT).show()
-                // if ok, selection is removed immediately (as requested)
             } else {
                 Toast.makeText(this, "Nothing selected to cut", Toast.LENGTH_SHORT).show()
             }
+            inkCanvas.requestFocus()
         }
         findViewById<View?>(R.id.btnPaste)?.setOnClickListener {
             if (inkCanvas.hasClipboard()) {
                 val armed = inkCanvas.armPastePlacement()
-                if (armed) {
-                    Toast.makeText(this, "Tap on canvas to place paste", Toast.LENGTH_SHORT).show()
-                }
+                if (armed) Toast.makeText(this, "Tap on canvas to place paste", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(this, "Clipboard empty", Toast.LENGTH_SHORT).show()
             }
+            inkCanvas.requestFocus()
         }
     }
 
@@ -341,6 +373,7 @@ class MainActivity : AppCompatActivity() {
                     if (toolFamily == ToolFamily.PEN_FAMILY) inkCanvas.setColor(tempColor)
                 }
                 d.dismiss()
+                inkCanvas.requestFocus()
             }
             .show()
     }
@@ -365,7 +398,7 @@ class MainActivity : AppCompatActivity() {
         stylusPopup = createStylusMenuPopup().also { popup ->
             popup.isOutsideTouchable = true
             popup.isFocusable = true
-            popup.showAsDropDown(anchor, 0, 8.dp())
+            showPopupAnchoredWithinScreen(popup, anchor)
         }
     }
 
@@ -409,6 +442,9 @@ class MainActivity : AppCompatActivity() {
             setBrushSelectionUI(brushType)
             preview.setSample(brushType.name, sizeSlider.progress.dp().toFloat())
             applyPenFamilyBrush()
+
+            stylusPopup?.dismiss()
+            inkCanvas.requestFocus()
         }
         btnFountain.setOnClickListener(onBrushClick)
         btnCallig.setOnClickListener(onBrushClick)
@@ -426,17 +462,20 @@ class MainActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
                 brushSizeDp = (seekBar?.progress ?: brushSizeDp.toInt()).toFloat().coerceIn(1f, 60f)
                 if (toolFamily == ToolFamily.PEN_FAMILY) inkCanvas.setStrokeWidthDp(brushSizeDp)
+                stylusPopup?.dismiss()
+                inkCanvas.requestFocus()
             }
         })
 
-        return PopupWindow(content,
+        return PopupWindow(
+            content,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             true
         ).apply {
             setBackgroundDrawable(ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card_popup))
             elevation = 8f
-            setOnDismissListener { stylusPopup = null }
+            setOnDismissListener { stylusPopup = null; inkCanvas.requestFocus() }
         }
     }
 
@@ -453,6 +492,7 @@ class MainActivity : AppCompatActivity() {
             }
         )
         inkCanvas.setColor(currentPenColor())
+        updateToolbarActiveStates()
     }
 
     // ───────── Highlighter popup ─────────
@@ -461,7 +501,7 @@ class MainActivity : AppCompatActivity() {
         highlighterPopup = createHighlighterPopup().also { popup ->
             popup.isOutsideTouchable = true
             popup.isFocusable = true
-            popup.showAsDropDown(anchor, 0, 8.dp())
+            showPopupAnchoredWithinScreen(popup, anchor)
         }
     }
 
@@ -493,6 +533,8 @@ class MainActivity : AppCompatActivity() {
                         BrushType.HIGHLIGHTER_STRAIGHT
                 )
             }
+            highlighterPopup?.dismiss()
+            inkCanvas.requestFocus()
         }
         iconFree.setOnClickListener(modeClick)
         iconLine.setOnClickListener(modeClick)
@@ -523,17 +565,20 @@ class MainActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
                 highlighterSizeDp = (seekBar?.progress ?: highlighterSizeDp.toInt()).toFloat().coerceIn(1f, 60f)
                 if (toolFamily == ToolFamily.HIGHLIGHTER) inkCanvas.setStrokeWidthDp(highlighterSizeDp)
+                highlighterPopup?.dismiss()
+                inkCanvas.requestFocus()
             }
         })
 
-        return PopupWindow(content,
+        return PopupWindow(
+            content,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             true
         ).apply {
             setBackgroundDrawable(ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card_popup))
             elevation = 8f
-            setOnDismissListener { highlighterPopup = null }
+            setOnDismissListener { highlighterPopup = null; inkCanvas.requestFocus() }
         }
     }
 
@@ -546,6 +591,7 @@ class MainActivity : AppCompatActivity() {
         )
         inkCanvas.setStrokeWidthDp(highlighterSizeDp)
         inkCanvas.setColor(highlighterColor)
+        updateToolbarActiveStates()
     }
 
     // ───────── Eraser popup ─────────
@@ -554,7 +600,7 @@ class MainActivity : AppCompatActivity() {
         eraserPopup = createEraserPopup().also { p ->
             p.isOutsideTouchable = true
             p.isFocusable = true
-            p.showAsDropDown(anchor, 0, 8.dp())
+            showPopupAnchoredWithinScreen(p, anchor)
         }
     }
 
@@ -582,6 +628,8 @@ class MainActivity : AppCompatActivity() {
                     if (eraserMode == EraserMode.AREA) BrushType.ERASER_AREA else BrushType.ERASER_STROKE
                 )
             }
+            eraserPopup?.dismiss()
+            inkCanvas.requestFocus()
         }
         btnStroke.setOnClickListener(onModeClick)
         btnArea.setOnClickListener(onModeClick)
@@ -601,6 +649,8 @@ class MainActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
                 eraserSizeDp = (seekBar?.progress ?: eraserSizeDp.toInt()).toFloat().coerceIn(1f, 100f)
                 if (toolFamily == ToolFamily.ERASER) inkCanvas.setStrokeWidthDp(eraserSizeDp)
+                eraserPopup?.dismiss()
+                inkCanvas.requestFocus()
             }
         })
 
@@ -610,24 +660,25 @@ class MainActivity : AppCompatActivity() {
             inkCanvas.setEraserHighlighterOnly(eraseHighlighterOnly)
         }
 
-        return PopupWindow(content,
+        return PopupWindow(
+            content,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             true
         ).apply {
             setBackgroundDrawable(ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card_popup))
             elevation = 8f
-            setOnDismissListener { eraserPopup = null }
+            setOnDismissListener { eraserPopup = null; inkCanvas.requestFocus() }
         }
     }
 
-    // ───────── Selection popup (correct icons + mode toggle) ─────────
+    // ───────── Selection popup (lasso/rect + mode toggle) ─────────
     private fun toggleSelectPopup(anchor: View) {
         selectPopup?.let { if (it.isShowing) { it.dismiss(); selectPopup = null; return } }
         selectPopup = createSelectPopup().also { p ->
             p.isOutsideTouchable = true
             p.isFocusable = true
-            p.showAsDropDown(anchor, 0, 8.dp())
+            showPopupAnchoredWithinScreen(p, anchor)
         }
     }
 
@@ -646,12 +697,20 @@ class MainActivity : AppCompatActivity() {
 
         iconLasso.setOnClickListener {
             setToolUI("lasso")
+            selectionArmed = true
             inkCanvas.enterSelectionLasso()
+            updateToolbarActiveStates()
+            selectPopup?.dismiss()
+            inkCanvas.requestFocus()
             Toast.makeText(this, "Lasso: draw to select. Tap elsewhere to start a new selection.", Toast.LENGTH_SHORT).show()
         }
         iconRect.setOnClickListener {
             setToolUI("rect")
+            selectionArmed = true
             inkCanvas.enterSelectionRect()
+            updateToolbarActiveStates()
+            selectPopup?.dismiss()
+            inkCanvas.requestFocus()
             Toast.makeText(this, "Rect: drag to select. Tap elsewhere to start a new selection.", Toast.LENGTH_SHORT).show()
         }
 
@@ -670,7 +729,7 @@ class MainActivity : AppCompatActivity() {
         ).apply {
             setBackgroundDrawable(ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card_popup))
             elevation = 8f
-            setOnDismissListener { selectPopup = null }
+            setOnDismissListener { selectPopup = null; inkCanvas.requestFocus() }
         }
     }
 
@@ -683,6 +742,11 @@ class MainActivity : AppCompatActivity() {
         inkCanvas.setEraserHighlighterOnly(eraseHighlighterOnly)
     }
 
+    private fun showKeyboardForced(target: View) {
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        target.post { target.requestFocus(); imm.showSoftInput(target, InputMethodManager.SHOW_FORCED) }
+    }
+
     private fun showKeyboard(target: View) {
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         target.post { target.requestFocus(); imm.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT) }
@@ -693,18 +757,67 @@ class MainActivity : AppCompatActivity() {
         imm.hideSoftInputFromWindow(target.windowToken, 0)
     }
 
+    private fun enterTitleEditMode() {
+        titleEdit.setText(titleDisplay.text)
+        titleDisplay.visibility = View.GONE
+        titleEdit.visibility = View.VISIBLE
+        titleEdit.requestFocus()
+        titleEdit.setSelection(titleEdit.text.length)
+        showKeyboardForced(titleEdit)
+    }
+
+    private fun exitTitleEditMode(save: Boolean) {
+        if (save) titleDisplay.text = titleEdit.text
+        titleEdit.visibility = View.GONE
+        titleDisplay.visibility = View.VISIBLE
+        hideKeyboard(titleEdit)
+        inkCanvas.requestFocus()
+    }
+
+    private fun updateToolbarActiveStates() {
+        btnStylus.isSelected = (toolFamily == ToolFamily.PEN_FAMILY) && !selectionArmed
+        btnHighlighter.isSelected = (toolFamily == ToolFamily.HIGHLIGHTER) && !selectionArmed
+        btnEraser.isSelected = (toolFamily == ToolFamily.ERASER) && !selectionArmed
+        btnSelectRect.isSelected = selectionArmed
+    }
+
+    private fun showPopupAnchoredWithinScreen(popup: PopupWindow, anchor: View, yOffDp: Int = 8) {
+        // Measure content
+        val content = popup.contentView
+        content.measure(
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        )
+        val popupW = content.measuredWidth
+
+        // Screen frame
+        val frame = Rect()
+        anchor.getWindowVisibleDisplayFrame(frame)
+
+        // Anchor x
+        val loc = IntArray(2)
+        anchor.getLocationOnScreen(loc)
+        val anchorX = loc[0]
+
+        var xOff = 0
+        val margin = 8.dp()
+        if (anchorX + popupW + margin > frame.right) {
+            xOff = frame.right - (anchorX + popupW) - margin
+        }
+        popup.showAsDropDown(anchor, xOff, yOffDp.dp())
+    }
+
     private fun Int.dp(): Int = (this * resources.displayMetrics.density).toInt()
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         val handled = super.dispatchTouchEvent(ev)
         if (ev.action == MotionEvent.ACTION_DOWN) {
-            val v = currentFocus
-            if (v is EditText) {
+            // Close title editor if user taps away
+            if (titleEdit.visibility == View.VISIBLE) {
                 val outRect = Rect()
-                v.getGlobalVisibleRect(outRect)
+                titleEdit.getGlobalVisibleRect(outRect)
                 if (!outRect.contains(ev.rawX.toInt(), ev.rawY.toInt())) {
-                    v.clearFocus()
-                    hideKeyboard(v)
+                    exitTitleEditMode(save = true)
                 }
             }
         }
