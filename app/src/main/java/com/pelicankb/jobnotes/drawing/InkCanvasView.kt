@@ -328,6 +328,10 @@ class InkCanvasView @JvmOverloads constructor(
     private var translationY = 0f
     private var lastPanFocusX = 0f
     private var lastPanFocusY = 0f
+    // Pan "hand" mode: stylus DOWN pans instead of drawing/selection
+    private var panMode = false
+    fun setPanMode(enable: Boolean) { panMode = enable }
+
 
     // Input state
     private var drawing = false              // ink/eraser stroke
@@ -482,6 +486,12 @@ class InkCanvasView @JvmOverloads constructor(
             committedInk?.let { drawBitmap(it, 0f, 0f, null) }
             scratchInk?.let { drawBitmap(it, 0f, 0f, null) }
 
+            // --- ghost paste preview (before overlays) ---
+            if (pasteArmed && pastePreviewVisible && clipboard.isNotEmpty()) {
+                drawClipboardGhost(this, pastePreviewCx, pastePreviewCy)
+            }
+
+
             // overlay (moving selection on top of everything)
             if (overlayActive && selectedStrokes.isNotEmpty()) {
                 drawSelectionOverlay(this)
@@ -514,6 +524,14 @@ class InkCanvasView @JvmOverloads constructor(
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 if (isStylus(event, event.actionIndex)) {
+                    if (panMode) {
+                        activePointerId = event.getPointerId(event.actionIndex)
+                        lastPanFocusX = event.getX(event.actionIndex)
+                        lastPanFocusY = event.getY(event.actionIndex)
+                        drawing = false; selectingGesture = false; transforming = false
+                        return true
+                    }
+
                     val (cx, cy) = toContent(event.getX(event.actionIndex), event.getY(event.actionIndex))
 
                     // Paste tap‑to‑place? Place and immediately enter a translate transform for one-gesture placement.
@@ -594,7 +612,18 @@ class InkCanvasView @JvmOverloads constructor(
                             invalidate()
                         }
                     }
-                    event.pointerCount >= 2 -> {
+                    else if (panMode && activePointerId != -1) {
+                        val idx = event.findPointerIndex(activePointerId)
+                        if (idx != -1) {
+                            val x = event.getX(idx); val y = event.getY(idx)
+                            translationX += (x - lastPanFocusX)
+                            translationY += (y - lastPanFocusY)
+                            lastPanFocusX = x; lastPanFocusY = y
+                            invalidate()
+                        }
+                    }
+
+                        event.pointerCount >= 2 -> {
                         val fx = averageX(event)
                         val fy = averageY(event)
                         translationX += fx - lastPanFocusX
@@ -615,6 +644,8 @@ class InkCanvasView @JvmOverloads constructor(
                 }
             }
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (panMode) { activePointerId = -1 }
+
                 when {
                     selectingGesture -> finishSelection()
                     transforming -> finishTransform()
@@ -847,6 +878,27 @@ class InkCanvasView @JvmOverloads constructor(
         // unhide strokes and drop overlay
         for (s in selectedStrokes) s.hidden = false
         overlayActive = false
+        // Clamp selection within the visible canvas bounds
+        selectedBounds?.let { r ->
+            var dx = 0f; var dy = 0f
+            if (r.left < 0f) dx = -r.left
+            if (r.right > width) dx = min(dx, width - r.right)
+            if (r.top < 0f) dy = -r.top
+            if (r.bottom > height) dy = min(dy, height - r.bottom)
+            if (dx != 0f || dy != 0f) {
+                // Offset current points directly (not via savedPoints)
+                for (s in selectedStrokes) {
+                    for (i in s.points.indices) {
+                        val p = s.points[i]
+                        s.points[i] = Point(p.x + dx, p.y + dy)
+                    }
+                    s.calligPath = null
+                    s.fountainPath = null
+                }
+                selectedBounds?.offset(dx, dy)
+            }
+        }
+
 
         rebuildCommitted()
         invalidate()
@@ -1329,6 +1381,72 @@ class InkCanvasView @JvmOverloads constructor(
             }
         }
     }
+
+    // --- ghost paste preview renderer ---
+    private fun drawClipboardGhost(canvas: Canvas, cx: Float, cy: Float) {
+        val src = clipboardBounds ?: return
+        val dx = cx - src.centerX()
+        val dy = cy - src.centerY()
+
+        // 1) highlighters first (semi-transparent)
+        for (s in clipboard) {
+            when (s.type) {
+                BrushType.HIGHLIGHTER_FREEFORM -> {
+                    val pts = s.points; if (pts.size < 2) continue
+                    val p = newStrokePaint(s.color, s.baseWidth).apply {
+                        strokeCap = Paint.Cap.SQUARE
+                        alpha = 120
+                    }
+                    for (i in 1 until pts.size) {
+                        val a = pts[i - 1]; val b = pts[i]
+                        canvas.drawLine(a.x + dx, a.y + dy, b.x + dx, b.y + dy, p)
+                    }
+                }
+                BrushType.HIGHLIGHTER_STRAIGHT -> {
+                    val pts = s.points; if (pts.size < 2) continue
+                    val p = newStrokePaint(s.color, s.baseWidth).apply {
+                        strokeCap = Paint.Cap.SQUARE
+                        alpha = 120
+                    }
+                    canvas.drawLine(pts.first().x + dx, pts.first().y + dy, pts.last().x + dx, pts.last().y + dy, p)
+                }
+                else -> {}
+            }
+        }
+        // 2) ink types on top (semi-transparent)
+        for (s in clipboard) {
+            when (s.type) {
+                BrushType.CALLIGRAPHY -> {
+                    val path = s.calligPath ?: buildCalligraphyPath(s).also { s.calligPath = it }
+                    val ph = Path(path).apply { offset(dx, dy) }
+                    val fill = fillPaint(s.color).apply { alpha = 140 }
+                    canvas.drawPath(ph, fill)
+                    canvas.drawPath(ph, ghostStroke)
+                }
+                BrushType.FOUNTAIN -> {
+                    val path = s.fountainPath ?: buildFountainPath(s).also { s.fountainPath = it }
+                    val ph = Path(path).apply { offset(dx, dy) }
+                    val fill = fillPaint(s.color).apply { alpha = 140 }
+                    canvas.drawPath(ph, fill)
+                    canvas.drawPath(ph, ghostStroke)
+                }
+                BrushType.PEN, BrushType.MARKER, BrushType.PENCIL -> {
+                    val pts = s.points; if (pts.size < 2) continue
+                    val p = newStrokePaint(s.color, s.baseWidth).apply { alpha = 140 }
+                    for (i in 1 until pts.size) {
+                        val a = pts[i - 1]; val b = pts[i]
+                        canvas.drawLine(a.x + dx, a.y + dy, b.x + dx, b.y + dy, p)
+                    }
+                }
+                else -> { /* ignore erasers */ }
+            }
+        }
+
+        // Outline bbox
+        val bb = RectF(src).apply { offset(dx, dy) }
+        canvas.drawRect(bb, ghostStroke)
+    }
+
 
     // ===== Selection overlay drawing =====
 
@@ -1822,6 +1940,10 @@ class InkCanvasView @JvmOverloads constructor(
         selectedStrokes.addAll(copies)
         selectedBounds = RectF(src).apply { offset(dx, dy) }
         selectionInteractive = true
+
+        // hide ghost preview after placing
+        pastePreviewVisible = false
+
 
         rebuildCommitted()
         invalidate()
