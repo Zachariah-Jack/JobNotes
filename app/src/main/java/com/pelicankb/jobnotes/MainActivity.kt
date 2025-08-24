@@ -41,6 +41,16 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnEraser: ImageButton
     private lateinit var btnSelectRect: ImageButton
 
+    // Right-side actions new buttons
+    private lateinit var btnHandPen: ImageButton
+    private lateinit var btnCameraPen: ImageButton
+    private lateinit var btnGalleryPen: ImageButton
+    private lateinit var btnOverflowPen: ImageButton
+    private lateinit var btnHandKbd: ImageButton
+    private lateinit var btnCameraKbd: ImageButton
+    private lateinit var btnGalleryKbd: ImageButton
+    private lateinit var btnOverflowKbd: ImageButton
+
     // ───────── Top-level tool family ─────────
     private enum class ToolFamily { PEN_FAMILY, HIGHLIGHTER, ERASER }
     private var toolFamily: ToolFamily = ToolFamily.PEN_FAMILY
@@ -91,6 +101,8 @@ class MainActivity : AppCompatActivity() {
     // ───────── Lifecycle ─────────
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Prefer resize when keyboard shows
+        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         setContentView(R.layout.activity_main)
 
         inkCanvas = findViewById(R.id.inkCanvas)
@@ -111,15 +123,26 @@ class MainActivity : AppCompatActivity() {
         chip2 = findViewById(R.id.chipColor2)
         chip3 = findViewById(R.id.chipColor3)
 
+        btnHandPen = findViewById(R.id.btnHandPen)
+        btnCameraPen = findViewById(R.id.btnCameraPen)
+        btnGalleryPen = findViewById(R.id.btnGalleryPen)
+        btnOverflowPen = findViewById(R.id.btnOverflowPen)
+        btnHandKbd = findViewById(R.id.btnHandKbd)
+        btnCameraKbd = findViewById(R.id.btnCameraKbd)
+        btnGalleryKbd = findViewById(R.id.btnGalleryKbd)
+        btnOverflowKbd = findViewById(R.id.btnOverflowKbd)
+
         // Canvas defaults
         inkCanvas.isFocusableInTouchMode = true
         inkCanvas.requestFocus()
         inkCanvas.setBrush(BrushType.PEN)
         inkCanvas.setStrokeWidthDp(brushSizeDp)
 
-        // Undo/Redo on pen toolbar
+        // Undo/Redo
         findViewById<View?>(R.id.btnUndoPen)?.setOnClickListener { inkCanvas.undo() }
         findViewById<View?>(R.id.btnRedoPen)?.setOnClickListener { inkCanvas.redo() }
+        findViewById<View?>(R.id.btnUndoKbd)?.setOnClickListener { inkCanvas.undo() }
+        findViewById<View?>(R.id.btnRedoKbd)?.setOnClickListener { inkCanvas.redo() }
 
         // Right-side actions
         wireEditActions()
@@ -132,7 +155,7 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnPenToggle).expandTouchTarget(12)
         btnTitleEdit.expandTouchTarget(12)
 
-        // Title edit behavior (edit button only)
+        // Title edit behavior
         btnTitleEdit.setOnClickListener { enterTitleEditMode() }
         titleEdit.setOnEditorActionListener { v, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
@@ -199,11 +222,51 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Selection popup (lasso/rect + mode)
-        btnSelectRect.setOnClickListener { v ->
-            toggleSelectPopup(v)
+        btnSelectRect.setOnClickListener { v -> toggleSelectPopup(v) }
+
+        // Hand/pan tool
+        val enablePan = View.OnClickListener {
+            inkCanvas.setPanMode(true)
+            Toast.makeText(this, "Pan mode: drag with stylus to scroll", Toast.LENGTH_SHORT).show()
         }
+        btnHandPen.setOnClickListener(enablePan)
+        btnHandKbd.setOnClickListener(enablePan)
+
+        // Camera/Gallery placeholders (wire real flows in Phase 2)
+        val camToast = View.OnClickListener { Toast.makeText(this, "Camera (coming soon)", Toast.LENGTH_SHORT).show() }
+        val galToast = View.OnClickListener { Toast.makeText(this, "Gallery (coming soon)", Toast.LENGTH_SHORT).show() }
+        btnCameraPen.setOnClickListener(camToast)
+        btnCameraKbd.setOnClickListener(camToast)
+        btnGalleryPen.setOnClickListener(galToast)
+        btnGalleryKbd.setOnClickListener(galToast)
+
+        // Overflow menus
+        btnOverflowPen.setOnClickListener { showOverflowMenu(it) }
+        btnOverflowKbd.setOnClickListener { showOverflowMenu(it) }
 
         updateToolbarActiveStates()
+    }
+
+    private fun showOverflowMenu(anchor: View) {
+        val popup = PopupMenu(this, anchor)
+        popup.menu.apply {
+            val export = add("Export")
+            export.setOnMenuItemClickListener {
+                val sub = PopupMenu(this@MainActivity, anchor)
+                sub.menu.add("Export to PDF")
+                sub.menu.add("Export to Image")
+                sub.show(); true
+            }
+            val share = add("Share")
+            share.setOnMenuItemClickListener {
+                val sub = PopupMenu(this@MainActivity, anchor)
+                sub.menu.add("Share as PDF")
+                sub.menu.add("Share as Image")
+                sub.menu.add("Share as JobNotes file")
+                sub.show(); true
+            }
+        }
+        popup.show()
     }
 
     private fun wireEditActions() {
@@ -396,8 +459,8 @@ class MainActivity : AppCompatActivity() {
     private fun toggleStylusPopup(anchor: View) {
         stylusPopup?.let { if (it.isShowing) { it.dismiss(); stylusPopup = null; return } }
         stylusPopup = createStylusMenuPopup().also { popup ->
-            popup.isOutsideTouchable = true
-            popup.isFocusable = true
+            popup.isOutsideTouchable = false
+            popup.isFocusable = false
             showPopupAnchoredWithinScreen(popup, anchor)
         }
     }
@@ -442,8 +505,7 @@ class MainActivity : AppCompatActivity() {
             setBrushSelectionUI(brushType)
             preview.setSample(brushType.name, sizeSlider.progress.dp().toFloat())
             applyPenFamilyBrush()
-
-            stylusPopup?.dismiss()
+            // keep popup open
             inkCanvas.requestFocus()
         }
         btnFountain.setOnClickListener(onBrushClick)
@@ -462,7 +524,7 @@ class MainActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
                 brushSizeDp = (seekBar?.progress ?: brushSizeDp.toInt()).toFloat().coerceIn(1f, 60f)
                 if (toolFamily == ToolFamily.PEN_FAMILY) inkCanvas.setStrokeWidthDp(brushSizeDp)
-                stylusPopup?.dismiss()
+                // keep popup open
                 inkCanvas.requestFocus()
             }
         })
@@ -471,7 +533,7 @@ class MainActivity : AppCompatActivity() {
             content,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
-            true
+            false // not focusable
         ).apply {
             setBackgroundDrawable(ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card_popup))
             elevation = 8f
@@ -499,8 +561,8 @@ class MainActivity : AppCompatActivity() {
     private fun toggleHighlighterPopup(anchor: View) {
         highlighterPopup?.let { if (it.isShowing) { it.dismiss(); highlighterPopup = null; return } }
         highlighterPopup = createHighlighterPopup().also { popup ->
-            popup.isOutsideTouchable = true
-            popup.isFocusable = true
+            popup.isOutsideTouchable = false
+            popup.isFocusable = false
             showPopupAnchoredWithinScreen(popup, anchor)
         }
     }
@@ -533,7 +595,7 @@ class MainActivity : AppCompatActivity() {
                         BrushType.HIGHLIGHTER_STRAIGHT
                 )
             }
-            highlighterPopup?.dismiss()
+            // keep popup open
             inkCanvas.requestFocus()
         }
         iconFree.setOnClickListener(modeClick)
@@ -565,7 +627,7 @@ class MainActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
                 highlighterSizeDp = (seekBar?.progress ?: highlighterSizeDp.toInt()).toFloat().coerceIn(1f, 60f)
                 if (toolFamily == ToolFamily.HIGHLIGHTER) inkCanvas.setStrokeWidthDp(highlighterSizeDp)
-                highlighterPopup?.dismiss()
+                // keep popup open
                 inkCanvas.requestFocus()
             }
         })
@@ -574,7 +636,7 @@ class MainActivity : AppCompatActivity() {
             content,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
-            true
+            false
         ).apply {
             setBackgroundDrawable(ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card_popup))
             elevation = 8f
@@ -598,8 +660,8 @@ class MainActivity : AppCompatActivity() {
     private fun toggleEraserPopup(anchor: View) {
         eraserPopup?.let { if (it.isShowing) { it.dismiss(); eraserPopup = null; return } }
         eraserPopup = createEraserPopup().also { p ->
-            p.isOutsideTouchable = true
-            p.isFocusable = true
+            p.isOutsideTouchable = false
+            p.isFocusable = false
             showPopupAnchoredWithinScreen(p, anchor)
         }
     }
@@ -628,7 +690,7 @@ class MainActivity : AppCompatActivity() {
                     if (eraserMode == EraserMode.AREA) BrushType.ERASER_AREA else BrushType.ERASER_STROKE
                 )
             }
-            eraserPopup?.dismiss()
+            // keep popup open
             inkCanvas.requestFocus()
         }
         btnStroke.setOnClickListener(onModeClick)
@@ -649,7 +711,7 @@ class MainActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
                 eraserSizeDp = (seekBar?.progress ?: eraserSizeDp.toInt()).toFloat().coerceIn(1f, 100f)
                 if (toolFamily == ToolFamily.ERASER) inkCanvas.setStrokeWidthDp(eraserSizeDp)
-                eraserPopup?.dismiss()
+                // keep popup open
                 inkCanvas.requestFocus()
             }
         })
@@ -664,7 +726,7 @@ class MainActivity : AppCompatActivity() {
             content,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
-            true
+            false
         ).apply {
             setBackgroundDrawable(ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card_popup))
             elevation = 8f
@@ -676,8 +738,8 @@ class MainActivity : AppCompatActivity() {
     private fun toggleSelectPopup(anchor: View) {
         selectPopup?.let { if (it.isShowing) { it.dismiss(); selectPopup = null; return } }
         selectPopup = createSelectPopup().also { p ->
-            p.isOutsideTouchable = true
-            p.isFocusable = true
+            p.isOutsideTouchable = false
+            p.isFocusable = false
             showPopupAnchoredWithinScreen(p, anchor)
         }
     }
@@ -700,7 +762,7 @@ class MainActivity : AppCompatActivity() {
             selectionArmed = true
             inkCanvas.enterSelectionLasso()
             updateToolbarActiveStates()
-            selectPopup?.dismiss()
+            // keep popup open
             inkCanvas.requestFocus()
             Toast.makeText(this, "Lasso: draw to select. Tap elsewhere to start a new selection.", Toast.LENGTH_SHORT).show()
         }
@@ -709,7 +771,7 @@ class MainActivity : AppCompatActivity() {
             selectionArmed = true
             inkCanvas.enterSelectionRect()
             updateToolbarActiveStates()
-            selectPopup?.dismiss()
+            // keep popup open
             inkCanvas.requestFocus()
             Toast.makeText(this, "Rect: drag to select. Tap elsewhere to start a new selection.", Toast.LENGTH_SHORT).show()
         }
@@ -725,7 +787,7 @@ class MainActivity : AppCompatActivity() {
             content,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
-            true
+            false
         ).apply {
             setBackgroundDrawable(ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card_popup))
             elevation = 8f
@@ -745,11 +807,6 @@ class MainActivity : AppCompatActivity() {
     private fun showKeyboardForced(target: View) {
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         target.post { target.requestFocus(); imm.showSoftInput(target, InputMethodManager.SHOW_FORCED) }
-    }
-
-    private fun showKeyboard(target: View) {
-        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-        target.post { target.requestFocus(); imm.showSoftInput(target, InputMethodManager.SHOW_IMPLICIT) }
     }
 
     private fun hideKeyboard(target: View) {
