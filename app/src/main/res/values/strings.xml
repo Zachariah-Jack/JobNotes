@@ -71,4 +71,8 @@
     <!-- If you happened to reference this typo anywhere, use this real one instead. -->
     <string name="cd_kbd_tool">Keyboard tool</string>
 
+    <string name="edit_title">Edit title</string>
+    <string name="untitled">Untitled</string>
+
+
 </resources>
