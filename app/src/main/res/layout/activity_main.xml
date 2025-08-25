@@ -57,9 +57,10 @@
                 android:imeOptions="actionDone|flagNoExtractUi"
                 android:privateImeOptions="disableDirectWriting=true"
                 android:inputType="textCapWords|textPersonName"
+                android:importantForAutofill="no"
                 android:textSize="18sp"
                 android:padding="8dp"
-                android:hint="@string/untitled"/>
+                android:hint="@string/untitled" />
         </FrameLayout>
     </LinearLayout>
 
@@ -288,7 +289,7 @@
                     android:background="?attr/selectableItemBackgroundBorderless"
                     android:padding="8dp"
                     android:layout_marginStart="2dp"
-                    android:src="@drawable/ic_more_vert"
+                    android:src="@drawable/ic_up_arrow"
                     android:contentDescription="@null" />
             </LinearLayout>
         </LinearLayout>
@@ -411,7 +412,7 @@
                 android:background="?attr/selectableItemBackgroundBorderless"
                 android:padding="8dp"
                 android:layout_marginStart="2dp"
-                android:src="@drawable/ic_more_vert"
+                android:src="@drawable/ic_up_arrow"
                 android:contentDescription="@null" />
         </LinearLayout>
     </FrameLayout>

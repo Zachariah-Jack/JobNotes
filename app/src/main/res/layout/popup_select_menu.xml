@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/rootSelectMenu"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
@@ -20,7 +21,7 @@
             android:background="@drawable/bg_tool_toggle"
             android:padding="8dp"
             android:src="@drawable/ic_tool_select_lasso"
-            android:tint="@android:color/black"
+            app:tint="@color/black"
             android:contentDescription="@null" />
 
         <ImageButton
@@ -31,7 +32,7 @@
             android:padding="8dp"
             android:layout_marginStart="6dp"
             android:src="@drawable/ic_tool_select_rect"
-            android:tint="@android:color/black"
+            app:tint="@color/black"
             android:contentDescription="@null" />
     </LinearLayout>
 
@@ -46,7 +47,7 @@
             android:id="@+id/switchStrokeSelect"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Stroke select" />
+            android:text="@string/stroke_select" />
     </LinearLayout>
 
 </LinearLayout>

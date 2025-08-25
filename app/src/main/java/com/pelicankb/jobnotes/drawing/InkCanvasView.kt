@@ -14,6 +14,8 @@ import java.io.DataOutputStream
 import java.nio.ByteBuffer
 import kotlin.math.*
 import kotlin.random.Random
+import android.view.GestureDetector
+
 
 /**
  * InkCanvasView
@@ -250,7 +252,10 @@ class InkCanvasView @JvmOverloads constructor(
             val n = `in`.readInt()
             strokes.clear()
             repeat(n) {
-                val type = BrushType.values()[`in`.readInt()]
+                val typeOrdinal = `in`.readInt()
+                val all = enumValues<BrushType>()
+                val type = if (typeOrdinal in all.indices) all[typeOrdinal] else BrushType.PEN
+
                 val color = `in`.readInt()
                 val width = `in`.readFloat()
                 val hlOnly = `in`.readBoolean()
@@ -323,6 +328,9 @@ class InkCanvasView @JvmOverloads constructor(
 
     // ===== Transform (pan/zoom) =====
     private val scaleDetector = ScaleGestureDetector(context, ScaleListener())
+    private val gestureDetector = GestureDetector(context, GestureListener())
+    private var fingerPanning = false
+
     private var scaleFactor = 1f
     private var translationX = 0f
     private var translationY = 0f
@@ -436,15 +444,8 @@ class InkCanvasView @JvmOverloads constructor(
         strokeWidth = dpToPx(1.5f)
         pathEffect = DashPathEffect(floatArrayOf(8f, 8f), 0f)
     }
-    private val ghostInk = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        color = 0x88000000.toInt()
-        strokeWidth = dpToPx(1.5f)
-    }
-    private val ghostFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = 0x33FFFFFF
-    }
+
+
 
     private val clipboard = mutableListOf<StrokeOp>()
     private var clipboardBounds: RectF? = null
@@ -535,16 +536,54 @@ class InkCanvasView @JvmOverloads constructor(
     // ===== Input =====
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
-        // Always feed the pinch detector
+        // Always feed detectors
         scaleDetector.onTouchEvent(event)
+        gestureDetector.onTouchEvent(event)
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 val idx = event.actionIndex
-                val canDrawNow = acceptsPointer(event, idx) && event.pointerCount == 1 && !scalingInProgress
+
+                // Single-finger (not stylus): pan or move selection; never draw
+                if (!isStylus(event, idx) && event.pointerCount == 1 && !scalingInProgress) {
+                    val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
+
+                    // Finger can transform selection: handles first, then inside box
+                    if (selectedStrokes.isNotEmpty() && selectionInteractive) {
+                        val h = detectHandle(cx, cy)
+                        if (h != Handle.NONE) {
+                            beginTransform(h, cx, cy)
+                            transforming = true
+                            activePointerId = event.getPointerId(idx)
+                            return true
+                        }
+                        val inside = selectedBounds?.contains(cx, cy) == true
+                        if (inside) {
+                            beginTransform(Handle.INSIDE, cx, cy)
+                            transforming = true
+                            activePointerId = event.getPointerId(idx)
+                            return true
+                        }
+                    }
+
+                    // Otherwise, start finger panning
+                    activePointerId = event.getPointerId(idx)
+                    lastPanFocusX = event.getX(idx)
+                    lastPanFocusY = event.getY(idx)
+                    fingerPanning = true
+                    drawing = false
+                    selectingGesture = false
+                    transforming = false
+                    return true
+                }
+
+                // Stylus or other case
+                val canDrawNow = acceptsPointer(event, idx) &&
+                        event.pointerCount == 1 &&
+                        !scalingInProgress
 
                 if (canDrawNow) {
-                    // Hand/pan tool: stylus pans instead of drawing
+                    // Stylus hand/pan tool
                     if (panMode) {
                         activePointerId = event.getPointerId(idx)
                         lastPanFocusX = event.getX(idx)
@@ -567,12 +606,18 @@ class InkCanvasView @JvmOverloads constructor(
                         return true
                     }
 
-                    // Transform if inside selection
+                    // Transform selection (handles first, then inside; otherwise maybe clear)
                     if (selectedStrokes.isNotEmpty() && selectionInteractive) {
                         val h = detectHandle(cx, cy)
+                        if (h != Handle.NONE) {
+                            beginTransform(h, cx, cy)
+                            transforming = true
+                            activePointerId = event.getPointerId(idx)
+                            return true
+                        }
                         val inside = selectedBounds?.contains(cx, cy) == true
-                        if (h != Handle.NONE || inside) {
-                            beginTransform(if (h == Handle.NONE && inside) Handle.INSIDE else h, cx, cy)
+                        if (inside) {
+                            beginTransform(Handle.INSIDE, cx, cy)
                             transforming = true
                             activePointerId = event.getPointerId(idx)
                             return true
@@ -581,14 +626,14 @@ class InkCanvasView @JvmOverloads constructor(
                         }
                     }
 
-                    // Selection marquee or drawing stroke
+                    // Either start selection marquee or a stroke
                     if (selectionTool != SelTool.NONE) {
                         startSelection(event, idx)
                     } else {
                         startStroke(event, idx)
                     }
                 } else {
-                    // Not starting a stroke (either finger while stylusOnly, or multi-touch)
+                    // Not starting: finger while stylusOnly, or multi-touch
                     drawing = false
                     selectingGesture = false
                     transforming = false
@@ -597,13 +642,15 @@ class InkCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_POINTER_DOWN -> {
-                // Any second pointer cancels a pending paste to avoid accidental placements
+                // Any second pointer cancels a pending paste
                 if (event.pointerCount >= 2 && pasteArmed) pasteArmed = false
 
+                // Cancel one-pointer modes
                 drawing = false
                 selectingGesture = false
                 transforming = false
                 activePointerId = -1
+                fingerPanning = false
 
                 // Two-finger pan baseline
                 lastPanFocusX = averageX(event)
@@ -612,51 +659,78 @@ class InkCanvasView @JvmOverloads constructor(
 
             MotionEvent.ACTION_MOVE -> {
                 when {
-                    panMode && activePointerId != -1 -> {
-                        // Stylus hand-pan
-                        val idx = event.findPointerIndex(activePointerId)
-                        if (idx != -1) {
-                            val x = event.getX(idx)
-                            val y = event.getY(idx)
+                    // 1‑finger finger pan
+                    fingerPanning && activePointerId != -1 -> {
+                        val i = event.findPointerIndex(activePointerId)
+                        if (i != -1) {
+                            val x = event.getX(i)
+                            val y = event.getY(i)
                             translationX += (x - lastPanFocusX)
                             translationY += (y - lastPanFocusY)
                             lastPanFocusX = x
                             lastPanFocusY = y
+                            // Vertical-only pan when zoom == 1×
+                            if (kotlin.math.abs(scaleFactor - 1f) < 1e-3f) translationX = 0f
                             invalidate()
                         }
                     }
+
+                    // Stylus hand‑pan tool
+                    panMode && activePointerId != -1 -> {
+                        val i = event.findPointerIndex(activePointerId)
+                        if (i != -1) {
+                            val x = event.getX(i)
+                            val y = event.getY(i)
+                            translationX += (x - lastPanFocusX)
+                            translationY += (y - lastPanFocusY)
+                            lastPanFocusX = x
+                            lastPanFocusY = y
+                            // Lock horizontal pan at 1×
+                            if (kotlin.math.abs(scaleFactor - 1f) < 1e-3f) translationX = 0f
+                            invalidate()
+                        }
+                    }
+
+                    // Drawing
                     drawing -> {
-                        val idx = event.findPointerIndex(activePointerId)
-                        if (idx != -1) {
-                            val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
+                        val i = event.findPointerIndex(activePointerId)
+                        if (i != -1) {
+                            val (cx, cy) = toContent(event.getX(i), event.getY(i))
                             extendStroke(cx, cy)
                             invalidate()
                         }
                     }
+
+                    // Selection marquee
                     selectingGesture -> {
-                        val idx = event.findPointerIndex(activePointerId)
-                        if (idx != -1) {
-                            val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
+                        val i = event.findPointerIndex(activePointerId)
+                        if (i != -1) {
+                            val (cx, cy) = toContent(event.getX(i), event.getY(i))
                             extendSelection(cx, cy)
                             invalidate()
                         }
                     }
+
+                    // Transform selection
                     transforming -> {
-                        val idx = event.findPointerIndex(activePointerId)
-                        if (idx != -1) {
-                            val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
+                        val i = event.findPointerIndex(activePointerId)
+                        if (i != -1) {
+                            val (cx, cy) = toContent(event.getX(i), event.getY(i))
                             updateTransform(cx, cy)
                             invalidate()
                         }
                     }
+
+                    // Two‑finger pan (any tool)
                     event.pointerCount >= 2 -> {
-                        // Two-finger pan (independent of tool)
                         val fx = averageX(event)
                         val fy = averageY(event)
                         translationX += fx - lastPanFocusX
                         translationY += fy - lastPanFocusY
                         lastPanFocusX = fx
                         lastPanFocusY = fy
+                        // Lock horizontal pan at 1×
+                        if (kotlin.math.abs(scaleFactor - 1f) < 1e-3f) translationX = 0f
                         invalidate()
                     }
                 }
@@ -673,6 +747,7 @@ class InkCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                fingerPanning = false
                 if (panMode) activePointerId = -1
                 when {
                     selectingGesture -> finishSelection()
@@ -686,6 +761,19 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
 
+
+
+    private fun zoomTo(targetScale: Float, focusViewX: Float, focusViewY: Float) {
+        val (cx, cy) = toContent(focusViewX, focusViewY)
+        val clamped = targetScale.coerceIn(0.5f, 4f)
+        scaleFactor = clamped
+        // Keep the tapped content point under the same screen coordinate
+        translationX = focusViewX - clamped * cx
+        translationY = focusViewY - clamped * cy
+        // At 1×, lock horizontal scroll to show page edges consistently
+        if (kotlin.math.abs(scaleFactor - 1f) < 1e-3f) translationX = 0f
+        invalidate()
+    }
 
     private fun startStroke(ev: MotionEvent, idx: Int) {
         redoStack.clear()
@@ -1827,9 +1915,19 @@ class InkCanvasView @JvmOverloads constructor(
 
         override fun onScaleEnd(detector: ScaleGestureDetector) {
             scalingInProgress = false
+            // If we ended at 1×, ensure horizontal pan is locked
+            if (kotlin.math.abs(scaleFactor - 1f) < 1e-3f) translationX = 0f
         }
-
     }
+
+    private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
+        override fun onDoubleTap(e: MotionEvent): Boolean {
+            val target = if (scaleFactor < 1.5f) 2f else 1f
+            zoomTo(target, e.x, e.y)
+            return true
+        }
+    }
+
 
     private fun cancelActiveOps() {
         when {

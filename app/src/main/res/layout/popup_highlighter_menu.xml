@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/rootHighlighterMenu"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
@@ -22,7 +23,7 @@
             android:background="@drawable/bg_tool_toggle"
             android:padding="8dp"
             android:src="@drawable/ic_highlight_freeform"
-            android:tint="@android:color/black"
+            app:tint="@color/black"
             android:contentDescription="@null" />
 
         <ImageButton
@@ -33,7 +34,7 @@
             android:padding="8dp"
             android:layout_marginStart="6dp"
             android:src="@drawable/ic_highlight_straight"
-            android:tint="@android:color/black"
+            app:tint="@color/black"
             android:contentDescription="@null" />
     </LinearLayout>
 
@@ -69,7 +70,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:text="12 dp" />
+            android:text="@string/default_highlighter_size_value" />
     </LinearLayout>
 
     <!-- Live preview -->

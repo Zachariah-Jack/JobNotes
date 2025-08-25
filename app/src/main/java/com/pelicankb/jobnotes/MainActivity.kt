@@ -12,6 +12,9 @@ import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
+
 import com.pelicankb.jobnotes.drawing.BrushType
 import com.pelicankb.jobnotes.drawing.InkCanvasView
 import com.pelicankb.jobnotes.drawing.InkCanvasView.SelectionPolicy
@@ -99,10 +102,11 @@ class MainActivity : AppCompatActivity() {
     )
 
     // ───────── Lifecycle ─────────
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Prefer resize when keyboard shows
-        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+
         setContentView(R.layout.activity_main)
 
         inkCanvas = findViewById(R.id.inkCanvas)
@@ -473,7 +477,7 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun showAdvancedColorPicker(initialColor: Int, onSelected: (Int) -> Unit) {
+    private fun showAdvancedColorPicker(@Suppress("UNUSED_PARAMETER") initialColor: Int, onSelected: (Int) -> Unit) {
         ColorPickerDialog.Builder(this)
             .setTitle("Pick any color")
             .setPreferenceName("note_color_picker")
@@ -837,14 +841,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showKeyboardForced(target: View) {
-        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-        target.post { target.requestFocus(); imm.showSoftInput(target, InputMethodManager.SHOW_FORCED) }
+        target.post {
+            target.requestFocus()
+            WindowInsetsControllerCompat(window, target)
+                .show(WindowInsetsCompat.Type.ime())
+        }
     }
 
     private fun hideKeyboard(target: View) {
-        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-        imm.hideSoftInputFromWindow(target.windowToken, 0)
+        WindowInsetsControllerCompat(window, target)
+            .hide(WindowInsetsCompat.Type.ime())
     }
+
 
     private fun enterTitleEditMode() {
         titleEdit.setText(titleDisplay.text)

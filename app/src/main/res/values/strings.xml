@@ -74,5 +74,15 @@
     <string name="edit_title">Edit title</string>
     <string name="untitled">Untitled</string>
 
+    <!-- Defaults for popup labels -->
+    <string name="default_pen_size_value">4 dp</string>
+    <string name="default_highlighter_size_value">12 dp</string>
+    <string name="default_eraser_size_value">20 dp</string>
+
+    <!-- Popup labels moved from layouts -->
+    <string name="erase_highlighter_only">Erase highlighter only</string>
+    <string name="stroke_select">Stroke select</string>
+
+
 
 </resources>

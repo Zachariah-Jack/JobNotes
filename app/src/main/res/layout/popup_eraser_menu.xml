@@ -47,7 +47,7 @@
             android:id="@+id/switchHLOnly"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Erase highlighter only" />
+            android:text="@string/erase_highlighter_only" />
     </LinearLayout>
 
     <!-- Size slider + value -->
@@ -70,7 +70,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:text="20 dp" />
+            android:text="@string/default_eraser_size_value" />
     </LinearLayout>
 
     <!-- Live preview: circle that grows/shrinks -->
