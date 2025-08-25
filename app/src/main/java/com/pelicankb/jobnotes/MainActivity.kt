@@ -106,6 +106,11 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
 
         inkCanvas = findViewById(R.id.inkCanvas)
+        // For quick verification, allow finger drawing too.
+        // Change to true later if you want stylus-only drawing.
+        inkCanvas.setStylusOnly(true)
+        inkCanvas.setPanMode(false)
+
         btnStylus = findViewById(R.id.btnStylus)
         btnHighlighter = findViewById(R.id.btnHighlighter)
         btnEraser = findViewById(R.id.btnEraser)
@@ -147,6 +152,21 @@ class MainActivity : AppCompatActivity() {
         // Right-side actions
         wireEditActions()
 
+        findViewById<ImageButton?>(R.id.btnHandPen)?.setOnClickListener { v ->
+            val btn = v as ImageButton
+            btn.isSelected = !btn.isSelected
+            inkCanvas.setPanMode(btn.isSelected)
+            Toast.makeText(this, if (btn.isSelected) "Hand (pan) tool ON" else "Hand tool OFF", Toast.LENGTH_SHORT).show()
+        }
+
+        findViewById<ImageButton?>(R.id.btnHandKbd)?.setOnClickListener { v ->
+            val btn = v as ImageButton
+            btn.isSelected = !btn.isSelected
+            inkCanvas.setPanMode(btn.isSelected)
+            Toast.makeText(this, if (btn.isSelected) "Hand (pan) tool ON" else "Hand tool OFF", Toast.LENGTH_SHORT).show()
+        }
+
+
         // Show pen toolbar
         showPenMenu()
 
@@ -184,6 +204,10 @@ class MainActivity : AppCompatActivity() {
 
         // Toolbar: Stylus
         btnStylus.setOnClickListener { v ->
+            findViewById<ImageButton?>(R.id.btnHandPen)?.isSelected = false
+            findViewById<ImageButton?>(R.id.btnHandKbd)?.isSelected = false
+            inkCanvas.setPanMode(false)
+
             inkCanvas.setSelectionToolNone(keepSelection = true)
             selectionArmed = false
             selectPopup?.dismiss()
@@ -197,6 +221,10 @@ class MainActivity : AppCompatActivity() {
 
         // Toolbar: Highlighter
         btnHighlighter.setOnClickListener { v ->
+            findViewById<ImageButton?>(R.id.btnHandPen)?.isSelected = false
+            findViewById<ImageButton?>(R.id.btnHandKbd)?.isSelected = false
+            inkCanvas.setPanMode(false)
+
             inkCanvas.setSelectionToolNone(keepSelection = true)
             selectionArmed = false
             selectPopup?.dismiss()
@@ -210,6 +238,10 @@ class MainActivity : AppCompatActivity() {
 
         // Toolbar: Eraser
         btnEraser.setOnClickListener { v ->
+            findViewById<ImageButton?>(R.id.btnHandPen)?.isSelected = false
+            findViewById<ImageButton?>(R.id.btnHandKbd)?.isSelected = false
+            inkCanvas.setPanMode(false)
+
             inkCanvas.setSelectionToolNone(keepSelection = true)
             selectionArmed = false
             selectPopup?.dismiss()

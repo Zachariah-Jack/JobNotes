@@ -436,9 +436,11 @@
             android:id="@+id/inkCanvas"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
+            android:layout_margin="16dp"
             android:background="@android:color/white"
             android:focusable="true"
             android:focusableInTouchMode="true"
             android:contentDescription="@string/cd_canvas" />
+
     </FrameLayout>
 </LinearLayout>
