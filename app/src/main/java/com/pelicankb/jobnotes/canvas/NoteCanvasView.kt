@@ -108,9 +108,7 @@ class NoteCanvasView @JvmOverloads constructor(
         canvas.translate(contentTx, contentTy)
         canvas.scale(scaleFactor, scaleFactor)
 
-        // Draw full gray background (white canvas)
-        val background = RectF(-10000f, -10000f, 10000f, 10000f) // very large area
-        canvas.drawRect(background, pagePaint)
+
 
 
         // Draw background that fills visible screen space (including zoom-out)
@@ -121,6 +119,8 @@ class NoteCanvasView @JvmOverloads constructor(
             2 * canvasVisibleWidth, 2 * canvasVisibleHeight
         )
         canvas.drawRect(background, pagePaint)
+
+
 
 // Then draw the actual page (paper)
         val page = RectF(0f, 0f, contentWidthPx, contentHeightPx)
