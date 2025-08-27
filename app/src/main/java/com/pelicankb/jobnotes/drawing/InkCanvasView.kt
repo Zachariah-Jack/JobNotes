@@ -512,9 +512,13 @@ class InkCanvasView @JvmOverloads constructor(
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+
         canvas.withSave {
             translate(translationX, translationY)
             scale(scaleFactor, scaleFactor)
+
+            // === Page background inside transform (so zoom affects it) ===
+            drawRect(0f, 0f, width.toFloat(), height.toFloat(), pagePaint)
 
             // base layers
             committedHL?.let { drawBitmap(it, 0f, 0f, null) }
@@ -550,8 +554,8 @@ class InkCanvasView @JvmOverloads constructor(
             }
         }
 
-        // Page edge fades at 1× to hint edges (draw in view space)
-        if (abs(scaleFactor - 1f) < 1e-3f) {
+        // Page edge fades at 1× to hint edges (drawn in view space, unchanged)
+        if (kotlin.math.abs(scaleFactor - 1f) < 1e-3f) {
             val w = width.toFloat()
             val h = height.toFloat()
             canvas.drawRect(0f, 0f, fadeW, h, leftEdgePaint)
@@ -560,6 +564,7 @@ class InkCanvasView @JvmOverloads constructor(
             canvas.drawRect(0f, h - fadeH, w, h, bottomEdgePaint)
         }
     }
+
 
     override fun performClick(): Boolean {
         super.performClick()
@@ -577,6 +582,13 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     // ===== Input =====
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        // Ensure the View background itself is not the page — we draw the page in onDraw.
+        setBackgroundColor(Color.TRANSPARENT)
+    }
+
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
         // Always feed detectors
@@ -1158,6 +1170,10 @@ class InkCanvasView @JvmOverloads constructor(
             strokeWidth = width
             xfermode = null
         }
+
+    private val pagePaint =
+        Paint(Paint.ANTI_ALIAS_FLAG).apply { color =
+        Color.WHITE}
 
     private fun fillPaint(color: Int): Paint =
         Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
