@@ -11,6 +11,10 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.result.contract.ActivityResultContracts
+
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
@@ -24,6 +28,31 @@ import com.skydoves.colorpickerview.ColorPickerDialog
 import com.skydoves.colorpickerview.listeners.ColorEnvelopeListener
 
 class MainActivity : AppCompatActivity() {
+    // ===== Export launchers =====
+    private val exportPdfLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            contentResolver.openOutputStream(uri)?.use { out ->
+                // Default 300 dpi; tweak if desired
+                val ok = inkCanvas.exportToPdf(out, dpi = 300)
+                // (optional) toast or snackbar on success/failure
+            }
+        }
+    }
+
+    private val exportPngLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("image/png")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val bmp = inkCanvas.renderCurrentPageBitmap(includeSelectionOverlays = false)
+            contentResolver.openOutputStream(uri)?.use { out ->
+                // 100 = lossless for PNG (quality ignored by PNG encoder)
+                bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+            }
+        }
+    }
+
 
     // ───────── Canvas ─────────
     private lateinit var inkCanvas: InkCanvasView
@@ -140,6 +169,10 @@ class MainActivity : AppCompatActivity() {
         btnCameraKbd = findViewById(R.id.btnCameraKbd)
         btnGalleryKbd = findViewById(R.id.btnGalleryKbd)
         btnOverflowKbd = findViewById(R.id.btnOverflowKbd)
+        // Ensure the overflow buttons use the proper "more" icon (not the up-arrow)
+        btnOverflowPen.setImageResource(R.drawable.ic_more_vert)
+        btnOverflowKbd.setImageResource(R.drawable.ic_more_vert)
+
 
         // Canvas defaults
         inkCanvas.isFocusableInTouchMode = true
@@ -285,25 +318,43 @@ class MainActivity : AppCompatActivity() {
 
     private fun showOverflowMenu(anchor: View) {
         val popup = PopupMenu(this, anchor)
-        popup.menu.apply {
-            val export = add("Export")
-            export.setOnMenuItemClickListener {
-                val sub = PopupMenu(this@MainActivity, anchor)
-                sub.menu.add("Export to PDF")
-                sub.menu.add("Export to Image")
-                sub.show(); true
-            }
-            val share = add("Share")
-            share.setOnMenuItemClickListener {
-                val sub = PopupMenu(this@MainActivity, anchor)
-                sub.menu.add("Share as PDF")
-                sub.menu.add("Share as Image")
-                sub.menu.add("Share as JobNotes file")
-                sub.show(); true
+        // Top-level entries
+        popup.menu.add(0, 1, 0, "Export to PDF")
+        popup.menu.add(0, 2, 1, "Export to Image")
+
+        // (Optional) placeholders for share; wire later if desired
+        popup.menu.add(0, 3, 2, "Share as PDF")
+        popup.menu.add(0, 4, 3, "Share as Image")
+        popup.menu.add(0, 5, 4, "Share as JobNotes file")
+
+        popup.setOnMenuItemClickListener { item ->
+            when (item.itemId) {
+                1 -> { // Export to PDF
+                    exportPdfLauncher.launch("JobNotes-Page.pdf")
+                    true
+                }
+                2 -> { // Export to Image (PNG)
+                    exportPngLauncher.launch("JobNotes-Page.png")
+                    true
+                }
+                3 -> {
+                    Toast.makeText(this, "Share as PDF (coming soon)", Toast.LENGTH_SHORT).show()
+                    true
+                }
+                4 -> {
+                    Toast.makeText(this, "Share as Image (coming soon)", Toast.LENGTH_SHORT).show()
+                    true
+                }
+                5 -> {
+                    Toast.makeText(this, "Share as JobNotes file (coming soon)", Toast.LENGTH_SHORT).show()
+                    true
+                }
+                else -> false
             }
         }
         popup.show()
     }
+
 
     private fun wireEditActions() {
         findViewById<View?>(R.id.btnClear)?.setOnClickListener {
