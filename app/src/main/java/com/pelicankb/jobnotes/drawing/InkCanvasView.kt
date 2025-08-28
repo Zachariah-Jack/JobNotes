@@ -946,6 +946,7 @@ class InkCanvasView @JvmOverloads constructor(
         selectingGesture = false
         transforming = false
         activePointerId = ev.getPointerId(idx)
+
         // Use a hardware layer while drawing union-based tools to improve perf; drop it on finish
         if (baseBrush == BrushType.FOUNTAIN || baseBrush == BrushType.CALLIGRAPHY) {
             setLayerType(LAYER_TYPE_HARDWARE, null)
@@ -2176,6 +2177,22 @@ class InkCanvasView @JvmOverloads constructor(
         return if (have) out else null
     }
 
+    // ===== In-progress throttle & safety guards =====
+
+    /** Minimum movement (CONTENT px) required before processing a new segment for this op. */
+    private fun minStepFor(op: StrokeOp): Float {
+        // Wider brushes can advance in bigger steps without visual loss.
+        // Pencil/marker get smaller steps for smoother look.
+        return when (op.type) {
+            BrushType.CALLIGRAPHY, BrushType.FOUNTAIN -> max(0.25f * op.baseWidth, 1.2f)
+            BrushType.MARKER, BrushType.HIGHLIGHTER_FREEFORM -> max(0.20f * op.baseWidth, 1.0f)
+            else -> 0.8f
+        }
+    }
+
+    /** True if value is a finite, non-NaN float. */
+    private fun isFinitef(v: Float): Boolean = v.isFinite()
+
     // ===== Drawing: extend & finish stroke =====
 
     private fun extendStroke(x: Float, y: Float) {
@@ -2186,7 +2203,9 @@ class InkCanvasView @JvmOverloads constructor(
         val dx = x - sx
         val dy = y - sy
         val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
-        if (dist <= 0.01f) return
+        // Skip tiny movements to avoid heavy path work on dense input
+        if (!isFinitef(dist) || dist < minStepFor(op)) return
+
 
         op.points.add(Point(x, y))
 
@@ -2278,18 +2297,20 @@ class InkCanvasView @JvmOverloads constructor(
 
                     // Use effective width for tighter dirty-rect invalidation
                     val effW = max(w0, w1)
-                    lastDirtyViewRect = strokeDirtyViewRect(sx, sy, x, y, effW)
+                    lastDirtyViewRect = strokeDirtyViewRect(sx, sy, x, y, effW)   // ADDED
                     op.lastDir = dirNow
                 }
             }
 
+
             BrushType.FOUNTAIN -> {
                 val c = scratchCanvasInk ?: return
-                // Draw only the NEW segment as a thick ribbon; defer heavy union until finishStroke()
                 val half = max(0.5f, 0.5f * op.baseWidth)
                 val seg = buildThickSegmentPath(sx, sy, x, y, half, squareCaps = false)
                 c.drawPath(seg, fillPaint(op.color))
+                lastDirtyViewRect = strokeDirtyViewRect(sx, sy, x, y, op.baseWidth) // ADDED
             }
+
 
             BrushType.PENCIL -> {
                 val c = scratchCanvasInk ?: return
@@ -2320,10 +2341,28 @@ class InkCanvasView @JvmOverloads constructor(
                 stroke.eraseHLOnly = eraserHLOnly
             }
             when (stroke.type) {
-                BrushType.CALLIGRAPHY -> stroke.calligPath = Path(buildCalligraphyPath(stroke))
-                BrushType.FOUNTAIN    -> stroke.fountainPath = Path(buildFountainPath(stroke))
+                BrushType.CALLIGRAPHY -> {
+                    try {
+                        stroke.calligPath = Path(buildCalligraphyPath(stroke))
+                    } catch (oom: OutOfMemoryError) {
+                        // Fallback: no cached union path; base renderer will approximate by segments
+                        stroke.calligPath = null
+                    } catch (_: Throwable) {
+                        stroke.calligPath = null
+                    }
+                }
+                BrushType.FOUNTAIN -> {
+                    try {
+                        stroke.fountainPath = Path(buildFountainPath(stroke))
+                    } catch (oom: OutOfMemoryError) {
+                        stroke.fountainPath = null
+                    } catch (_: Throwable) {
+                        stroke.fountainPath = null
+                    }
+                }
                 else -> { /* no snapshot */ }
             }
+
             strokes.add(stroke)
         }
         current = null
