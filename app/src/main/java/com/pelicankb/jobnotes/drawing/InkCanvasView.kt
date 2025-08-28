@@ -946,6 +946,11 @@ class InkCanvasView @JvmOverloads constructor(
         selectingGesture = false
         transforming = false
         activePointerId = ev.getPointerId(idx)
+        // Use a hardware layer while drawing union-based tools to improve perf; drop it on finish
+        if (baseBrush == BrushType.FOUNTAIN || baseBrush == BrushType.CALLIGRAPHY) {
+            setLayerType(LAYER_TYPE_HARDWARE, null)
+        }
+
     }
 
     // ---- selection input ----
@@ -2233,12 +2238,59 @@ class InkCanvasView @JvmOverloads constructor(
             }
             BrushType.CALLIGRAPHY -> {
                 val c = scratchCanvasInk ?: return
-                c.drawPath(buildCalligraphyPath(op), fillPaint(op.color))
+                // Incremental segment draw for perf: build a single oriented quad between (sx,sy)->(x,y)
+                // Width varies with nib angle vs direction (same math as buildCalligraphyPath)
+                val dx = x - sx
+                val dy = y - sy
+                val len = hypot(dx.toDouble(), dy.toDouble()).toFloat()
+                if (len <= 1e-3f) {
+                    // still update lastDir so the next segment gets proper w0
+                    op.lastDir = atan2(dy, dx)
+                } else {
+                    val dirNow = atan2(dy, dx)
+                    val dirPrev = op.lastDir ?: dirNow
+                    val w0 = calligWidth(op, dirPrev)
+                    val w1 = calligWidth(op, dirNow)
+                    val hw0 = max(0.5f, 0.5f * w0)
+                    val hw1 = max(0.5f, 0.5f * w1)
+
+                    // Constant nib axis (same as buildCalligraphyPath)
+                    val nx = -sin(nibAngleRad)
+                    val ny =  cos(nibAngleRad)
+
+                    val l0x = sx + nx * hw0
+                    val l0y = sy + ny * hw0
+                    val r0x = sx - nx * hw0
+                    val r0y = sy - ny * hw0
+                    val l1x = x  + nx * hw1
+                    val l1y = y  + ny * hw1
+                    val r1x = x  - nx * hw1
+                    val r1y = y  - ny * hw1
+
+                    segPath.rewind()
+                    segPath.moveTo(l0x, l0y)
+                    segPath.lineTo(l1x, l1y)
+                    segPath.lineTo(r1x, r1y)
+                    segPath.lineTo(r0x, r0y)
+                    segPath.close()
+
+                    c.drawPath(segPath, fillPaint(op.color))
+
+                    // Use effective width for tighter dirty-rect invalidation
+                    val effW = max(w0, w1)
+                    lastDirtyViewRect = strokeDirtyViewRect(sx, sy, x, y, effW)
+                    op.lastDir = dirNow
+                }
             }
+
             BrushType.FOUNTAIN -> {
                 val c = scratchCanvasInk ?: return
-                c.drawPath(buildFountainPath(op), fillPaint(op.color))
+                // Draw only the NEW segment as a thick ribbon; defer heavy union until finishStroke()
+                val half = max(0.5f, 0.5f * op.baseWidth)
+                val seg = buildThickSegmentPath(sx, sy, x, y, half, squareCaps = false)
+                c.drawPath(seg, fillPaint(op.color))
             }
+
             BrushType.PENCIL -> {
                 val c = scratchCanvasInk ?: return
                 drawPencilSegment(c, sx, sy, x, y, op, dist)
@@ -2277,6 +2329,8 @@ class InkCanvasView @JvmOverloads constructor(
         current = null
         drawing = false
         activePointerId = -1
+        // Drop transient hardware layer used during union-like drawing
+        setLayerType(LAYER_TYPE_NONE, null)
 
         rebuildCommitted()
         scratchInk?.eraseColor(Color.TRANSPARENT)
