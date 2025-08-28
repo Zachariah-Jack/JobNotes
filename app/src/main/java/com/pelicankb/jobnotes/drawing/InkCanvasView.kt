@@ -1,5 +1,7 @@
 package com.pelicankb.jobnotes.drawing
 
+import android.animation.AnimatorListenerAdapter
+import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.*
 import android.util.AttributeSet
@@ -9,6 +11,7 @@ import android.view.ScaleGestureDetector
 import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
+import android.view.animation.PathInterpolator
 import android.widget.OverScroller
 import androidx.core.graphics.withSave
 import java.io.ByteArrayInputStream
@@ -40,7 +43,7 @@ class InkCanvasView @JvmOverloads constructor(
     fun setBrush(type: BrushType) { baseBrush = type }
     fun setStrokeWidthDp(sizeDp: Float) { baseWidthPx = dpToPx(sizeDp) }
     fun setColor(color: Int) { baseColor = color }
-    /** Eraser option (applies to both eraser modes). Can be toggled mid‑stroke. */
+    /** Eraser option (applies to both eraser modes). Can be toggled mid-stroke. */
     fun setEraserHighlighterOnly(hlOnly: Boolean) { eraserHLOnly = hlOnly }
 
     /** Turn off selection tool; keep or drop the current selection visuals. */
@@ -356,7 +359,7 @@ class InkCanvasView @JvmOverloads constructor(
     private val minFlingVelocity = viewConfig.scaledMinimumFlingVelocity
     private val maxFlingVelocity = viewConfig.scaledMaximumFlingVelocity
 
-    // Tap‑and‑hold (temporary hand tool for stylus)
+    // Tap-and-hold (temporary hand tool for stylus)
     private var tempPanActive = false
     private var longPressRunnable: Runnable? = null
     private val longPressTimeoutMs = ViewConfiguration.getLongPressTimeout().toLong()
@@ -458,7 +461,7 @@ class InkCanvasView @JvmOverloads constructor(
     private val clipboard = mutableListOf<StrokeOp>()
     private var clipboardBounds: RectF? = null
 
-    // Transform‑time overlay
+    // Transform-time overlay
     private var overlayActive = false
 
     // ---- Page edge fades (1×) ----
@@ -468,6 +471,14 @@ class InkCanvasView @JvmOverloads constructor(
     private val rightEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val topEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val bottomEdgePaint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+    // ---- Page shadow (>1x) ----
+    private val pageShadowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFF000000.toInt()
+        alpha = 46 // ~18% opacity
+    }
+    private val pageWorkRect = RectF()
+
 
     // ===== View lifecycle =====
 
@@ -516,6 +527,17 @@ class InkCanvasView @JvmOverloads constructor(
         canvas.withSave {
             translate(translationX, translationY)
             scale(scaleFactor, scaleFactor)
+
+            // --- Page shadow (only when zoomed in) ---
+            if (scaleFactor > 1.02f) {
+                // Inflate slightly; make radius scale-aware so it stays subtle
+                pageWorkRect.set(0f, 0f, width.toFloat(), height.toFloat())
+                val inflate = dpToPx(6f) / scaleFactor
+                pageWorkRect.inset(-inflate, -inflate)
+                // Optional blur:
+                // pageShadowPaint.maskFilter = BlurMaskFilter(dpToPx(8f) / scaleFactor, BlurMaskFilter.Blur.OUTER)
+                drawRoundRect(pageWorkRect, dpToPx(4f) / scaleFactor, dpToPx(4f) / scaleFactor, pageShadowPaint)
+            }
 
             // === Page background inside transform (so zoom affects it) ===
             drawRect(0f, 0f, width.toFloat(), height.toFloat(), pagePaint)
@@ -733,7 +755,7 @@ class InkCanvasView @JvmOverloads constructor(
             MotionEvent.ACTION_MOVE -> {
                 velocityTracker?.addMovement(event)
                 when {
-                    // 1‑finger finger pan
+                    // 1-finger finger pan
                     fingerPanning && activePointerId != -1 -> {
                         val i = event.findPointerIndex(activePointerId)
                         if (i != -1) {
@@ -749,7 +771,7 @@ class InkCanvasView @JvmOverloads constructor(
                         }
                     }
 
-                    // Stylus hand‑pan tool, or temporary hold‑to‑pan
+                    // Stylus hand-pan tool, or temporary hold-to-pan
                     (panMode || tempPanActive) && activePointerId != -1 -> {
                         val i = event.findPointerIndex(activePointerId)
                         if (i != -1) {
@@ -795,12 +817,30 @@ class InkCanvasView @JvmOverloads constructor(
                         }
                     }
 
-                    // Two‑finger pan (any tool)
+                    // Two-finger pan (any tool)
                     event.pointerCount >= 2 -> {
                         val fx = averageX(event)
                         val fy = averageY(event)
-                        translationX += fx - lastPanFocusX
-                        translationY += fy - lastPanFocusY
+                        val dx = (fx - lastPanFocusX)
+                        val dy = (fy - lastPanFocusY)
+
+                        // Horizontal: no overscroll—just apply & clamp
+                        translationX += dx
+
+                        // Vertical: allow overscroll then softly resist; clamp hard on ACTION_UP
+                        val newY = translationY + dy
+                        val limitTop = 0f + vOverscrollPx()
+                        val limitBot = height - viewContentHeightPx() - vOverscrollPx()
+
+                        translationY = when {
+                            newY > limitTop  -> limitTop + (newY - limitTop) * 0.2f   // damp above top
+                            newY < limitBot  -> limitBot + (newY - limitBot) * 0.2f   // damp below bottom
+                            else -> newY
+                        }
+
+                        // keep within absolute hard clamps (just in case)
+                        clampPan()
+
                         lastPanFocusX = fx
                         lastPanFocusY = fy
                         // Lock horizontal pan at 1×
@@ -821,6 +861,8 @@ class InkCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                animateBackIntoBoundsIfNeeded()
+
                 val wasPanning = fingerPanning || ((panMode || tempPanActive) && activePointerId != -1)
 
                 if (wasPanning) {
@@ -1152,7 +1194,7 @@ class InkCanvasView @JvmOverloads constructor(
                 val ny = ay + (p.y - ay) * sy
                 s.points.add(Point(nx, ny))
             }
-            // Non‑cumulative width scaling from snapshot
+            // Non-cumulative width scaling from snapshot
             savedBaseWidth[s]?.let { orig -> s.baseWidth = (orig * avgScale).coerceAtLeast(0.2f) }
             s.calligPath = null
             s.fountainPath = null
@@ -1173,7 +1215,7 @@ class InkCanvasView @JvmOverloads constructor(
 
     private val pagePaint =
         Paint(Paint.ANTI_ALIAS_FLAG).apply { color =
-        Color.WHITE}
+            Color.WHITE}
 
     private fun fillPaint(color: Int): Paint =
         Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
@@ -2010,8 +2052,46 @@ class InkCanvasView @JvmOverloads constructor(
 
         override fun onScaleEnd(detector: ScaleGestureDetector) {
             scalingInProgress = false
-            // If we ended at 1×, ensure horizontal pan is locked
             if (abs(scaleFactor - 1f) < 1e-3f) translationX = 0f
+
+            // Snap to 1× or 2× if near thresholds
+            maybeSnapScaleAtEnd(detector.focusX, detector.focusY)
+        }
+
+        // --- Snap zoom helper ---
+        private fun maybeSnapScaleAtEnd(focusX: Float, focusY: Float) {
+            val target = when {
+                abs(scaleFactor - 1f) < 0.08f -> 1f
+                abs(scaleFactor - 2f) < 0.10f -> 2f
+                else -> null
+            } ?: return
+
+            val startScale = scaleFactor
+            if (abs(target - startScale) < 1e-3f) return
+
+            // Keep the same screen focus over the same content point
+            val contentFx = (focusX - translationX) / scaleFactor
+            val contentFy = (focusY - translationY) / scaleFactor
+
+            val anim = ValueAnimator.ofFloat(0f, 1f).apply {
+                duration = 200
+                interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
+                addUpdateListener { animator: ValueAnimator ->
+                    val t = animator.animatedFraction
+                    scaleFactor = startScale + (target - startScale) * t
+                    translationX = focusX - contentFx * scaleFactor
+                    translationY = focusY - contentFy * scaleFactor
+                    invalidate()
+                }
+                addListener(object : AnimatorListenerAdapter() {
+                    override fun onAnimationEnd(animation: android.animation.Animator) {
+                        // Final clamp + gentle settle
+                        clampPan()
+                        animateBackIntoBoundsIfNeeded()
+                    }
+                })
+            }
+            anim.start()
         }
     }
 
@@ -2183,7 +2263,7 @@ class InkCanvasView @JvmOverloads constructor(
         invalidate()
     }
 
-    // ===== Helpers: deep copy, translation & z‑order for clipboard/selection =====
+    // ===== Helpers: deep copy, translation & z-order for clipboard/selection =====
 
     private fun deepCopy(s: StrokeOp): StrokeOp {
         return StrokeOp(
@@ -2302,7 +2382,7 @@ class InkCanvasView @JvmOverloads constructor(
         velocityTracker = null
     }
 
-    // Stylus long‑press -> temporary hand pan
+    // Stylus long-press -> temporary hand pan
     private fun scheduleStylusHoldToPan(ev: MotionEvent, idx: Int) {
         cancelStylusHoldToPan()
         val id = ev.getPointerId(idx)
@@ -2325,5 +2405,38 @@ class InkCanvasView @JvmOverloads constructor(
 
     // tiny tuple helper
     private data class Quad(val a: Int, val b: Int, val c: Int, val d: Int)
-    private infix fun Int.to(other: Int) = Pair(this, other)
+
+    // ---- Pan clamp & overscroll helpers ----
+    private fun viewContentWidthPx(): Float = width.toFloat() * scaleFactor
+    private fun viewContentHeightPx(): Float = height.toFloat() * scaleFactor
+
+    private fun vOverscrollPx(): Float = min(height * 0.12f, dpToPx(96f)) // allow some softness vertically
+    private fun hOverscrollPx(): Float = 0f                                // reserved (unused, keeping for parity)
+
+    private fun animateBackIntoBoundsIfNeeded() {
+        val beforeX = translationX
+        val beforeY = translationY
+        // Hard clamp then animate back if needed
+        clampPan()
+        if (translationX == beforeX && translationY == beforeY) return
+
+        val startX = beforeX
+        val startY = beforeY
+        val endX = translationX
+        val endY = translationY
+
+        val anim = ValueAnimator.ofFloat(0f, 1f).apply {
+            duration = 180
+            interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
+            addUpdateListener { animator: ValueAnimator ->
+                val t = animator.animatedFraction
+                translationX = startX + (endX - startX) * t
+                translationY = startY + (endY - startY) * t
+                invalidate()
+            }
+        }
+        translationX = startX
+        translationY = startY
+        anim.start()
+    }
 }
