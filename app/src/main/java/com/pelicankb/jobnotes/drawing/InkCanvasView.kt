@@ -343,6 +343,20 @@ class InkCanvasView @JvmOverloads constructor(
     private var translationY = 0f
     private var lastPanFocusX = 0f
     private var lastPanFocusY = 0f
+    // ===== Multi-section "pages" =====
+    private data class Section(
+        var heightPx: Float,   // page height in CONTENT pixels
+        var yOffsetPx: Float   // top offset in CONTENT pixels (from start of document)
+    )
+
+    private val sections = ArrayList<Section>()
+    private val sectionGapPx get() = dpToPx(16f)  // visual gap between pages
+
+    // Scrollbar overlay (refactored helper)
+    private val scrollbar = ScrollbarOverlay()
+
+
+
 
     // Hand/pan tool: when ON, stylus drag pans instead of drawing
     private var panMode = false
@@ -451,6 +465,12 @@ class InkCanvasView @JvmOverloads constructor(
 
     private val handleSizeDp = 14f
     private val handleTouchPadDp = 18f
+    // Bottom "pull to add" affordance
+    private var pullDragActive = false
+    private var pullDragStartY = 0f
+    private var pullDragDistance = 0f
+    private val pullThresholdPx get() = dpToPx(96f)
+
 
     // --- Paste "ghost" preview ---
     private var pasteArmed = false
@@ -505,6 +525,20 @@ class InkCanvasView @JvmOverloads constructor(
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (w <= 0 || h <= 0) return
+        // Initialize or recompute the single first section to match view height (phase 2 bootstrap)
+        if (sections.isEmpty()) {
+            sections.add(Section(heightPx = h.toFloat(), yOffsetPx = 0f))
+        } else {
+            // Keep the first section sized to current view; recompute offsets
+            sections[0].heightPx = h.toFloat()
+        }
+        // Re-pack offsets (top-to-bottom with gaps)
+        var acc = 0f
+        for (i in sections.indices) {
+            sections[i].yOffsetPx = acc
+            acc += sections[i].heightPx + sectionGapPx
+        }
+
 
         fun newBitmap() = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
         committedInk = newBitmap().also { canvasInk = Canvas(it) }
@@ -530,59 +564,78 @@ class InkCanvasView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        canvas.withSave {
-            translate(translationX, translationY)
-            scale(scaleFactor, scaleFactor)
+        // 1) Draw all sections (pages) in content space
+        canvas.save()
+        canvas.translate(translationX, translationY)
 
-            // --- Page shadow (only when zoomed in) ---
+        for (i in sections.indices) {
+            val s = sections[i]
+
+            canvas.save()
+            // Position this section in VIEW space (its content yOffset times current scale)
+            canvas.translate(0f, s.yOffsetPx * scaleFactor)
+            canvas.scale(scaleFactor, scaleFactor)
+
+            // Page shadow (only when zoomed in)
             if (scaleFactor > 1.02f) {
-                // Inflate slightly; make radius scale-aware so it stays subtle
-                pageWorkRect.set(0f, 0f, width.toFloat(), height.toFloat())
+                pageWorkRect.set(0f, 0f, width.toFloat(), s.heightPx)
                 val inflate = dpToPx(6f) / scaleFactor
                 pageWorkRect.inset(-inflate, -inflate)
-                // Optional blur:
-                // pageShadowPaint.maskFilter = BlurMaskFilter(dpToPx(8f) / scaleFactor, BlurMaskFilter.Blur.OUTER)
-                drawRoundRect(pageWorkRect, dpToPx(4f) / scaleFactor, dpToPx(4f) / scaleFactor, pageShadowPaint)
+                canvas.drawRoundRect(
+                    pageWorkRect,
+                    dpToPx(4f) / scaleFactor,
+                    dpToPx(4f) / scaleFactor,
+                    pageShadowPaint
+                )
             }
 
-            // === Page background inside transform (so zoom affects it) ===
-            drawRect(0f, 0f, width.toFloat(), height.toFloat(), pagePaint)
+            // White page background for this section
+            canvas.drawRect(0f, 0f, width.toFloat(), s.heightPx, pagePaint)
 
-            // base layers
-            committedHL?.let { drawBitmap(it, 0f, 0f, null) }
-            scratchHL?.let { drawBitmap(it, 0f, 0f, null) }
-            committedInk?.let { drawBitmap(it, 0f, 0f, null) }
-            scratchInk?.let { drawBitmap(it, 0f, 0f, null) }
-
-            // --- ghost paste preview (before overlays) ---
-            if (pasteArmed && pastePreviewVisible && clipboard.isNotEmpty()) {
-                drawClipboardGhost(this, pastePreviewCx, pastePreviewCy)
+            // For now (Phase 2.1), draw current single-section bitmaps only on section 0
+            if (i == 0) {
+                committedHL?.let  { canvas.drawBitmap(it, 0f, 0f, null) }
+                scratchHL?.let    { canvas.drawBitmap(it, 0f, 0f, null) }
+                committedInk?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+                scratchInk?.let   { canvas.drawBitmap(it, 0f, 0f, null) }
             }
 
-            // overlay (moving selection on top of everything)
-            if (overlayActive && selectedStrokes.isNotEmpty()) {
-                drawSelectionOverlay(this)
-            }
+            canvas.restore()
+        }
+        canvas.restore()
 
-            // marquee
-            marqueePath?.let { path ->
-                drawPath(path, marqueeFill)
-                drawPath(path, marqueeOutline)
-            }
+        // 2) Draw overlays (marquee, selection, paste ghost) in section-0 content coords
+        canvas.save()
+        canvas.translate(translationX, translationY)
+        canvas.scale(scaleFactor, scaleFactor)
 
-            // selection overlay & handles (visuals)
-            if (selectedStrokes.isNotEmpty()) {
-                drawSelectionHighlights(this)
-                selectedBounds?.let { r ->
-                    drawRect(r, selectionOutline)
-                    if (selectionInteractive) {
-                        drawHandles(this, r)
-                    }
+        // Paste ghost preview
+        if (pasteArmed && pastePreviewVisible && clipboard.isNotEmpty()) {
+            drawClipboardGhost(canvas, pastePreviewCx, pastePreviewCy)
+        }
+
+        // Moving selection overlay
+        if (overlayActive && selectedStrokes.isNotEmpty()) {
+            drawSelectionOverlay(canvas)
+        }
+
+        // Marquee & selection visuals
+        marqueePath?.let { path ->
+            canvas.drawPath(path, marqueeFill)
+            canvas.drawPath(path, marqueeOutline)
+        }
+        if (selectedStrokes.isNotEmpty()) {
+            drawSelectionHighlights(canvas)
+            selectedBounds?.let { r ->
+                canvas.drawRect(r, selectionOutline)
+                if (selectionInteractive) {
+                    drawHandles(canvas, r)
                 }
             }
         }
+        canvas.restore()
 
-        // Page edge fades at 1× to hint edges (drawn in view space, unchanged)
+        // 3) Page edge fades at 1× (view space)
         if (kotlin.math.abs(scaleFactor - 1f) < 1e-3f) {
             val w = width.toFloat()
             val h = height.toFloat()
@@ -591,7 +644,32 @@ class InkCanvasView @JvmOverloads constructor(
             canvas.drawRect(0f, 0f, w, fadeH, topEdgePaint)
             canvas.drawRect(0f, h - fadeH, w, h, bottomEdgePaint)
         }
+
+        // 4) Scrollbar (view space) — total document height in VIEW coords
+        run {
+            val density = resources.displayMetrics.density
+            val contentHViewPx = contentHeightPx() * scaleFactor
+            scrollbar.draw(canvas, width, height, density, scaleFactor, translationY, contentHViewPx)
+        }
+
+        // 5) Bottom pull-to-add affordance (simple triangle) in VIEW space
+        run {
+            val docBottomViewY = translationY + contentHeightPx() * scaleFactor
+            val cx = width - dpToPx(28f)
+            val baseY = docBottomViewY - dpToPx(12f)
+            val tri = Path().apply {
+                moveTo(cx,                baseY - dpToPx(8f))
+                lineTo(cx - dpToPx(8f),  baseY + dpToPx(8f))
+                lineTo(cx + dpToPx(8f),  baseY + dpToPx(8f))
+                close()
+            }
+            val affordPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x99000000.toInt() }
+            canvas.drawPath(tri, affordPaint)
+        }
     }
+
+
+
 
 
     override fun performClick(): Boolean {
@@ -622,9 +700,25 @@ class InkCanvasView @JvmOverloads constructor(
         // Always feed detectors
         scaleDetector.onTouchEvent(event)
         gestureDetector.onTouchEvent(event)
+        // Scrollbar overlay interaction
+        val density = resources.displayMetrics.density
+        val contentHViewPx = contentHeightPx() * scaleFactor
+        val consumedByScrollbar = scrollbar.onTouchEvent(
+            event,
+            width, height, density,
+            scaleFactor, translationY, contentHViewPx,
+            setTranslationY = { newTy -> translationY = newTy },
+            invalidate = { invalidate() }
+        )
+        if (consumedByScrollbar) return true
+
+
+
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+
+
                 stopFling()
                 val idx = event.actionIndex
 
@@ -667,6 +761,19 @@ class InkCanvasView @JvmOverloads constructor(
                 val canDrawNow = acceptsPointer(event, idx) &&
                         event.pointerCount == 1 &&
                         !scalingInProgress
+
+                // Pull-to-add: start drag if pressing within 40dp of the document bottom (in VIEW coords)
+                run {
+                    val docBottomViewY = translationY + contentHeightPx() * scaleFactor
+                    val touchY = event.y
+                    if (abs(touchY - docBottomViewY) <= dpToPx(40f)) {
+                        pullDragActive = true
+                        pullDragStartY = touchY
+                        pullDragDistance = 0f
+                        // consume; we'll handle movement
+                        return true
+                    }
+                }
 
                 if (canDrawNow) {
                     // Tap-and-hold (stylus) -> temporary pan
@@ -759,6 +866,16 @@ class InkCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_MOVE -> {
+                if (pullDragActive) {
+                    val dy = pullDragStartY - event.y  // pulling upward increases distance
+                    pullDragDistance = max(0f, dy)
+                    // You could draw a temporary indicator here (optional)
+                    invalidate()
+                    return true
+                }
+
+
+
                 velocityTracker?.addMovement(event)
                 when {
                     // 1-finger finger pan
@@ -842,7 +959,8 @@ class InkCanvasView @JvmOverloads constructor(
                         // Vertical: allow overscroll then softly resist; clamp hard on ACTION_UP
                         val newY = translationY + dy
                         val limitTop = 0f + vOverscrollPx()
-                        val limitBot = height - viewContentHeightPx() - vOverscrollPx()
+                        val limitBot = height - (contentHeightPx() * scaleFactor) - vOverscrollPx()
+
 
                         translationY = when {
                             newY > limitTop  -> limitTop + (newY - limitTop) * 0.2f   // damp above top
@@ -874,6 +992,19 @@ class InkCanvasView @JvmOverloads constructor(
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 animateBackIntoBoundsIfNeeded()
+                if (pullDragActive) {
+                    val shouldAdd = pullDragDistance >= pullThresholdPx
+                    pullDragActive = false
+                    pullDragDistance = 0f
+                    if (shouldAdd) {
+                        addSection()
+                    }
+                    invalidate()
+                    return true
+                }
+
+
+
 
                 val wasPanning = fingerPanning || ((panMode || tempPanActive) && activePointerId != -1)
 
@@ -2045,6 +2176,31 @@ class InkCanvasView @JvmOverloads constructor(
         val box = RectF(minX - margin, minY - margin, maxX + margin, maxY + margin)
 
         return contentToViewRect(box)
+    }
+
+    // ===== Section helpers =====
+    /** Total document height (CONTENT px) across all sections + gaps. */
+    private fun contentHeightPx(): Float {
+        if (sections.isEmpty()) return height.toFloat()
+        val last = sections.last()
+        return last.yOffsetPx + last.heightPx
+    }
+
+    /** Find section index by a content Y coordinate; returns 0 if none found. */
+    private fun sectionIndexForContentY(cy: Float): Int {
+        for (i in sections.indices) {
+            val s = sections[i]
+            if (cy >= s.yOffsetPx && cy < s.yOffsetPx + s.heightPx) return i
+        }
+        return 0
+    }
+
+    /** Add a new section at the end, same height as the first section (for now). */
+    private fun addSection() {
+        val baseH = if (sections.isEmpty()) height.toFloat() else sections[0].heightPx
+        val newTop = if (sections.isEmpty()) 0f else (sections.last().yOffsetPx + sections.last().heightPx + sectionGapPx)
+        sections.add(Section(heightPx = baseH, yOffsetPx = newTop))
+        invalidate()
     }
 
     // ===== Utilities & gestures =====
