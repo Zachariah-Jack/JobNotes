@@ -14,6 +14,7 @@ import androidx.appcompat.app.AppCompatActivity
 import android.content.Intent
 import android.net.Uri
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.content.FileProvider
 
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsCompat
@@ -26,6 +27,9 @@ import com.pelicankb.jobnotes.ui.BrushPreviewView
 import com.pelicankb.jobnotes.ui.EraserPreviewView
 import com.skydoves.colorpickerview.ColorPickerDialog
 import com.skydoves.colorpickerview.listeners.ColorEnvelopeListener
+
+import java.io.File
+
 
 class MainActivity : AppCompatActivity() {
     // ===== Export launchers =====
@@ -316,6 +320,45 @@ class MainActivity : AppCompatActivity() {
         updateToolbarActiveStates()
     }
 
+    // ===== Share helpers (FileProvider) =====
+
+    private fun sharePdfCurrentPage() {
+        try {
+            val file = File.createTempFile("JobNotes-Page-", ".pdf", cacheDir)
+            file.outputStream().use { out ->
+                inkCanvas.exportToPdf(out, dpi = 300)
+            }
+            val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
+            val share = Intent(Intent.ACTION_SEND).apply {
+                type = "application/pdf"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(share, "Share PDF"))
+        } catch (t: Throwable) {
+            Toast.makeText(this, "Unable to share PDF", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun sharePngCurrentPage() {
+        try {
+            val file = File.createTempFile("JobNotes-Page-", ".png", cacheDir)
+            val bmp = inkCanvas.renderCurrentPageBitmap(includeSelectionOverlays = false)
+            file.outputStream().use { out ->
+                bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+            }
+            val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", file)
+            val share = Intent(Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+            startActivity(Intent.createChooser(share, "Share Image"))
+        } catch (t: Throwable) {
+            Toast.makeText(this, "Unable to share Image", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     private fun showOverflowMenu(anchor: View) {
         val popup = PopupMenu(this, anchor)
         // Top-level entries
@@ -337,14 +380,15 @@ class MainActivity : AppCompatActivity() {
                     exportPngLauncher.launch("JobNotes-Page.png")
                     true
                 }
-                3 -> {
-                    Toast.makeText(this, "Share as PDF (coming soon)", Toast.LENGTH_SHORT).show()
+                3 -> { // Share as PDF
+                    sharePdfCurrentPage()
                     true
                 }
-                4 -> {
-                    Toast.makeText(this, "Share as Image (coming soon)", Toast.LENGTH_SHORT).show()
+                4 -> { // Share as Image (PNG)
+                    sharePngCurrentPage()
                     true
                 }
+
                 5 -> {
                     Toast.makeText(this, "Share as JobNotes file (coming soon)", Toast.LENGTH_SHORT).show()
                     true
