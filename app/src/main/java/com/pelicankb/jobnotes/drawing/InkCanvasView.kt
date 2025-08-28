@@ -371,6 +371,9 @@ class InkCanvasView @JvmOverloads constructor(
     private var activePointerId = -1
     private var lastX = 0f
     private var lastY = 0f
+    // Last dirty area in VIEW coords for partial invalidation
+    private var lastDirtyViewRect: Rect? = null
+
 
     // Calligraphy nib
     private val nibAngleRad = Math.toRadians(45.0).toFloat()
@@ -793,9 +796,15 @@ class InkCanvasView @JvmOverloads constructor(
                         if (i != -1) {
                             val (cx, cy) = toContent(event.getX(i), event.getY(i))
                             extendStroke(cx, cy)
-                            invalidate()
+                            val r = lastDirtyViewRect
+                            if (r != null && !r.isEmpty) {
+                                invalidate(r)
+                            } else {
+                                invalidate()
+                            }
                         }
                     }
+
 
                     // Selection marquee
                     selectingGesture -> {
@@ -1994,6 +2003,41 @@ class InkCanvasView @JvmOverloads constructor(
         return dx * dx + dy * dy
     }
 
+    // ===== Dirty-rect helpers (content -> view) =====
+
+    /** Convert a content-space rect to a clamped view-space Rect (ints). */
+    private fun contentToViewRect(src: RectF): Rect {
+        val left   = (translationX + src.left   * scaleFactor).roundToInt()
+        val top    = (translationY + src.top    * scaleFactor).roundToInt()
+        val right  = (translationX + src.right  * scaleFactor).roundToInt()
+        val bottom = (translationY + src.bottom * scaleFactor).roundToInt()
+        // Clamp to view bounds so we never request out-of-range redraws
+        val clampedLeft   = left.coerceIn(0, width)
+        val clampedTop    = top.coerceIn(0, height)
+        val clampedRight  = right.coerceIn(clampedLeft, width)
+        val clampedBottom = bottom.coerceIn(clampedTop, height)
+        return Rect(clampedLeft, clampedTop, clampedRight, clampedBottom)
+    }
+
+    /**
+     * Compute a conservative dirty rect in VIEW space for a stroke segment from (x0,y0) -> (x1,y1).
+     * widthPx is the base stroke width in CONTENT space. We inflate by a margin to cover joins/blur.
+     */
+    private fun strokeDirtyViewRect(x0: Float, y0: Float, x1: Float, y1: Float, widthPx: Float): Rect {
+        val minX = min(x0, x1)
+        val minY = min(y0, y1)
+        val maxX = max(x0, x1)
+        val maxY = max(y0, y1)
+
+        // Inflate in CONTENT space, then map to VIEW space.
+        // Margin covers round caps, blurs, pencil jitter, etc.
+        val half = max(0.5f, 0.5f * widthPx)
+        val margin = half * 0.6f + 6f
+        val box = RectF(minX - margin, minY - margin, maxX + margin, maxY + margin)
+
+        return contentToViewRect(box)
+    }
+
     // ===== Utilities & gestures =====
 
     private fun dpToPx(dp: Float): Float = dp * resources.displayMetrics.density
@@ -2209,8 +2253,12 @@ class InkCanvasView @JvmOverloads constructor(
             }
         }
 
+        // Record a VIEW-space dirty rect for just the changed strip
+        lastDirtyViewRect = strokeDirtyViewRect(sx, sy, x, y, op.baseWidth)
+
         lastX = x
         lastY = y
+
     }
 
     private fun finishStroke() {
@@ -2233,6 +2281,8 @@ class InkCanvasView @JvmOverloads constructor(
         rebuildCommitted()
         scratchInk?.eraseColor(Color.TRANSPARENT)
         scratchHL?.eraseColor(Color.TRANSPARENT)
+        lastDirtyViewRect = null
+
         invalidate()
     }
 
