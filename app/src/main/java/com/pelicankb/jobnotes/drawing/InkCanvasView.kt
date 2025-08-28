@@ -19,6 +19,9 @@ import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.nio.ByteBuffer
+import android.graphics.pdf.PdfDocument
+import java.io.OutputStream
+
 import kotlin.math.*
 import kotlin.random.Random
 
@@ -2178,17 +2181,35 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     // ===== In-progress throttle & safety guards =====
+    /** Quick min/max bounds from points (CONTENT space). */
+    private fun quickBoundsOf(points: List<Point>, out: RectF): Boolean {
+        if (points.isEmpty()) return false
+        var minX = points[0].x
+        var minY = points[0].y
+        var maxX = minX
+        var maxY = minY
+        for (i in 1 until points.size) {
+            val p = points[i]
+            if (p.x < minX) minX = p.x
+            if (p.y < minY) minY = p.y
+            if (p.x > maxX) maxX = p.x
+            if (p.y > maxY) maxY = p.y
+        }
+        out.set(minX, minY, maxX, maxY)
+        return true
+    }
 
     /** Minimum movement (CONTENT px) required before processing a new segment for this op. */
     private fun minStepFor(op: StrokeOp): Float {
         // Wider brushes can advance in bigger steps without visual loss.
-        // Pencil/marker get smaller steps for smoother look.
+        // Union brushes (calligraphy/fountain) are the heaviest; throttle harder.
         return when (op.type) {
-            BrushType.CALLIGRAPHY, BrushType.FOUNTAIN -> max(0.25f * op.baseWidth, 1.2f)
-            BrushType.MARKER, BrushType.HIGHLIGHTER_FREEFORM -> max(0.20f * op.baseWidth, 1.0f)
-            else -> 0.8f
+            BrushType.CALLIGRAPHY, BrushType.FOUNTAIN -> max(0.40f * op.baseWidth, 2.5f)
+            BrushType.MARKER, BrushType.HIGHLIGHTER_FREEFORM -> max(0.25f * op.baseWidth, 1.2f)
+            else -> 1.0f
         }
     }
+
 
     /** True if value is a finite, non-NaN float. */
     private fun isFinitef(v: Float): Boolean = v.isFinite()
@@ -2343,9 +2364,16 @@ class InkCanvasView @JvmOverloads constructor(
             when (stroke.type) {
                 BrushType.CALLIGRAPHY -> {
                     try {
-                        stroke.calligPath = Path(buildCalligraphyPath(stroke))
-                    } catch (oom: OutOfMemoryError) {
-                        // Fallback: no cached union path; base renderer will approximate by segments
+                        val bb = RectF()
+                        val have = quickBoundsOf(stroke.points, bb)
+                        // content-area threshold: skip union if area huge (e.g., > 24 MP in content space)
+                        val area = if (have) (bb.width() * bb.height()) else 0f
+                        if (stroke.points.size > 2000 || area > 24_000_000f) {
+                            stroke.calligPath = null
+                        } else {
+                            stroke.calligPath = Path(buildCalligraphyPath(stroke))
+                        }
+                    } catch (_: OutOfMemoryError) {
                         stroke.calligPath = null
                     } catch (_: Throwable) {
                         stroke.calligPath = null
@@ -2353,8 +2381,15 @@ class InkCanvasView @JvmOverloads constructor(
                 }
                 BrushType.FOUNTAIN -> {
                     try {
-                        stroke.fountainPath = Path(buildFountainPath(stroke))
-                    } catch (oom: OutOfMemoryError) {
+                        val bb = RectF()
+                        val have = quickBoundsOf(stroke.points, bb)
+                        val area = if (have) (bb.width() * bb.height()) else 0f
+                        if (stroke.points.size > 2000 || area > 24_000_000f) {
+                            stroke.fountainPath = null
+                        } else {
+                            stroke.fountainPath = Path(buildFountainPath(stroke))
+                        }
+                    } catch (_: OutOfMemoryError) {
                         stroke.fountainPath = null
                     } catch (_: Throwable) {
                         stroke.fountainPath = null
@@ -2362,6 +2397,7 @@ class InkCanvasView @JvmOverloads constructor(
                 }
                 else -> { /* no snapshot */ }
             }
+
 
             strokes.add(stroke)
         }
@@ -2582,4 +2618,82 @@ class InkCanvasView @JvmOverloads constructor(
         translationY = startY
         anim.start()
     }
+    // ===== Export & Share =====
+
+    /**
+     * Render the current page (white background + committed HL/Ink + optional overlays) to a new Bitmap.
+     * Size = view size in pixels.
+     */
+    fun renderCurrentPageBitmap(includeSelectionOverlays: Boolean = false): Bitmap {
+        // Compose into a fresh ARGB_8888 bitmap the size of the view
+        val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val c = Canvas(bmp)
+
+        // Page background (no transform; committed bitmaps are already view-sized)
+        c.drawColor(Color.WHITE)
+
+        // Base layers (committed first, then scratch for in-progress)
+        committedHL?.let { c.drawBitmap(it, 0f, 0f, null) }
+        scratchHL?.let { c.drawBitmap(it, 0f, 0f, null) }
+        committedInk?.let { c.drawBitmap(it, 0f, 0f, null) }
+        scratchInk?.let { c.drawBitmap(it, 0f, 0f, null) }
+
+        if (includeSelectionOverlays) {
+            // Optional: ghost preview and selection overlays
+            if (pasteArmed && pastePreviewVisible && clipboard.isNotEmpty()) {
+                drawClipboardGhost(c, pastePreviewCx, pastePreviewCy)
+            }
+            if (overlayActive && selectedStrokes.isNotEmpty()) {
+                drawSelectionOverlay(c)
+            }
+            if (selectedStrokes.isNotEmpty()) {
+                drawSelectionHighlights(c)
+                selectedBounds?.let { r ->
+                    c.drawRect(r, selectionOutline)
+                    if (selectionInteractive) {
+                        drawHandles(c, r)
+                    }
+                }
+            }
+        }
+
+        return bmp
+    }
+
+    /**
+     * Export the current page to a single-page PDF and write to [output].
+     * [dpi] controls the page point size; default 300 DPI.
+     * Returns true on success.
+     */
+    fun exportToPdf(output: OutputStream, dpi: Int = 300): Boolean {
+        if (width <= 0 || height <= 0) return false
+        // Render a bitmap first (without selection overlays)
+        val pageBitmap = renderCurrentPageBitmap(includeSelectionOverlays = false)
+
+        val doc = PdfDocument()
+        try {
+            // Convert pixel size to PDF points (1 point = 1/72 inch)
+            val pageWidthPt  = (pageBitmap.width  * 72f / dpi).roundToInt()
+            val pageHeightPt = (pageBitmap.height * 72f / dpi).roundToInt()
+
+            val info = PdfDocument.PageInfo.Builder(pageWidthPt, pageHeightPt, 1).create()
+            val page = doc.startPage(info)
+            val canvas = page.canvas
+
+            // Fit the bitmap exactly to the page
+            val dst = Rect(0, 0, pageWidthPt, pageHeightPt)
+            val src = Rect(0, 0, pageBitmap.width, pageBitmap.height)
+            canvas.drawColor(Color.WHITE)
+            canvas.drawBitmap(pageBitmap, src, dst, null)
+
+            doc.finishPage(page)
+            doc.writeTo(output)
+            return true
+        } catch (_: Throwable) {
+            return false
+        } finally {
+            try { doc.close() } catch (_: Throwable) {}
+        }
+    }
+
 }
