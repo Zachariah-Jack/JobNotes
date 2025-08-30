@@ -56,6 +56,7 @@ class InkCanvasView @JvmOverloads constructor(
     // Pretty-print MotionEvent actions for logs
     private fun actionToString(action: Int): String = when (action) {
         MotionEvent.ACTION_DOWN -> "DOWN"
+
         MotionEvent.ACTION_UP -> "UP"
         MotionEvent.ACTION_MOVE -> "MOVE"
         MotionEvent.ACTION_CANCEL -> "CANCEL"
@@ -63,6 +64,7 @@ class InkCanvasView @JvmOverloads constructor(
         MotionEvent.ACTION_POINTER_UP -> "POINTER_UP"
         else -> "OTHER($action)"
     }
+
 
 
 
@@ -868,10 +870,41 @@ class InkCanvasView @JvmOverloads constructor(
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                // Early gate: finger-only "pull to add page" at the bottom of the LAST section
+                // Must come before we enter finger panning logic.
+                stopFling()
+                // Pointer index for this DOWN event
+                val idx = event.actionIndex
+
+
+
+                run {
+                    val last = sections.lastOrNull()
+                    if (!isStylus(event, idx) && event.pointerCount == 1 && last != null) {
+                        // Bottom of the last section in VIEW coords
+                        val lastBottomViewY = translationY + (last.yOffsetPx + last.heightPx) * scaleFactor
+                        val touchY = event.y
+                        if (kotlin.math.abs(touchY - lastBottomViewY) <= dpToPx(40f)) {
+                            pullDragActive = true
+                            pullDragStartY = touchY
+                            pullDragDistance = 0f
+
+                            // Cancel other modes and capture this pointer
+                            drawing = false
+                            selectingGesture = false
+                            transforming = false
+                            activePointerId = event.getPointerId(idx)
+                            // Consume so MOVE will drive the progress arc and UP may add a page
+                            return true
+                        }
+                    }
+                }
+
 
 
                 stopFling()
-                val idx = event.actionIndex
+                // idx already defined earlier in ACTION_DOWN
+
 
                 // Single-finger (not stylus): pan or move selection; never draw
                 if (!isStylus(event, idx) && event.pointerCount == 1 && !scalingInProgress) {
@@ -913,18 +946,8 @@ class InkCanvasView @JvmOverloads constructor(
                         event.pointerCount == 1 &&
                         !scalingInProgress
 
-                // Pull-to-add: start drag if pressing within 40dp of the document bottom (in VIEW coords)
-                run {
-                    val docBottomViewY = translationY + contentHeightPx() * scaleFactor
-                    val touchY = event.y
-                    if (abs(touchY - docBottomViewY) <= dpToPx(40f)) {
-                        pullDragActive = true
-                        pullDragStartY = touchY
-                        pullDragDistance = 0f
-                        // consume; we'll handle movement
-                        return true
-                    }
-                }
+                // (migrated) Pull-to-add handled earlier for finger before panning begins.
+
 
                 if (canDrawNow) {
                     // Tap-and-hold (stylus) -> temporary pan
