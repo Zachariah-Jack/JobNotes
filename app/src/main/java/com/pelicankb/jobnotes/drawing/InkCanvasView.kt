@@ -575,6 +575,15 @@ class InkCanvasView @JvmOverloads constructor(
     private var pullDragStartY = 0f
     private var pullDragDistance = 0f
     private val pullThresholdPx get() = dpToPx(96f)
+    // Viewport-relative thresholds (ratios of screen height)
+    private val pullStartRatio = 0.20f   // HUD begins at 20% pulled up
+    private val pullCommitRatio = 0.40f  // Page commits at 40% pulled up
+
+    // HUD state (replaces old pullDrag* fields for the new flow)
+    private var pullHudVisible = false
+    private var pullHudProgress = 0f     // 0..1
+    private var pullCommittedThisDrag = false
+
 
 
     // --- Paste "ghost" preview ---
@@ -634,31 +643,43 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     private fun drawPullToAddIndicator(canvas: Canvas) {
-        if (!pullDragActive && pullDragDistance <= 0f) return
+        if (!pullHudVisible) return
 
-        val progress = (pullDragDistance / pullThresholdPx).coerceIn(0f, 1f)
+        // Center the HUD horizontally, and place it just UNDER the bottom edge of the last page.
+        // We keep it tied to the document bottom so it follows as you pull the page upward.
         val docBottomViewY = translationY + contentHeightPx() * scaleFactor
-        val cx = width - dpToPx(32f)
-        val cy = docBottomViewY - dpToPx(24f)
-        val r  = dpToPx(14f)
+        val cx = width * 0.5f
+        val cy = docBottomViewY + dpToPx(36f)   // 36dp below the page edge for clear separation
+
+        // 3× larger radius vs old (14dp -> 42dp)
+        val r  = dpToPx(42f)
+
+        // Heavier strokes so the larger HUD feels balanced
+        pullCirclePaint.strokeWidth   = dpToPx(4f)
+        pullProgressPaint.strokeWidth = dpToPx(6f)
+        pullArrowPaint.strokeWidth    = dpToPx(4f)
+        pullTextPaint.textSize        = dpToPx(18f)
 
         // Base circle
         canvas.drawCircle(cx, cy, r, pullCirclePaint)
 
         // Progress arc (starts at top, sweeps clockwise)
         val oval = RectF(cx - r, cy - r, cx + r, cy + r)
-        canvas.drawArc(oval, -90f, 360f * progress, false, pullProgressPaint)
+        val sweep = 360f * pullHudProgress.coerceIn(0f, 1f)
+        canvas.drawArc(oval, -90f, sweep, false, pullProgressPaint)
 
-        // Up arrow inside the circle
+        // Up arrow inside the circle (scaled by radius)
         val stemTopY = cy - r * 0.45f
         val stemBotY = cy + r * 0.20f
         canvas.drawLine(cx, stemBotY, cx, stemTopY, pullArrowPaint)
         canvas.drawLine(cx, stemTopY, cx - r * 0.22f, stemTopY + r * 0.22f, pullArrowPaint)
         canvas.drawLine(cx, stemTopY, cx + r * 0.22f, stemTopY + r * 0.22f, pullArrowPaint)
 
-        // Label
-        canvas.drawText("Add new page", cx, cy + r + dpToPx(14f), pullTextPaint)
+        // Label centered under the circle
+        canvas.drawText("Add new page", cx, cy + r + dpToPx(18f), pullTextPaint)
     }
+
+
 
     private val pageWorkRect = RectF()
 
@@ -870,39 +891,20 @@ class InkCanvasView @JvmOverloads constructor(
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                // Early gate: finger-only "pull to add page" at the bottom of the LAST section
-                // Must come before we enter finger panning logic.
+                // (removed) old bottom-line tap gate; new flow is viewport-relative while panning
+
+
+
+
                 stopFling()
-                // Pointer index for this DOWN event
+                // Reset HUD state for this drag
+                pullHudVisible = false
+                pullHudProgress = 0f
+                pullCommittedThisDrag = false
+
+                // Pointer index for this DOWN event (shared by this case)
                 val idx = event.actionIndex
 
-
-
-                run {
-                    val last = sections.lastOrNull()
-                    if (!isStylus(event, idx) && event.pointerCount == 1 && last != null) {
-                        // Bottom of the last section in VIEW coords
-                        val lastBottomViewY = translationY + (last.yOffsetPx + last.heightPx) * scaleFactor
-                        val touchY = event.y
-                        if (kotlin.math.abs(touchY - lastBottomViewY) <= dpToPx(40f)) {
-                            pullDragActive = true
-                            pullDragStartY = touchY
-                            pullDragDistance = 0f
-
-                            // Cancel other modes and capture this pointer
-                            drawing = false
-                            selectingGesture = false
-                            transforming = false
-                            activePointerId = event.getPointerId(idx)
-                            // Consume so MOVE will drive the progress arc and UP may add a page
-                            return true
-                        }
-                    }
-                }
-
-
-
-                stopFling()
                 // idx already defined earlier in ACTION_DOWN
 
 
@@ -1040,13 +1042,8 @@ class InkCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_MOVE -> {
-                if (pullDragActive) {
-                    val dy = pullDragStartY - event.y  // pulling upward increases distance
-                    pullDragDistance = max(0f, dy)
-                    // You could draw a temporary indicator here (optional)
-                    invalidate()
-                    return true
-                }
+                // (removed) old drag-distance path; new HUD/progress derived from doc-bottom offset
+
 
 
 
@@ -1064,6 +1061,31 @@ class InkCanvasView @JvmOverloads constructor(
                             lastPanFocusY = y
                             // Vertical-only pan when zoom == 1×
                             if (abs(scaleFactor - 1f) < 1e-3f) translationX = 0f
+                            // --- HUD/progress for bottom-page pull (finger) ---
+                            if (event.pointerCount == 1) {
+                                val screenH = height.toFloat()
+                                val startPx = pullStartRatio * screenH
+                                val commitPx = pullCommitRatio * screenH
+                                val docBottomViewY = translationY + contentHeightPx() * scaleFactor
+                                val pulledUpPx = (screenH - docBottomViewY) // ≥0 when bottom above screen bottom
+
+                                if (pulledUpPx >= startPx) {
+                                    pullHudVisible = true
+                                    pullHudProgress = ((pulledUpPx - startPx) / max(1f, commitPx - startPx)).coerceIn(0f, 1f)
+                                    if (!pullCommittedThisDrag && pulledUpPx >= commitPx) {
+                                        addSection()
+                                        pullCommittedThisDrag = true
+                                        // After adding a page, doc bottom jumps down; HUD will drop out naturally
+                                    }
+                                } else {
+                                    pullHudVisible = false
+                                    pullHudProgress = 0f
+                                }
+                            } else {
+                                pullHudVisible = false
+                                pullHudProgress = 0f
+                            }
+
                             invalidate()
                         }
                     }
@@ -1080,6 +1102,30 @@ class InkCanvasView @JvmOverloads constructor(
                             lastPanFocusY = y
                             // Lock horizontal pan at 1×
                             if (abs(scaleFactor - 1f) < 1e-3f) translationX = 0f
+                            // --- HUD/progress for bottom-page pull (stylus pan) ---
+                            if (event.pointerCount == 1) {
+                                val screenH = height.toFloat()
+                                val startPx = pullStartRatio * screenH
+                                val commitPx = pullCommitRatio * screenH
+                                val docBottomViewY = translationY + contentHeightPx() * scaleFactor
+                                val pulledUpPx = (screenH - docBottomViewY)
+
+                                if (pulledUpPx >= startPx) {
+                                    pullHudVisible = true
+                                    pullHudProgress = ((pulledUpPx - startPx) / max(1f, commitPx - startPx)).coerceIn(0f, 1f)
+                                    if (!pullCommittedThisDrag && pulledUpPx >= commitPx) {
+                                        addSection()
+                                        pullCommittedThisDrag = true
+                                    }
+                                } else {
+                                    pullHudVisible = false
+                                    pullHudProgress = 0f
+                                }
+                            } else {
+                                pullHudVisible = false
+                                pullHudProgress = 0f
+                            }
+
                             invalidate()
                         }
                     }
@@ -1166,16 +1212,12 @@ class InkCanvasView @JvmOverloads constructor(
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
                 animateBackIntoBoundsIfNeeded()
-                if (pullDragActive) {
-                    val shouldAdd = pullDragDistance >= pullThresholdPx
-                    pullDragActive = false
-                    pullDragDistance = 0f
-                    if (shouldAdd) {
-                        addSection()
-                    }
-                    invalidate()
-                    return true
-                }
+            // Reset HUD state (commit, if any, already occurred during MOVE)
+            pullHudVisible = false
+            pullHudProgress = 0f
+            pullCommittedThisDrag = false
+
+
 
 
 
