@@ -2904,32 +2904,25 @@ class InkCanvasView @JvmOverloads constructor(
         val s = scaleFactor
         val w = width.toFloat()
         val h = height.toFloat()
-        val docH = contentHeightPx().coerceAtLeast(1f) // CONTENT height across all sections
+        val docH = contentHeightPx().coerceAtLeast(1f)
 
-        if (s < 1f - 1e-3f) {
-            // Center the whole document when zoomed out
-            translationX = (w - s * w) * 0.5f
-            translationY = (h - s * docH) * 0.5f
-            return
-        }
-
+        // Always lock X at exactly 1x
         if (abs(s - 1f) < 1e-3f) {
-            // At exactly 1×: lock X; clamp Y to document height
             translationX = 0f
-            val minY = h - (s * docH)
-            val maxY = 0f
-            translationY = translationY.coerceIn(minY, maxY)
-            return
+        } else {
+            // When zoomed in/out, keep X within view width
+            val minX = w - s * w
+            val maxX = 0f
+            translationX = translationX.coerceIn(minX, maxX)
         }
 
-        // s > 1: clamp within scaled document bounds vertically; X uses view width (document == view width)
-        val minX = w - s * w
-        val maxX = 0f
+        // For Y, DO NOT center when zoomed out. Always clamp to [minY, 0]
+        // minY corresponds to the bottom of the doc aligned with the bottom of the view.
         val minY = h - (s * docH)
         val maxY = 0f
-        translationX = translationX.coerceIn(minX, maxX)
         translationY = translationY.coerceIn(minY, maxY)
     }
+
 
 
     private fun startFling(vx: Float, vy: Float) {
@@ -3021,31 +3014,33 @@ class InkCanvasView @JvmOverloads constructor(
     private fun hOverscrollPx(): Float = 0f                                // reserved (unused, keeping for parity)
 
     private fun animateBackIntoBoundsIfNeeded() {
-        val beforeX = translationX
-        val beforeY = translationY
-        // Hard clamp then animate back if needed
-        clampPan()
-        if (translationX == beforeX && translationY == beforeY) return
+        // Only snap back when overscrolled ABOVE the top (translationY > 0).
+        // If we’re within [minY, 0], or below minY, do nothing—no snap at the bottom/middle.
+        val s = scaleFactor
+        val h = height.toFloat()
+        val docH = contentHeightPx().coerceAtLeast(1f)
+        val minY = h - (s * docH)
 
-        val startX = beforeX
-        val startY = beforeY
-        val endX = translationX
-        val endY = translationY
+        // Snap-top-only rule
+        if (translationY <= 0f) return
+
+        // Animate gently back to top bound (0f)
+        val startY = translationY
+        val endY = 0f
+        if (abs(startY - endY) < 1e-3f) return
 
         val anim = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 180
             interpolator = PathInterpolator(0.2f, 0f, 0f, 1f)
             addUpdateListener { animator: ValueAnimator ->
                 val t = animator.animatedFraction
-                translationX = startX + (endX - startX) * t
                 translationY = startY + (endY - startY) * t
                 invalidate()
             }
         }
-        translationX = startX
-        translationY = startY
         anim.start()
     }
+
     // ===== Export & Share =====
 
     /**
