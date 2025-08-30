@@ -6,6 +6,9 @@ import android.content.Context
 import android.graphics.*
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import android.graphics.LinearGradient
+import android.graphics.Shader
+
 import android.util.AttributeSet
 import android.util.Log
 import android.view.GestureDetector
@@ -622,13 +625,15 @@ class InkCanvasView @JvmOverloads constructor(
     override fun onSizeChanged(w: Int, h: Int, oldw: Int, oldh: Int) {
         super.onSizeChanged(w, h, oldw, oldh)
         if (w <= 0 || h <= 0) return
-        // Initialize or recompute the single first section to match view height (phase 2 bootstrap)
+
+        // Ensure we have at least one section, sized sensibly
         if (sections.isEmpty()) {
             sections.add(Section(heightPx = h.toFloat(), yOffsetPx = 0f))
         } else {
-            // Keep the first section sized to current view; recompute offsets
+            // Keep first section matched to view height; others keep their heights
             sections[0].heightPx = h.toFloat()
         }
+
         // Re-pack offsets (top-to-bottom with gaps)
         var acc = 0f
         for (i in sections.indices) {
@@ -636,27 +641,22 @@ class InkCanvasView @JvmOverloads constructor(
             acc += sections[i].heightPx + sectionGapPx
         }
 
+        // Allocate per-section bitmaps using current width; section heights vary
+        allocateSectionBitmaps(w)
 
-        fun newBitmap() = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-        committedInk = newBitmap().also { canvasInk = Canvas(it) }
-        committedHL  = newBitmap().also { canvasHL = Canvas(it) }
-        scratchInk   = newBitmap().also { scratchCanvasInk = Canvas(it) }
-        scratchHL    = newBitmap().also { scratchCanvasHL  = Canvas(it) }
-
-        // refresh edge fades
+        // Edge fades
         fadeW = dpToPx(12f)
         fadeH = dpToPx(8f)
         val dark = 0x22000000.toInt()
         val clear = 0x00000000
-        leftEdgePaint.shader = LinearGradient(0f, 0f, fadeW, 0f, dark, clear, Shader.TileMode.CLAMP)
+        leftEdgePaint.shader  = LinearGradient(0f, 0f, fadeW, 0f, dark, clear, Shader.TileMode.CLAMP)
         rightEdgePaint.shader = LinearGradient(w - fadeW, 0f, w.toFloat(), 0f, clear, dark, Shader.TileMode.CLAMP)
-        topEdgePaint.shader = LinearGradient(0f, 0f, 0f, fadeH, dark, clear, Shader.TileMode.CLAMP)
-        bottomEdgePaint.shader = LinearGradient(0f, h - fadeH, 0f, h.toFloat(), clear, dark, Shader.TileMode.CLAMP)
+        topEdgePaint.shader   = LinearGradient(0f, 0f, 0f, fadeH, dark, clear, Shader.TileMode.CLAMP)
+        bottomEdgePaint.shader= LinearGradient(0f, h - fadeH, 0f, h.toFloat(), clear, dark, Shader.TileMode.CLAMP)
 
-        rebuildCommitted()
-        scratchInk?.eraseColor(Color.TRANSPARENT)
-        scratchHL?.eraseColor(Color.TRANSPARENT)
+        rebuildCommitted() // repaint committed from stroke list
     }
+
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -2344,8 +2344,23 @@ class InkCanvasView @JvmOverloads constructor(
         val baseH = if (sections.isEmpty()) height.toFloat() else sections[0].heightPx
         val newTop = if (sections.isEmpty()) 0f else (sections.last().yOffsetPx + sections.last().heightPx + sectionGapPx)
         sections.add(Section(heightPx = baseH, yOffsetPx = newTop))
+
+        // Allocate one set of bitmaps/canvases for the new section only (width = current view width)
+        val w = width.coerceAtLeast(1)
+        val h = max(1, baseH.roundToInt())
+        fun newBmp() = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
+
+        val ci = newBmp().also { committedInkBySection.add(it); canvasInkBySection.add(Canvas(it)) }
+        val ch = newBmp().also { committedHLBySection.add(it);  canvasHLBySection.add(Canvas(it)) }
+        val si = newBmp().also { scratchInkBySection.add(it);    scratchCanvasInkBySection.add(Canvas(it)) }
+        val sh = newBmp().also { scratchHLBySection.add(it);     scratchCanvasHLBySection.add(Canvas(it)) }
+
+        ci.eraseColor(Color.TRANSPARENT); ch.eraseColor(Color.TRANSPARENT)
+        si.eraseColor(Color.TRANSPARENT); sh.eraseColor(Color.TRANSPARENT)
+
         invalidate()
     }
+
 
     // ===== Utilities & gestures =====
 
