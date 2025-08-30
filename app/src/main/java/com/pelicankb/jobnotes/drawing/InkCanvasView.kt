@@ -5,6 +5,7 @@ import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.*
 import android.util.AttributeSet
+import android.util.Log
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.ScaleGestureDetector
@@ -24,6 +25,8 @@ import java.io.OutputStream
 
 import kotlin.math.*
 import kotlin.random.Random
+import kotlin.math.max
+
 
 /**
  * InkCanvasView
@@ -40,6 +43,22 @@ class InkCanvasView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
     defStyle: Int = 0
 ) : View(context, attrs, defStyle) {
+    // Debug toggles (safe to ship; disabled by default)
+    private val TAG = "InkCanvasView"
+    private val DEBUG_INPUT = true
+
+    // Pretty-print MotionEvent actions for logs
+    private fun actionToString(action: Int): String = when (action) {
+        MotionEvent.ACTION_DOWN -> "DOWN"
+        MotionEvent.ACTION_UP -> "UP"
+        MotionEvent.ACTION_MOVE -> "MOVE"
+        MotionEvent.ACTION_CANCEL -> "CANCEL"
+        MotionEvent.ACTION_POINTER_DOWN -> "POINTER_DOWN"
+        MotionEvent.ACTION_POINTER_UP -> "POINTER_UP"
+        else -> "OTHER($action)"
+    }
+
+
 
     // ===== Public API =====
 
@@ -373,7 +392,9 @@ class InkCanvasView @JvmOverloads constructor(
     fun setPanMode(enable: Boolean) { panMode = enable }
 
     // Policy: if true, only stylus/eraser tools can draw; if false, fingers can draw too
-    private var stylusOnly = false
+    // Policy: if true, only stylus/eraser tools can draw; if false, fingers can draw too
+    private var stylusOnly = true
+
     fun setStylusOnly(enable: Boolean) { stylusOnly = enable }
 
     // Track when pinch is in progress to avoid starting strokes
@@ -707,6 +728,24 @@ class InkCanvasView @JvmOverloads constructor(
 
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (DEBUG_INPUT) {
+            val idx = event.actionIndex.coerceAtLeast(0).coerceAtMost(event.pointerCount - 1)
+            val toolType = if (idx in 0 until event.pointerCount) event.getToolType(idx) else MotionEvent.TOOL_TYPE_UNKNOWN
+            val toolName = when (toolType) {
+                MotionEvent.TOOL_TYPE_STYLUS -> "STYLUS"
+                MotionEvent.TOOL_TYPE_ERASER -> "STYLUS_ERASER"
+                MotionEvent.TOOL_TYPE_FINGER -> "FINGER"
+                MotionEvent.TOOL_TYPE_MOUSE -> "MOUSE"
+                MotionEvent.TOOL_TYPE_UNKNOWN -> "UNKNOWN"
+                else -> "OTHER($toolType)"
+            }
+            Log.d(
+                TAG,
+                "onTouch ${actionToString(event.actionMasked)} by $toolName " +
+                        "pCount=${event.pointerCount} scale=$scaleFactor tx=$translationX ty=$translationY"
+            )
+        }
+
         // Always feed detectors
         scaleDetector.onTouchEvent(event)
         gestureDetector.onTouchEvent(event)
@@ -2258,9 +2297,14 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     private fun acceptsPointer(ev: MotionEvent, pointerIndex: Int): Boolean {
-        // Allow everything if stylusOnly == false; otherwise require stylus/eraser tool type
-        return !stylusOnly || isStylus(ev, pointerIndex)
+        // Product rule: finger must never draw.
+        // - We still allow finger for panning/transform/selection elsewhere in onTouchEvent.
+        // - Drawing (ink/highlighter/eraser) may only start from STYLUS/ERASER tool types.
+        // - If someone later toggles stylusOnly off, we *still* enforce stylus-only here
+        //   to keep the rule absolute in this app.
+        return isStylus(ev, pointerIndex)
     }
+
 
     private fun averageX(ev: MotionEvent): Float {
         var sum = 0f; for (i in 0 until ev.pointerCount) sum += ev.getX(i)
@@ -2396,14 +2440,32 @@ class InkCanvasView @JvmOverloads constructor(
 
     /** Minimum movement (CONTENT px) required before processing a new segment for this op. */
     private fun minStepFor(op: StrokeOp): Float {
-        // Wider brushes can advance in bigger steps without visual loss.
-        // Union brushes (calligraphy/fountain) are the heaviest; throttle harder.
+        // Goal: reduce the “dashed” feel without blowing up union-path costs.
+        // Keep union tools a bit conservative; lighten linear tools.
         return when (op.type) {
-            BrushType.CALLIGRAPHY, BrushType.FOUNTAIN -> max(0.40f * op.baseWidth, 2.5f)
-            BrushType.MARKER, BrushType.HIGHLIGHTER_FREEFORM -> max(0.25f * op.baseWidth, 1.2f)
-            else -> 1.0f
+            // Union-heavy brushes: still throttled, but slightly eased.
+            BrushType.CALLIGRAPHY,
+            BrushType.FOUNTAIN -> max(0.35f * op.baseWidth, 2.0f)
+
+            // Smooth highlighters/markers: allow denser segments.
+            BrushType.MARKER,
+            BrushType.HIGHLIGHTER_FREEFORM -> max(0.18f * op.baseWidth, 0.9f)
+
+            // Straight highlighter updates continuously; threshold can be small.
+            BrushType.HIGHLIGHTER_STRAIGHT -> max(0.14f * op.baseWidth, 0.8f)
+
+            // Pencil/pen feel better with tighter steps.
+            BrushType.PENCIL,
+            BrushType.PEN -> 0.7f
+
+            // Eraser area shouldn’t skip too much—keeps erasing smooth.
+            BrushType.ERASER_AREA -> max(0.16f * op.baseWidth, 0.9f)
+
+            // Stroke eraser is hit-test based; movement threshold is small.
+            BrushType.ERASER_STROKE -> 0.7f
         }
     }
+
 
 
     /** True if value is a finite, non-NaN float. */
