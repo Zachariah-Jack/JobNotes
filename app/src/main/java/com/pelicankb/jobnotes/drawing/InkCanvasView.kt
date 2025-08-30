@@ -1220,10 +1220,15 @@ class InkCanvasView @JvmOverloads constructor(
 
         when (baseBrush) {
             BrushType.HIGHLIGHTER_FREEFORM,
-            BrushType.HIGHLIGHTER_STRAIGHT -> scratchHL?.eraseColor(Color.TRANSPARENT)
-            BrushType.ERASER_AREA -> {}
-            else -> scratchInk?.eraseColor(Color.TRANSPARENT)
+            BrushType.HIGHLIGHTER_STRAIGHT -> {
+                scratchHLBySection.getOrNull(secIdx)?.eraseColor(Color.TRANSPARENT)
+            }
+            BrushType.ERASER_AREA -> { /* no scratch */ }
+            else -> {
+                scratchInkBySection.getOrNull(secIdx)?.eraseColor(Color.TRANSPARENT)
+            }
         }
+
 
         lastX = x
         lastY = y
@@ -1866,17 +1871,23 @@ class InkCanvasView @JvmOverloads constructor(
     // ===== Rebuild committed layers =====
 
     private fun rebuildCommitted() {
-        val ci = canvasInk ?: return
-        val ch = canvasHL ?: return
-        committedInk?.eraseColor(Color.TRANSPARENT)
-        committedHL?.eraseColor(Color.TRANSPARENT)
+        if (sections.isEmpty()) return
 
+        // Clear all committed bitmaps
+        for (i in sections.indices) {
+            committedInkBySection.getOrNull(i)?.eraseColor(Color.TRANSPARENT)
+            committedHLBySection.getOrNull(i)?.eraseColor(Color.TRANSPARENT)
+        }
+
+        // Replay strokes into their section's committed canvases
         for (op in strokes) {
             if (op.hidden) continue
+            val ci = committedInkCanvas(op)
+            val ch = committedHLCanvas(op)
             when (op.type) {
                 BrushType.HIGHLIGHTER_FREEFORM -> {
                     val pts = op.points
-                    if (pts.size < 2) continue
+                    if (pts.size < 2 || ch == null) continue
                     val p = newStrokePaint(op.color, op.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
                     withSection(ch, op) { c ->
                         for (i in 1 until pts.size) {
@@ -1887,7 +1898,7 @@ class InkCanvasView @JvmOverloads constructor(
                 }
                 BrushType.HIGHLIGHTER_STRAIGHT -> {
                     val pts = op.points
-                    if (pts.size < 2) continue
+                    if (pts.size < 2 || ch == null) continue
                     val p = newStrokePaint(op.color, op.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
                     withSection(ch, op) { c ->
                         c.drawLine(pts.first().x, pts.first().y, pts.last().x, pts.last().y, p)
@@ -1895,15 +1906,15 @@ class InkCanvasView @JvmOverloads constructor(
                 }
                 BrushType.CALLIGRAPHY -> {
                     val path = op.calligPath ?: Path(buildCalligraphyPath(op)).also { op.calligPath = it }
-                    withSection(canvasInk, op) { c -> c.drawPath(path, fillPaint(op.color)) }
+                    ci?.let { withSection(it, op) { c -> c.drawPath(path, fillPaint(op.color)) } }
                 }
                 BrushType.FOUNTAIN -> {
                     val path = op.fountainPath ?: Path(buildFountainPath(op)).also { op.fountainPath = it }
-                    withSection(canvasInk, op) { c -> c.drawPath(path, fillPaint(op.color)) }
+                    ci?.let { withSection(it, op) { c -> c.drawPath(path, fillPaint(op.color)) } }
                 }
                 BrushType.PEN -> {
                     val pts = op.points
-                    if (pts.size < 2) continue
+                    if (pts.size < 2 || ci == null) continue
                     val p = newStrokePaint(op.color, op.baseWidth)
                     withSection(ci, op) { c ->
                         for (i in 1 until pts.size) {
@@ -1914,7 +1925,7 @@ class InkCanvasView @JvmOverloads constructor(
                 }
                 BrushType.MARKER -> {
                     val pts = op.points
-                    if (pts.size < 2) continue
+                    if (pts.size < 2 || ci == null) continue
                     val p = markerPaint.apply {
                         color = op.color
                         strokeWidth = op.baseWidth * 1.30f
@@ -1929,7 +1940,7 @@ class InkCanvasView @JvmOverloads constructor(
                 }
                 BrushType.PENCIL -> {
                     val pts = op.points
-                    if (pts.size < 2) continue
+                    if (pts.size < 2 || ci == null) continue
                     withSection(ci, op) { c ->
                         for (i in 1 until pts.size) {
                             val a = pts[i - 1]; val b = pts[i]
@@ -1943,7 +1954,9 @@ class InkCanvasView @JvmOverloads constructor(
                     if (pts.size < 2) continue
                     val half = op.baseWidth * 0.5f
                     val clearInk = !op.eraseHLOnly
-                    val offY = sectionOffsetY(op)
+                    val ci0 = committedInkCanvas(op)
+                    val ch0 = committedHLCanvas(op)
+                    if (ci0 == null && ch0 == null) continue
                     for (i in 1 until pts.size) {
                         val a = pts[i - 1]; val b = pts[i]
                         val dx = b.x - a.x; val dy = b.y - a.y
@@ -1952,16 +1965,17 @@ class InkCanvasView @JvmOverloads constructor(
                         for (k in 0..steps) {
                             val t = k / steps.toFloat()
                             val px = a.x + dx * t
-                            val py = a.y + dy * t - offY
-                            if (clearInk) ci.drawCircle(px, py, half, clearPaint)
-                            ch.drawCircle(px, py, half, clearPaint)
+                            val py = a.y + dy * t
+                            ci0?.let { withSection(it, op) { c -> if (clearInk) c.drawCircle(px, py, half, clearPaint) } }
+                            ch0?.let { withSection(it, op) { c -> c.drawCircle(px, py, half, clearPaint) } }
                         }
                     }
                 }
-                BrushType.ERASER_STROKE -> { /* no-op on rebuild; already applied */ }
+                BrushType.ERASER_STROKE -> { /* no-op on rebuild; already applied by removing strokes */ }
             }
         }
     }
+
 
 
     // --- ghost paste preview renderer ---
@@ -2590,46 +2604,47 @@ class InkCanvasView @JvmOverloads constructor(
     private fun extendStroke(x: Float, y: Float) {
         val op = current ?: return
 
+        // Clamp both previous and new points to this stroke's section bounds
+        fun clampToSectionCoords(xx: Float, yy: Float): Pair<Float, Float> {
+            val s = sections.getOrNull(op.sectionIndex) ?: return xx to yy
+            val cy = yy.coerceIn(s.yOffsetPx, s.yOffsetPx + s.heightPx)
+            return xx to cy
+        }
+        val (sx, sy) = clampToSectionCoords(lastX, lastY)
+        val (nx, ny) = clampToSectionCoords(x, y)
 
-        val sx = lastX
-        val sy = lastY
-
-        val dx = x - sx
-        val dy = y - sy
+        val dx = nx - sx
+        val dy = ny - sy
         val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
-        // Skip tiny movements to avoid heavy path work on dense input
         if (!isFinitef(dist) || dist < minStepFor(op)) return
 
-
-        op.points.add(Point(x, y))
+        op.points.add(Point(nx, ny))
 
         when (op.type) {
             BrushType.HIGHLIGHTER_FREEFORM -> {
                 val p = newStrokePaint(op.color, op.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
-                withSection(scratchCanvasHL, op) { c -> c.drawLine(sx, sy, x, y, p) }
-
+                scratchHLScratchCanvas(op)?.let { withSection(it, op) { c -> c.drawLine(sx, sy, nx, ny, p) } }
             }
             BrushType.HIGHLIGHTER_STRAIGHT -> {
-                scratchHL?.eraseColor(Color.TRANSPARENT)
+                scratchHLBySection.getOrNull(op.sectionIndex)?.eraseColor(Color.TRANSPARENT)
                 val p = newStrokePaint(op.color, op.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
                 val a = op.points.first()
-                withSection(scratchCanvasHL, op) { c -> c.drawLine(a.x, a.y, x, y, p) }
-
+                scratchHLScratchCanvas(op)?.let { withSection(it, op) { c -> c.drawLine(a.x, a.y, nx, ny, p) } }
             }
             BrushType.ERASER_AREA -> {
                 val clearInk = !eraserHLOnly
                 val half = op.baseWidth * 0.5f
                 val steps = max(1, (dist / max(1f, half)).toInt())
-                val offY = sectionOffsetY(op)
+                val ci0 = committedInkCanvas(op)
+                val ch0 = committedHLCanvas(op)
                 for (i in 0..steps) {
                     val t = i / steps.toFloat()
                     val px = sx + dx * t
-                    val py = sy + dy * t - offY
-                    if (clearInk) canvasInk?.drawCircle(px, py, half, clearPaint)
-                    canvasHL?.drawCircle(px, py, half, clearPaint)
+                    val py = sy + dy * t
+                    ci0?.let { withSection(it, op) { c -> if (clearInk) c.drawCircle(px, py, half, clearPaint) } }
+                    ch0?.let { withSection(it, op) { c -> c.drawCircle(px, py, half, clearPaint) } }
                 }
             }
-
             BrushType.ERASER_STROKE -> {
                 val radius = max(6f, op.baseWidth * 0.5f)
                 val hlOnly = eraserHLOnly
@@ -2640,7 +2655,8 @@ class InkCanvasView @JvmOverloads constructor(
                     val isHL = (s.type == BrushType.HIGHLIGHTER_FREEFORM || s.type == BrushType.HIGHLIGHTER_STRAIGHT)
                     if (hlOnly && !isHL) continue
                     if (!hlOnly && (s.type == BrushType.ERASER_AREA || s.type == BrushType.ERASER_STROKE)) continue
-                    if (hitStroke(s, x, y, radius)) {
+                    if (s.sectionIndex != op.sectionIndex) continue
+                    if (hitStroke(s, nx, ny, radius)) {
                         strokes.removeAt(i)
                         op.erased?.add(ErasedEntry(i, s))
                         removedOne = true
@@ -2650,17 +2666,8 @@ class InkCanvasView @JvmOverloads constructor(
                 if (removedOne) rebuildCommitted()
             }
             BrushType.CALLIGRAPHY -> {
-
-
-                // Incremental segment draw for perf: build a single oriented quad between (sx,sy)->(x,y)
-                // Width varies with nib angle vs direction (same math as buildCalligraphyPath)
-                val dx = x - sx
-                val dy = y - sy
-                val len = hypot(dx.toDouble(), dy.toDouble()).toFloat()
-                if (len <= 1e-3f) {
-                    // still update lastDir so the next segment gets proper w0
-                    op.lastDir = atan2(dy, dx)
-                } else {
+                val len = dist
+                if (len > 1e-3f) {
                     val dirNow = atan2(dy, dx)
                     val dirPrev = op.lastDir ?: dirNow
                     val w0 = calligWidth(op, dirPrev)
@@ -2668,18 +2675,11 @@ class InkCanvasView @JvmOverloads constructor(
                     val hw0 = max(0.5f, 0.5f * w0)
                     val hw1 = max(0.5f, 0.5f * w1)
 
-                    // Constant nib axis (same as buildCalligraphyPath)
-                    val nx = -sin(nibAngleRad)
-                    val ny =  cos(nibAngleRad)
-
-                    val l0x = sx + nx * hw0
-                    val l0y = sy + ny * hw0
-                    val r0x = sx - nx * hw0
-                    val r0y = sy - ny * hw0
-                    val l1x = x  + nx * hw1
-                    val l1y = y  + ny * hw1
-                    val r1x = x  - nx * hw1
-                    val r1y = y  - ny * hw1
+                    val nxA = -sin(nibAngleRad); val nyA = cos(nibAngleRad)
+                    val l0x = sx + nxA * hw0; val l0y = sy + nyA * hw0
+                    val r0x = sx - nxA * hw0; val r0y = sy - nyA * hw0
+                    val l1x = nx + nxA * hw1; val l1y = ny + nyA * hw1
+                    val r1x = nx - nxA * hw1; val r1y = ny - nyA * hw1
 
                     segPath.rewind()
                     segPath.moveTo(l0x, l0y)
@@ -2688,47 +2688,35 @@ class InkCanvasView @JvmOverloads constructor(
                     segPath.lineTo(r0x, r0y)
                     segPath.close()
 
-                    withSection(scratchCanvasInk, op) { c -> c.drawPath(segPath, fillPaint(op.color)) }
-
-
-                    // Use effective width for tighter dirty-rect invalidation
-                    val effW = max(w0, w1)
-                    lastDirtyViewRect = strokeDirtyViewRect(sx, sy, x, y, effW)   // ADDED
+                    scratchInkCanvas(op)?.let { withSection(it, op) { c -> c.drawPath(segPath, fillPaint(op.color)) } }
+                    lastDirtyViewRect = strokeDirtyViewRect(sx, sy, nx, ny, max(w0, w1))
                     op.lastDir = dirNow
+                } else {
+                    op.lastDir = atan2(dy, dx)
                 }
             }
-
-
             BrushType.FOUNTAIN -> {
                 val half = max(0.5f, 0.5f * op.baseWidth)
-                val seg = buildThickSegmentPath(sx, sy, x, y, half, squareCaps = false)
-                withSection(scratchCanvasInk, op) { c -> c.drawPath(seg, fillPaint(op.color)) }
-                lastDirtyViewRect = strokeDirtyViewRect(sx, sy, x, y, op.baseWidth)
+                val seg = buildThickSegmentPath(sx, sy, nx, ny, half, squareCaps = false)
+                scratchInkCanvas(op)?.let { withSection(it, op) { c -> c.drawPath(seg, fillPaint(op.color)) } }
+                lastDirtyViewRect = strokeDirtyViewRect(sx, sy, nx, ny, op.baseWidth)
             }
-
-
-
             BrushType.PENCIL -> {
-                withSection(scratchCanvasInk, op) { c -> drawPencilSegment(c, sx, sy, x, y, op, dist) }
-
+                scratchInkCanvas(op)?.let { withSection(it, op) { c -> drawPencilSegment(c, sx, sy, nx, ny, op, dist) } }
             }
             BrushType.MARKER -> {
-                withSection(scratchCanvasInk, op) { c -> drawMarkerSegment(c, sx, sy, x, y, op, dist) }
-
+                scratchInkCanvas(op)?.let { withSection(it, op) { c -> drawMarkerSegment(c, sx, sy, nx, ny, op, dist) } }
             }
             BrushType.PEN -> {
-                withSection(scratchCanvasInk, op) { c -> drawPenSegment(c, sx, sy, x, y, op) }
-
+                scratchInkCanvas(op)?.let { withSection(it, op) { c -> drawPenSegment(c, sx, sy, nx, ny, op) } }
             }
         }
 
-        // Record a VIEW-space dirty rect for just the changed strip
-        lastDirtyViewRect = strokeDirtyViewRect(sx, sy, x, y, op.baseWidth)
-
-        lastX = x
-        lastY = y
-
+        lastDirtyViewRect = strokeDirtyViewRect(sx, sy, nx, ny, op.baseWidth)
+        lastX = nx
+        lastY = ny
     }
+
 
     private fun finishStroke() {
         if (!drawing) return
@@ -2741,54 +2729,41 @@ class InkCanvasView @JvmOverloads constructor(
                     try {
                         val bb = RectF()
                         val have = quickBoundsOf(stroke.points, bb)
-                        // content-area threshold: skip union if area huge (e.g., > 24 MP in content space)
                         val area = if (have) (bb.width() * bb.height()) else 0f
-                        if (stroke.points.size > 2000 || area > 24_000_000f) {
-                            stroke.calligPath = null
-                        } else {
-                            stroke.calligPath = Path(buildCalligraphyPath(stroke))
-                        }
-                    } catch (_: OutOfMemoryError) {
-                        stroke.calligPath = null
-                    } catch (_: Throwable) {
-                        stroke.calligPath = null
-                    }
+                        stroke.calligPath =
+                            if (stroke.points.size > 2000 || area > 24_000_000f) null
+                            else Path(buildCalligraphyPath(stroke))
+                    } catch (_: Throwable) { stroke.calligPath = null }
                 }
                 BrushType.FOUNTAIN -> {
                     try {
                         val bb = RectF()
                         val have = quickBoundsOf(stroke.points, bb)
                         val area = if (have) (bb.width() * bb.height()) else 0f
-                        if (stroke.points.size > 2000 || area > 24_000_000f) {
-                            stroke.fountainPath = null
-                        } else {
-                            stroke.fountainPath = Path(buildFountainPath(stroke))
-                        }
-                    } catch (_: OutOfMemoryError) {
-                        stroke.fountainPath = null
-                    } catch (_: Throwable) {
-                        stroke.fountainPath = null
-                    }
+                        stroke.fountainPath =
+                            if (stroke.points.size > 2000 || area > 24_000_000f) null
+                            else Path(buildFountainPath(stroke))
+                    } catch (_: Throwable) { stroke.fountainPath = null }
                 }
                 else -> { /* no snapshot */ }
             }
-
-
             strokes.add(stroke)
+
+            // Clear scratch for this page only
+            val sec = stroke.sectionIndex
+            scratchInkBySection.getOrNull(sec)?.eraseColor(Color.TRANSPARENT)
+            scratchHLBySection.getOrNull(sec)?.eraseColor(Color.TRANSPARENT)
         }
         current = null
         drawing = false
         activePointerId = -1
-        // Drop transient hardware layer used during union-like drawing
         setLayerType(LAYER_TYPE_NONE, null)
 
         rebuildCommitted()
-        scratchInk?.eraseColor(Color.TRANSPARENT)
-        scratchHL?.eraseColor(Color.TRANSPARENT)
         lastDirtyViewRect = null
-
         invalidate()
     }
+
 
     // ===== Paste placement =====
 
