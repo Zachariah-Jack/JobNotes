@@ -3010,6 +3010,15 @@ class InkCanvasView @JvmOverloads constructor(
      * [dpi] controls the page point size; default 300 DPI.
      * Returns true on success.
      */
+    // ---- Compatibility alias for legacy callers (kept during migration) ----
+    /**
+     * Legacy name kept for MainActivity and older call sites.
+     * Internally forwards to the new document-wide renderer.
+     */
+    fun renderCurrentPageBitmap(includeSelectionOverlays: Boolean = false): Bitmap {
+        return renderCurrentDocumentBitmap(includeSelectionOverlays)
+    }
+
     fun exportToPdf(output: OutputStream, dpi: Int = 300): Boolean {
         if (width <= 0 || height <= 0) return false
         // Render a bitmap first (without selection overlays)
