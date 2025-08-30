@@ -603,6 +603,58 @@ class InkCanvasView @JvmOverloads constructor(
         color = 0xFF000000.toInt()
         alpha = 46 // ~18% opacity
     }
+    // --- Pull-to-add UI paints ---
+    private val pullCirclePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dpToPx(2f)
+        color = 0x66000000.toInt()
+    }
+    private val pullProgressPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dpToPx(3f)
+        strokeCap = Paint.Cap.ROUND
+        color = 0xFF2196F3.toInt()
+    }
+    private val pullArrowPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dpToPx(2f)
+        strokeJoin = Paint.Join.ROUND
+        strokeCap = Paint.Cap.ROUND
+        color = 0xFF2196F3.toInt()
+    }
+    private val pullTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0x99000000.toInt()
+        textAlign = Paint.Align.CENTER
+        textSize = dpToPx(12f)
+    }
+
+    private fun drawPullToAddIndicator(canvas: Canvas) {
+        if (!pullDragActive && pullDragDistance <= 0f) return
+
+        val progress = (pullDragDistance / pullThresholdPx).coerceIn(0f, 1f)
+        val docBottomViewY = translationY + contentHeightPx() * scaleFactor
+        val cx = width - dpToPx(32f)
+        val cy = docBottomViewY - dpToPx(24f)
+        val r  = dpToPx(14f)
+
+        // Base circle
+        canvas.drawCircle(cx, cy, r, pullCirclePaint)
+
+        // Progress arc (starts at top, sweeps clockwise)
+        val oval = RectF(cx - r, cy - r, cx + r, cy + r)
+        canvas.drawArc(oval, -90f, 360f * progress, false, pullProgressPaint)
+
+        // Up arrow inside the circle
+        val stemTopY = cy - r * 0.45f
+        val stemBotY = cy + r * 0.20f
+        canvas.drawLine(cx, stemBotY, cx, stemTopY, pullArrowPaint)
+        canvas.drawLine(cx, stemTopY, cx - r * 0.22f, stemTopY + r * 0.22f, pullArrowPaint)
+        canvas.drawLine(cx, stemTopY, cx + r * 0.22f, stemTopY + r * 0.22f, pullArrowPaint)
+
+        // Label
+        canvas.drawText("Add new page", cx, cy + r + dpToPx(14f), pullTextPaint)
+    }
+
     private val pageWorkRect = RectF()
 
 
@@ -661,7 +713,7 @@ class InkCanvasView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
-        // 1) Draw all sections (pages) in content space
+        // 1) CONTENT space: draw each section background + that section's committed/scratch layers
         canvas.save()
         canvas.translate(translationX, translationY)
 
@@ -669,11 +721,10 @@ class InkCanvasView @JvmOverloads constructor(
             val s = sections[i]
 
             canvas.save()
-            // Position this section in VIEW space (its content yOffset times current scale)
             canvas.translate(0f, s.yOffsetPx * scaleFactor)
             canvas.scale(scaleFactor, scaleFactor)
 
-            // Page shadow (only when zoomed in)
+            // Page shadow (when zoomed in)
             if (scaleFactor > 1.02f) {
                 pageWorkRect.set(0f, 0f, width.toFloat(), s.heightPx)
                 val inflate = dpToPx(6f) / scaleFactor
@@ -689,34 +740,27 @@ class InkCanvasView @JvmOverloads constructor(
             // White page background for this section
             canvas.drawRect(0f, 0f, width.toFloat(), s.heightPx, pagePaint)
 
-            // For now (Phase 2.1), draw current single-section bitmaps only on section 0
-            if (i == 0) {
-                committedHL?.let  { canvas.drawBitmap(it, 0f, 0f, null) }
-                scratchHL?.let    { canvas.drawBitmap(it, 0f, 0f, null) }
-                committedInk?.let { canvas.drawBitmap(it, 0f, 0f, null) }
-                scratchInk?.let   { canvas.drawBitmap(it, 0f, 0f, null) }
-            }
+            // This section's layers (committed first, then scratch)
+            committedHLBySection.getOrNull(i)?.let  { canvas.drawBitmap(it, 0f, 0f, null) }
+            scratchHLBySection.getOrNull(i)?.let    { canvas.drawBitmap(it, 0f, 0f, null) }
+            committedInkBySection.getOrNull(i)?.let { canvas.drawBitmap(it, 0f, 0f, null) }
+            scratchInkBySection.getOrNull(i)?.let   { canvas.drawBitmap(it, 0f, 0f, null) }
 
             canvas.restore()
         }
         canvas.restore()
 
-        // 2) Draw overlays (marquee, selection, paste ghost) in section-0 content coords
+        // 2) Overlays in section-0 content coords (marquee, selection, paste ghost)
         canvas.save()
         canvas.translate(translationX, translationY)
         canvas.scale(scaleFactor, scaleFactor)
 
-        // Paste ghost preview
         if (pasteArmed && pastePreviewVisible && clipboard.isNotEmpty()) {
             drawClipboardGhost(canvas, pastePreviewCx, pastePreviewCy)
         }
-
-        // Moving selection overlay
         if (overlayActive && selectedStrokes.isNotEmpty()) {
             drawSelectionOverlay(canvas)
         }
-
-        // Marquee & selection visuals
         marqueePath?.let { path ->
             canvas.drawPath(path, marqueeFill)
             canvas.drawPath(path, marqueeOutline)
@@ -742,28 +786,17 @@ class InkCanvasView @JvmOverloads constructor(
             canvas.drawRect(0f, h - fadeH, w, h, bottomEdgePaint)
         }
 
-        // 4) Scrollbar (view space) — total document height in VIEW coords
+        // 4) Scrollbar overlay (view space)
         run {
             val density = resources.displayMetrics.density
             val contentHViewPx = contentHeightPx() * scaleFactor
             scrollbar.draw(canvas, width, height, density, scaleFactor, translationY, contentHViewPx)
         }
 
-        // 5) Bottom pull-to-add affordance (simple triangle) in VIEW space
-        run {
-            val docBottomViewY = translationY + contentHeightPx() * scaleFactor
-            val cx = width - dpToPx(28f)
-            val baseY = docBottomViewY - dpToPx(12f)
-            val tri = Path().apply {
-                moveTo(cx,                baseY - dpToPx(8f))
-                lineTo(cx - dpToPx(8f),  baseY + dpToPx(8f))
-                lineTo(cx + dpToPx(8f),  baseY + dpToPx(8f))
-                close()
-            }
-            val affordPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0x99000000.toInt() }
-            canvas.drawPath(tri, affordPaint)
-        }
+        // 5) Bottom pull-to-add affordance (view space) — up arrow with circular progress + label
+        drawPullToAddIndicator(canvas)
     }
+
 
 
 
