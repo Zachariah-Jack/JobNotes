@@ -2862,59 +2862,67 @@ class InkCanvasView @JvmOverloads constructor(
         val s = scaleFactor
         val w = width.toFloat()
         val h = height.toFloat()
+        val docH = contentHeightPx().coerceAtLeast(1f) // CONTENT height across all sections
 
         if (s < 1f - 1e-3f) {
-            // Center content when zoomed out
+            // Center the whole document when zoomed out
             translationX = (w - s * w) * 0.5f
-            translationY = (h - s * h) * 0.5f
+            translationY = (h - s * docH) * 0.5f
             return
         }
 
         if (abs(s - 1f) < 1e-3f) {
-            // At exactly 1×: lock X (vertical scroll is free)
+            // At exactly 1×: lock X; clamp Y to document height
             translationX = 0f
+            val minY = h - (s * docH)
+            val maxY = 0f
+            translationY = translationY.coerceIn(minY, maxY)
             return
         }
 
-        // s > 1: clamp within scaled content bounds
+        // s > 1: clamp within scaled document bounds vertically; X uses view width (document == view width)
         val minX = w - s * w
         val maxX = 0f
-        val minY = h - s * h
+        val minY = h - (s * docH)
         val maxY = 0f
         translationX = translationX.coerceIn(minX, maxX)
         translationY = translationY.coerceIn(minY, maxY)
     }
 
+
     private fun startFling(vx: Float, vy: Float) {
         val s = scaleFactor
         val w = width.toFloat()
         val h = height.toFloat()
+        val docH = contentHeightPx().coerceAtLeast(1f)
 
         val startX = translationX.toInt()
         val startY = translationY.toInt()
 
+        // Compute fling bounds against the scaled document, not just the view.
         val (minX, maxX, minY, maxY) = when {
             s < 1f - 1e-3f -> {
-                // Centered, nothing to fling; snap back to center
+                // Zoomed out: center on the scaled document
                 val cx = ((w - s * w) * 0.5f).toInt()
-                val cy = ((h - s * h) * 0.5f).toInt()
+                val cy = ((h - s * docH) * 0.5f).toInt()
                 scroller.startScroll(startX, startY, cx - startX, cy - startY)
                 postInvalidateOnAnimation()
                 return
             }
             abs(s - 1f) < 1e-3f -> {
-                // At 1×: lock X, allow generous vertical fling window
-                val huge = 1_000_000
-                0 to 0 to (-huge to huge)
+                // At 1×: lock X; allow vertical fling within document bounds
+                val miny = (h - s * docH).toInt()
+                val maxy = 0
+                Quad(0, 0, miny, maxy)
             }
             else -> {
                 val minx = (w - s * w).toInt()
                 val maxx = 0
-                val miny = (h - s * h).toInt()
+                val miny = (h - s * docH).toInt()
                 val maxy = 0
-                minx to maxx to (miny to maxy)
+                Quad(minx, maxx, miny, maxy)
             }
-        }.let { (xPair, yPair) -> Quad(xPair.first, xPair.second, yPair.first, yPair.second) }
+        }
 
         val adjVx = if (abs(s - 1f) < 1e-3f) 0 else vx // horizontal lock at 1×
         scroller.fling(
@@ -2925,6 +2933,7 @@ class InkCanvasView @JvmOverloads constructor(
         )
         postInvalidateOnAnimation()
     }
+
 
     private fun stopFling() {
         if (!scroller.isFinished) scroller.forceFinished(true)
