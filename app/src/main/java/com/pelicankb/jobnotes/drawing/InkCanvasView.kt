@@ -4,6 +4,8 @@ import android.animation.AnimatorListenerAdapter
 import android.animation.ValueAnimator
 import android.content.Context
 import android.graphics.*
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.util.AttributeSet
 import android.util.Log
 import android.view.GestureDetector
@@ -26,6 +28,7 @@ import java.io.OutputStream
 import kotlin.math.*
 import kotlin.random.Random
 import kotlin.math.max
+import kotlin.math.roundToInt
 
 
 /**
@@ -353,16 +356,79 @@ class InkCanvasView @JvmOverloads constructor(
     private var eraserHLOnly: Boolean = false
 
     // ===== Layers =====
-    private var committedInk: Bitmap? = null
-    private var canvasInk: Canvas? = null
-    private var committedHL: Bitmap? = null
-    private var canvasHL: Canvas? = null
-    private var scratchInk: Bitmap? = null
-    private var scratchCanvasInk: Canvas? = null
-    private var scratchHL: Bitmap? = null
-    private var scratchCanvasHL: Canvas? = null
+// We now keep separate bitmaps per section (page). Each section has:
+// - committed Ink + HL (finalized)
+// - scratch Ink + HL (in-progress)
+//
+// Canvases parallel the bitmap arrays. Index by sectionIndex.
+    private val committedInkBySection   = ArrayList<Bitmap?>()
+    private val canvasInkBySection      = ArrayList<Canvas?>()
+    private val committedHLBySection    = ArrayList<Bitmap?>()
+    private val canvasHLBySection       = ArrayList<Canvas?>()
+    private val scratchInkBySection     = ArrayList<Bitmap?>()
+    private val scratchCanvasInkBySection = ArrayList<Canvas?>()
+    private val scratchHLBySection      = ArrayList<Bitmap?>()
+    private val scratchCanvasHLBySection  = ArrayList<Canvas?>()
+    // ------------------------------------------------------------------------
+// Back-compat shims for legacy single-page code paths (SECTION 0 ONLY).
+// These let older code continue to compile while we migrate calls to per-page arrays.
+// Once all call sites are updated, delete this block.
+// ------------------------------------------------------------------------
+    private val committedInk: Bitmap?
+        get() = committedInkBySection.getOrNull(0)
+    private val canvasInk: Canvas?
+        get() = canvasInkBySection.getOrNull(0)
+    private val committedHL: Bitmap?
+        get() = committedHLBySection.getOrNull(0)
+    private val canvasHL: Canvas?
+        get() = canvasHLBySection.getOrNull(0)
+    private val scratchInk: Bitmap?
+        get() = scratchInkBySection.getOrNull(0)
+    private val scratchCanvasInk: Canvas?
+        get() = scratchCanvasInkBySection.getOrNull(0)
+    private val scratchHL: Bitmap?
+        get() = scratchHLBySection.getOrNull(0)
+    private val scratchCanvasHL: Canvas?
+        get() = scratchCanvasHLBySection.getOrNull(0)
 
-    // ===== Transform (pan/zoom) =====
+
+    // Canvas getters for the active stroke's section
+    private fun committedInkCanvas(op: StrokeOp): Canvas? =
+        canvasInkBySection.getOrNull(op.sectionIndex)
+    private fun committedHLCanvas(op: StrokeOp): Canvas? =
+        canvasHLBySection.getOrNull(op.sectionIndex)
+    private fun scratchInkCanvas(op: StrokeOp): Canvas? =
+        scratchCanvasInkBySection.getOrNull(op.sectionIndex)
+    private fun scratchHLScratchCanvas(op: StrokeOp): Canvas? =
+        scratchCanvasHLBySection.getOrNull(op.sectionIndex)
+
+    // Utility: (re)allocate all per-section bitmaps to current width and section heights.
+    private fun allocateSectionBitmaps(viewW: Int) {
+        // Clear previous
+        committedInkBySection.clear();   canvasInkBySection.clear()
+        committedHLBySection.clear();    canvasHLBySection.clear()
+        scratchInkBySection.clear();     scratchCanvasInkBySection.clear()
+        scratchHLBySection.clear();      scratchCanvasHLBySection.clear()
+
+        for (s in sections) {
+            val h = max(1, s.heightPx.roundToInt())
+            fun newBmp() = Bitmap.createBitmap(viewW, h, Bitmap.Config.ARGB_8888)
+
+            val ci = newBmp().also { committedInkBySection.add(it);  canvasInkBySection.add(Canvas(it)) }
+            val ch = newBmp().also { committedHLBySection.add(it);   canvasHLBySection.add(Canvas(it)) }
+            val si = newBmp().also { scratchInkBySection.add(it);     scratchCanvasInkBySection.add(Canvas(it)) }
+            val sh = newBmp().also { scratchHLBySection.add(it);      scratchCanvasHLBySection.add(Canvas(it)) }
+
+            // Start clear
+            ci.eraseColor(Color.TRANSPARENT)
+            ch.eraseColor(Color.TRANSPARENT)
+            si.eraseColor(Color.TRANSPARENT)
+            sh.eraseColor(Color.TRANSPARENT)
+        }
+    }
+
+// ===== Transform (pan/zoom) =====
+
     private val scaleDetector = ScaleGestureDetector(context, ScaleListener())
     private val gestureDetector = GestureDetector(context, GestureListener())
     private var fingerPanning = false
