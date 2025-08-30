@@ -124,13 +124,16 @@ class InkCanvasView @JvmOverloads constructor(
         strokes.clear()
         redoStack.clear()
         current = null
-        committedInk?.eraseColor(Color.TRANSPARENT)
-        committedHL?.eraseColor(Color.TRANSPARENT)
-        scratchInk?.eraseColor(Color.TRANSPARENT)
-        scratchHL?.eraseColor(Color.TRANSPARENT)
+        for (i in sections.indices) {
+            committedInkBySection.getOrNull(i)?.eraseColor(Color.TRANSPARENT)
+            committedHLBySection.getOrNull(i)?.eraseColor(Color.TRANSPARENT)
+            scratchInkBySection.getOrNull(i)?.eraseColor(Color.TRANSPARENT)
+            scratchHLBySection.getOrNull(i)?.eraseColor(Color.TRANSPARENT)
+        }
         clearSelection()
         invalidate()
     }
+
 
     // ---- Selection API exposed to Activity ----
     enum class SelectionPolicy { STROKE_WISE, REGION_INSIDE }
@@ -2975,41 +2978,32 @@ class InkCanvasView @JvmOverloads constructor(
      * Render the current page (white background + committed HL/Ink + optional overlays) to a new Bitmap.
      * Size = view size in pixels.
      */
-    fun renderCurrentPageBitmap(includeSelectionOverlays: Boolean = false): Bitmap {
-        // Compose into a fresh ARGB_8888 bitmap the size of the view
-        val bmp = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    fun renderCurrentDocumentBitmap(includeSelectionOverlays: Boolean = false): Bitmap {
+        // Compose the whole document (all pages) at current view width and full content height
+        val totalH = max(1, (contentHeightPx()).roundToInt())
+        val bmp = Bitmap.createBitmap(width, totalH, Bitmap.Config.ARGB_8888)
         val c = Canvas(bmp)
-
-        // Page background (no transform; committed bitmaps are already view-sized)
         c.drawColor(Color.WHITE)
 
-        // Base layers (committed first, then scratch for in-progress)
-        committedHL?.let { c.drawBitmap(it, 0f, 0f, null) }
-        scratchHL?.let { c.drawBitmap(it, 0f, 0f, null) }
-        committedInk?.let { c.drawBitmap(it, 0f, 0f, null) }
-        scratchInk?.let { c.drawBitmap(it, 0f, 0f, null) }
+        // Draw each section at its content Y
+        for (i in sections.indices) {
+            val s = sections[i]
+            c.save()
+            c.translate(0f, s.yOffsetPx)
+            committedHLBySection.getOrNull(i)?.let  { c.drawBitmap(it, 0f, 0f, null) }
+            committedInkBySection.getOrNull(i)?.let { c.drawBitmap(it, 0f, 0f, null) }
+            scratchHLBySection.getOrNull(i)?.let    { c.drawBitmap(it, 0f, 0f, null) }
+            scratchInkBySection.getOrNull(i)?.let   { c.drawBitmap(it, 0f, 0f, null) }
 
-        if (includeSelectionOverlays) {
-            // Optional: ghost preview and selection overlays
-            if (pasteArmed && pastePreviewVisible && clipboard.isNotEmpty()) {
-                drawClipboardGhost(c, pastePreviewCx, pastePreviewCy)
+            if (includeSelectionOverlays) {
+                drawSelectionOverlay(c) // already in content coords
+                marqueePath?.let { path -> c.drawPath(path, marqueeFill); c.drawPath(path, marqueeOutline) }
             }
-            if (overlayActive && selectedStrokes.isNotEmpty()) {
-                drawSelectionOverlay(c)
-            }
-            if (selectedStrokes.isNotEmpty()) {
-                drawSelectionHighlights(c)
-                selectedBounds?.let { r ->
-                    c.drawRect(r, selectionOutline)
-                    if (selectionInteractive) {
-                        drawHandles(c, r)
-                    }
-                }
-            }
+            c.restore()
         }
-
         return bmp
     }
+
 
     /**
      * Export the current page to a single-page PDF and write to [output].
@@ -3019,7 +3013,7 @@ class InkCanvasView @JvmOverloads constructor(
     fun exportToPdf(output: OutputStream, dpi: Int = 300): Boolean {
         if (width <= 0 || height <= 0) return false
         // Render a bitmap first (without selection overlays)
-        val pageBitmap = renderCurrentPageBitmap(includeSelectionOverlays = false)
+        val pageBitmap = renderCurrentDocumentBitmap(includeSelectionOverlays = false)
 
         val doc = PdfDocument()
         try {
