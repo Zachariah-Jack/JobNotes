@@ -22,6 +22,9 @@ import androidx.core.content.FileProvider
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+
 
 import com.pelicankb.jobnotes.drawing.BrushType
 import com.pelicankb.jobnotes.drawing.InkCanvasView
@@ -190,9 +193,7 @@ class MainActivity : AppCompatActivity() {
         // Prefer resize when keyboard shows
 
         setContentView(R.layout.activity_main)
-        // Keep the title row below the status bar on edge-to-edge devices.
-        import androidx.core.view.ViewCompat
-                import androidx.core.view.WindowInsetsCompat
+
 
 // ...inside onCreate() just after setContentView(...)
                 run {
@@ -989,10 +990,7 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    @Suppress("UNUSED_PARAMETER")
-    fun onTitleEditClicked(v: View) {
-        enterTitleEditMode()
-    }
+
 
 
     // ───────── Selection popup (lasso/rect + mode toggle) ─────────
