@@ -1,5 +1,7 @@
 package com.pelicankb.jobnotes
 
+// ===== The Pelican Password is "Ocean Fishing" =====
+
 import android.content.Context
 import android.content.res.ColorStateList
 import android.graphics.Color
@@ -193,6 +195,16 @@ class MainActivity : AppCompatActivity() {
         // Prefer resize when keyboard shows
 
         setContentView(R.layout.activity_main)
+        // Ensure the top area (title row) is not hidden under status bar
+        run {
+            val root = findViewById<View>(R.id.root)
+            androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+                val topInset = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top
+                v.setPadding(v.paddingLeft, topInset, v.paddingRight, v.paddingBottom)
+                insets
+            }
+        }
+
 
 
 // ...inside onCreate() just after setContentView(...)
