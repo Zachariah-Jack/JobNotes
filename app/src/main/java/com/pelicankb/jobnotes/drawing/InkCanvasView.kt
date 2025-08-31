@@ -2912,34 +2912,37 @@ class InkCanvasView @JvmOverloads constructor(
         val docH = contentHeightPx().coerceAtLeast(1f)
 
         // -------- X (horizontal) --------
-        // At 1× we lock X to 0. At other zooms, ensure a VALID range: minX must not exceed maxX (0).
-        val rawMinX = w - s * w            // can be > 0 when s < 1
-        val minX = kotlin.math.min(0f, rawMinX)  // force minX <= 0 so [minX, 0] is valid
-        val maxX = 0f
-
-        if (kotlin.math.abs(s - 1f) < 1e-3f) {
-            translationX = 0f
+        // When zoomed OUT (<1×), horizontally center the scaled content and disallow horizontal panning.
+        // When ≥1×, use a safe clamp range [minX <= 0, 0] to avoid empty coerceIn intervals.
+        if (s < 1f - 1e-3f) {
+            translationX = (w - s * w) * 0.5f  // center horizontally
         } else {
+            val rawMinX = w - s * w
+            val minX = kotlin.math.min(0f, rawMinX)  // ensure minX ≤ 0
+            val maxX = 0f
             translationX = translationX.coerceIn(minX, maxX)
         }
 
         // -------- Y (vertical) --------
-        // Same idea: when doc is "shorter" than the viewport (or zoomed out), rawMinY > 0.
-        // Force minY <= 0 so [minY, 0] is valid for coerceIn.
+        // Keep the "top-lock" behavior: only allow scrolling within [minY, 0].
+        // Force a valid clamp range by ensuring minY ≤ 0 at all times.
         val rawMinY = h - (s * docH)
         val minY = kotlin.math.min(0f, rawMinY)
         val maxY = 0f
         translationY = translationY.coerceIn(minY, maxY)
 
         if (DEBUG_INPUT) {
+            val rawMinXDbg = w - s * w
+            val minXDbg = if (s < 1f - 1e-3f) (w - s * w) * 0.5f else kotlin.math.min(0f, rawMinXDbg)
             Log.d(
                 TAG,
                 "clampPan: s=$s w=$w h=$h docH=$docH " +
-                        "rawMinX=$rawMinX -> clampX[$minX, $maxX] tx=$translationX " +
+                        "rawMinX=$rawMinXDbg -> tx=$translationX (center if <1×, else clamp to [$minXDbg, 0]) " +
                         "rawMinY=$rawMinY -> clampY[$minY, $maxY] ty=$translationY"
             )
         }
     }
+
 
 
 
