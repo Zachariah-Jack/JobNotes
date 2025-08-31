@@ -2920,10 +2920,10 @@ class InkCanvasView @JvmOverloads constructor(
             translationX = translationX.coerceIn(minX, maxX)
         }
 
-        // Y clamp: never center when zoomed out; keep a VALID range.
-        // If minYRaw > 0 (zoomed out and doc shorter than view), use [0, 0] to avoid invalid coerceIn.
+        // Y clamp: keep a VALID range even when zoomed out (<1×) and the doc is shorter than the view.
+        // minYRaw can be positive then; clamp to <= 0 so coerceIn(minY, 0f) is never an empty range.
         val minYRaw = h - (s * docH)
-        val minY = kotlin.math.min(0f, minYRaw)  // ensures minY <= 0
+        val minY = kotlin.math.min(0f, minYRaw)  // ensure minY <= 0
         val maxY = 0f
         translationY = translationY.coerceIn(minY, maxY)
     }
@@ -2931,15 +2931,8 @@ class InkCanvasView @JvmOverloads constructor(
 
 
 
-    private fun startFling(vx: Float, vy: Float) {
-        // Safety: avoid fling math when zoomed out (<1x). We'll just rely on pan inertia-less movement.
-        if (scaleFactor < 1f - 1e-3f) {
-            // No fling; just ensure we're within safe bounds and repaint.
-            clampPan()
-            postInvalidateOnAnimation()
-            return
-        }
 
+    private fun startFling(vx: Float, vy: Float) {
         val s = scaleFactor
         val w = width.toFloat()
         val h = height.toFloat()
@@ -2950,32 +2943,26 @@ class InkCanvasView @JvmOverloads constructor(
 
         fun safeMinY(): Int {
             val raw = (h - s * docH).toInt()
-            return kotlin.math.min(0, raw)  // ensure minY <= 0 for a valid [minY, 0] range
+            return kotlin.math.min(0, raw) // ensure valid [minY, 0] vertical range
         }
 
         val (minX, maxX, minY, maxY) = when {
             s < 1f - 1e-3f -> {
-                // No recenters; just scroll limits. If you want a gentle nudge here, we can add it later.
                 val minx = (w - s * w).toInt()
                 val maxx = 0
-                val miny = safeMinY()
-                val maxy = 0
-                Quad(minx, maxx, miny, maxy)
+                Quad(minx, maxx, safeMinY(), 0)
             }
             kotlin.math.abs(s - 1f) < 1e-3f -> {
-                // 1×: lock X; allow vertical fling within [minY, 0]
                 Quad(0, 0, safeMinY(), 0)
             }
             else -> {
                 val minx = (w - s * w).toInt()
                 val maxx = 0
-                val miny = safeMinY()
-                val maxy = 0
-                Quad(minx, maxx, miny, maxy)
+                Quad(minx, maxx, safeMinY(), 0)
             }
         }
 
-        val adjVx = if (kotlin.math.abs(s - 1f) < 1e-3f) 0 else vx // horizontal lock at 1×
+        val adjVx = if (kotlin.math.abs(s - 1f) < 1e-3f) 0 else vx
         scroller.fling(
             startX, startY,
             adjVx.toInt().coerceIn(-maxFlingVelocity, maxFlingVelocity),
@@ -2984,6 +2971,7 @@ class InkCanvasView @JvmOverloads constructor(
         )
         postInvalidateOnAnimation()
     }
+
 
 
 
