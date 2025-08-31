@@ -19,16 +19,28 @@
         android:gravity="center_vertical"
         android:paddingStart="12dp"
         android:paddingEnd="16dp"
-        android:paddingTop="12dp">
+        android:paddingTop="12dp"
+        android:clickable="true"
+        android:focusable="false"
+        android:elevation="12dp"
+        android:background="@android:color/white">
 
         <ImageButton
             android:id="@+id/btnTitleEdit"
-            android:layout_width="36dp"
-            android:layout_height="36dp"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:padding="6dp"
+            android:padding="8dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:contentDescription="@string/edit_title"
+            android:tint="@color/black"
             android:src="@drawable/ic_tool_editicon"
-            android:contentDescription="@string/edit_title"/>
+            android:onClick="onTitleEditClicked" />
+
+
+
+
 
         <FrameLayout
             android:layout_width="0dp"

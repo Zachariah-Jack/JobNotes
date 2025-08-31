@@ -5,10 +5,13 @@ import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Rect
 import android.os.Bundle
+import android.text.InputType
+
 import android.view.*
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.*
+import android.widget.PopupMenu
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import android.content.Intent
@@ -68,6 +71,41 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+
+    // Save a .pelnote (binary from InkCanvasView.serialize)
+    private val saveNoteLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("*/*")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val bytes = inkCanvas.serialize()
+                contentResolver.openOutputStream(uri)?.use { it.write(bytes) }
+                Toast.makeText(this, "Note saved", Toast.LENGTH_SHORT).show()
+            } catch (_: Throwable) {
+                Toast.makeText(this, "Save failed", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // Open a .pelnote and deserialize
+    private val openNoteLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val bytes = contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                if (bytes != null) {
+                    inkCanvas.deserialize(bytes)
+                    Toast.makeText(this, "Note opened", Toast.LENGTH_SHORT).show()
+                    inkCanvas.requestFocus()
+                } else {
+                    Toast.makeText(this, "Open failed", Toast.LENGTH_SHORT).show()
+                }
+            } catch (_: Throwable) {
+                Toast.makeText(this, "Open failed", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     // ───────── Canvas ─────────
     private lateinit var inkCanvas: InkCanvasView
@@ -152,6 +190,21 @@ class MainActivity : AppCompatActivity() {
         // Prefer resize when keyboard shows
 
         setContentView(R.layout.activity_main)
+        // Keep the title row below the status bar on edge-to-edge devices.
+        import androidx.core.view.ViewCompat
+                import androidx.core.view.WindowInsetsCompat
+
+// ...inside onCreate() just after setContentView(...)
+                run {
+                    val titleRow = findViewById<View>(R.id.titleRow)
+                    ViewCompat.setOnApplyWindowInsetsListener(titleRow) { v, insets ->
+                        val topInset = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+                        // Preserve existing paddings; just add top inset so the row is pushed below status bar.
+                        v.setPadding(v.paddingLeft, topInset + v.paddingTop, v.paddingRight, v.paddingBottom)
+                        insets
+                    }
+                }
+
         // --- Restore InkCanvasView document state (pages + strokes, v2) ---
         run {
             val inkView = findViewById<InkCanvasView>(R.id.inkCanvas)
@@ -180,6 +233,28 @@ class MainActivity : AppCompatActivity() {
         titleDisplay = findViewById(R.id.noteTitleView)
         titleEdit = findViewById(R.id.noteTitleEdit)
         btnTitleEdit = findViewById(R.id.btnTitleEdit)
+        // Make sure the pencil (edit title) button is a hard, live target.
+        btnTitleEdit.isEnabled = true
+        btnTitleEdit.isClickable = true
+        btnTitleEdit.isFocusable = true
+        btnTitleEdit.isFocusableInTouchMode = false
+        btnTitleEdit.setOnClickListener { enterTitleEditMode() }
+
+// Keep it above the canvas in z-order at runtime (in case XML order/elevation lags)
+        btnTitleEdit.bringToFront()
+        btnTitleEdit.parent?.let { (it as? View)?.bringToFront() }
+
+// Enlarge its hit target (you already call this; keep it after bringToFront)
+        btnTitleEdit.expandTouchTarget(12)
+
+        // Title field should behave like a normal text editor (full keyboard)
+        titleEdit.visibility = View.GONE
+        titleEdit.isFocusableInTouchMode = true
+        titleEdit.inputType = InputType.TYPE_CLASS_TEXT or
+                InputType.TYPE_TEXT_FLAG_CAP_WORDS or
+                InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+        titleEdit.imeOptions = EditorInfo.IME_ACTION_DONE
+
 
         chip1 = findViewById(R.id.chipColor1)
         chip2 = findViewById(R.id.chipColor2)
@@ -340,6 +415,13 @@ class MainActivity : AppCompatActivity() {
         updateToolbarActiveStates()
     }
 
+    @Suppress("UNUSED_PARAMETER")
+    fun onTitleEditClicked(v: View) {
+        // Same action you use elsewhere
+        enterTitleEditMode()
+    }
+
+
     // ===== Share helpers (FileProvider) =====
 
     private fun sharePdfCurrentPage() {
@@ -381,18 +463,25 @@ class MainActivity : AppCompatActivity() {
 
     private fun showOverflowMenu(anchor: View) {
         val popup = PopupMenu(this, anchor)
-        // Top-level entries
+// Top-level entries
         popup.menu.add(0, 1, 0, "Export to PDF")
         popup.menu.add(0, 2, 1, "Export to Image")
 
-        // (Optional) placeholders for share; wire later if desired
+// Share/export actions
         popup.menu.add(0, 3, 2, "Share as PDF")
         popup.menu.add(0, 4, 3, "Share as Image")
-        popup.menu.add(0, 5, 4, "Share as JobNotes file")
+
+// New: native save/open for JobNotes file
+        popup.menu.add(0, 6, 4, "Save Note (.pelnote)")
+        popup.menu.add(0, 7, 5, "Open Note (.pelnote)")
+
+// New: implement share JobNotes file (keeps your label)
+        popup.menu.add(0, 5, 6, "Share as JobNotes file")
 
         popup.setOnMenuItemClickListener { item ->
             when (item.itemId) {
                 1 -> { // Export to PDF
+                    // Suggest a filename
                     exportPdfLauncher.launch("JobNotes-Page.pdf")
                     true
                 }
@@ -401,22 +490,46 @@ class MainActivity : AppCompatActivity() {
                     true
                 }
                 3 -> { // Share as PDF
-                    sharePdfCurrentPage()
-                    true
+                    sharePdfCurrentPage(); true
                 }
-                4 -> { // Share as Image (PNG)
-                    sharePngCurrentPage()
-                    true
+                4 -> { // Share as Image
+                    sharePngCurrentPage(); true
                 }
+                6 -> { // Save .pelnote
+                    // SAF can't filter by extension reliably; we provide the name with extension.
+                    saveNoteLauncher.launch(suggestedFileName("pelnote"))
 
-                5 -> {
-                    Toast.makeText(this, "Share as JobNotes file (coming soon)", Toast.LENGTH_SHORT).show()
+                    true
+                }
+                7 -> { // Open .pelnote
+                    // Try to hint likely types; SAF primarily filters by MIME, so allow broad.
+                    openNoteLauncher.launch(arrayOf("*/*"))
+                    true
+                }
+                5 -> { // Share as JobNotes file (.pelnote)
+                    try {
+                        val tmp = File.createTempFile("JobNotes-", ".pelnote", cacheDir)
+                        val bytes = inkCanvas.serialize()
+                        tmp.outputStream().use { it.write(bytes) }
+
+                        val uri = FileProvider.getUriForFile(this, "${packageName}.fileprovider", tmp)
+                        val share = Intent(Intent.ACTION_SEND).apply {
+                            // Generic binary; receivers will honor extension in the stream name
+                            type = "application/octet-stream"
+                            putExtra(Intent.EXTRA_STREAM, uri)
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                        }
+                        startActivity(Intent.createChooser(share, "Share JobNotes file"))
+                    } catch (_: Throwable) {
+                        Toast.makeText(this, "Unable to share .pelnote", Toast.LENGTH_SHORT).show()
+                    }
                     true
                 }
                 else -> false
             }
         }
         popup.show()
+
     }
 
 
@@ -876,6 +989,12 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    @Suppress("UNUSED_PARAMETER")
+    fun onTitleEditClicked(v: View) {
+        enterTitleEditMode()
+    }
+
+
     // ───────── Selection popup (lasso/rect + mode toggle) ─────────
     private fun toggleSelectPopup(anchor: View) {
         selectPopup?.let { if (it.isShowing) { it.dismiss(); selectPopup = null; return } }
@@ -938,6 +1057,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     // ───────── Helpers ─────────
+    private fun suggestedFileName(ext: String): String {
+        val raw = titleDisplay.text?.toString()?.trim().orEmpty()
+        val base = if (raw.isBlank()) "Untitled" else raw
+        val safe = base.replace(Regex("""[\\/:*?"<>|]"""), "_")
+        return "$safe.$ext"
+    }
+
+
     private fun applyEraserBrush() {
         inkCanvas.setBrush(
             if (eraserMode == EraserMode.AREA) BrushType.ERASER_AREA else BrushType.ERASER_STROKE
@@ -966,8 +1093,10 @@ class MainActivity : AppCompatActivity() {
         titleEdit.visibility = View.VISIBLE
         titleEdit.requestFocus()
         titleEdit.setSelection(titleEdit.text.length)
+        // Ensure IME shows as a full soft keyboard
         showKeyboardForced(titleEdit)
     }
+
 
     private fun exitTitleEditMode(save: Boolean) {
         if (save) titleDisplay.text = titleEdit.text
