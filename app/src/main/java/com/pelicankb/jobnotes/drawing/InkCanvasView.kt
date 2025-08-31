@@ -269,15 +269,26 @@ class InkCanvasView @JvmOverloads constructor(
 
     // ---- Save/restore (for rotation survival) ----
     fun serialize(): ByteArray {
+        // v2 adds: sections (heights) + per-stroke sectionIndex
         val baos = ByteArrayOutputStream()
         val out = DataOutputStream(baos)
-        out.writeInt(1) // version
+
+        out.writeInt(2) // version = 2
+
+        // --- sections ---
+        out.writeInt(sections.size)
+        for (s in sections) {
+            out.writeFloat(s.heightPx)
+        }
+
+        // --- strokes ---
         out.writeInt(strokes.size)
         for (op in strokes) {
             out.writeInt(op.type.ordinal)
             out.writeInt(op.color)
             out.writeFloat(op.baseWidth)
             out.writeBoolean(op.eraseHLOnly)
+            out.writeInt(op.sectionIndex)                // NEW in v2
             out.writeInt(op.points.size)
             for (p in op.points) {
                 out.writeFloat(p.x)
@@ -288,13 +299,36 @@ class InkCanvasView @JvmOverloads constructor(
         return baos.toByteArray()
     }
 
+
     fun deserialize(data: ByteArray) {
         try {
             val `in` = DataInputStream(ByteArrayInputStream(data))
             val ver = `in`.readInt()
-            if (ver != 1) return
-            val n = `in`.readInt()
+
+            // --- sections ---
+            sections.clear()
+            if (ver >= 2) {
+                val secCount = `in`.readInt().coerceAtLeast(0)
+                repeat(secCount) {
+                    val h = `in`.readFloat().coerceAtLeast(1f)
+                    sections.add(Section(heightPx = h, yOffsetPx = 0f))
+                }
+            } else {
+                // v1 payloads had no sections; use a single page at current view height (fallback)
+                val h = if (height > 0) height.toFloat() else 1f
+                sections.add(Section(heightPx = h, yOffsetPx = 0f))
+            }
+
+            // repack offsets (top-to-bottom with gap)
+            var acc = 0f
+            for (i in sections.indices) {
+                sections[i].yOffsetPx = acc
+                acc += sections[i].heightPx + sectionGapPx
+            }
+
+            // --- strokes ---
             strokes.clear()
+            val n = `in`.readInt().coerceAtLeast(0)
             repeat(n) {
                 val typeOrdinal = `in`.readInt()
                 val all = enumValues<BrushType>()
@@ -303,12 +337,18 @@ class InkCanvasView @JvmOverloads constructor(
                 val color = `in`.readInt()
                 val width = `in`.readFloat()
                 val hlOnly = `in`.readBoolean()
-                val ptsN = `in`.readInt()
+                val secIndex = if (ver >= 2) `in`.readInt().coerceAtLeast(0) else 0
+
+                val ptsN = `in`.readInt().coerceAtLeast(0)
                 val pts = MutableList(ptsN) { Point(`in`.readFloat(), `in`.readFloat()) }
-                val op = StrokeOp(type, color, width, pts.toMutableList())
-                op.eraseHLOnly = hlOnly
+
+                val op = StrokeOp(type, color, width, pts.toMutableList()).apply {
+                    eraseHLOnly = hlOnly
+                    sectionIndex = secIndex.coerceIn(0, max(0, sections.lastIndex))
+                }
                 strokes.add(op)
             }
+
             redoStack.clear()
             current = null
             cancelTransform()
@@ -317,10 +357,16 @@ class InkCanvasView @JvmOverloads constructor(
             selectionInteractive = false
             overlayActive = false
             clearMarquee()
+
+            // Allocate bitmaps to match restored sections *if* we already know width,
+            // otherwise onSizeChanged() will allocate later.
+            if (width > 0) allocateSectionBitmaps(width)
+
             rebuildCommitted()
             invalidate()
         } catch (_: Throwable) { /* ignore bad payloads */ }
     }
+
 
     // ===== Stroke model =====
 
@@ -704,23 +750,22 @@ class InkCanvasView @JvmOverloads constructor(
         super.onSizeChanged(w, h, oldw, oldh)
         if (w <= 0 || h <= 0) return
 
-        // Ensure we have at least one section, sized sensibly
+        // If we have restored sections from deserialize(), keep their heights.
+// Otherwise, bootstrap a single section sized to the view.
         if (sections.isEmpty()) {
             sections.add(Section(heightPx = h.toFloat(), yOffsetPx = 0f))
-        } else {
-            // Keep first section matched to view height; others keep their heights
-            sections[0].heightPx = h.toFloat()
         }
 
-        // Re-pack offsets (top-to-bottom with gaps)
+// Re-pack offsets (top-to-bottom with gaps) using current section heights
         var acc = 0f
         for (i in sections.indices) {
             sections[i].yOffsetPx = acc
             acc += sections[i].heightPx + sectionGapPx
         }
 
-        // Allocate per-section bitmaps using current width; section heights vary
+// Allocate per-section bitmaps at the new width
         allocateSectionBitmaps(w)
+
 
         // Edge fades
         fadeW = dpToPx(12f)
@@ -1364,6 +1409,10 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     private fun finishSelection() {
+        // Constrain selection to the page where the selection started
+        // (compute from the marquee start Y).
+        val selectionPage = sectionIndexForContentY(marqueeStartY)
+
         if (!selectingGesture) return
         selectingGesture = false
         activePointerId = -1
@@ -1381,19 +1430,22 @@ class InkCanvasView @JvmOverloads constructor(
         invalidate()
     }
 
+
     private fun applySelection(selPath: Path) {
         val clip = Region(0, 0, width, height)
-        val selRegion = Region()
-        selRegion.setPath(selPath, clip)
-        val selBox = android.graphics.Rect()
-        selRegion.getBounds(selBox)
+        val selRegion = Region().apply { setPath(selPath, clip) }
+        val selBox = android.graphics.Rect().also { selRegion.getBounds(it) }
+
+        // Determine the page for the selection by using the marquee center Y
+        val selCenterY = (selBox.top + selBox.bottom) * 0.5f
+        val selectionPage = sectionIndexForContentY(selCenterY)
 
         selectedStrokes.clear()
         for (s in strokes) {
             if (s.hidden) continue
+            if (s.sectionIndex != selectionPage) continue  // PAGE-LOCAL selection rule
             if (s.type == BrushType.ERASER_AREA || s.type == BrushType.ERASER_STROKE) continue
 
-            // quick reject by stroke bounds vs selection bounding box
             val b = strokeBounds(s) ?: continue
             if (!RectF(selBox).intersect(b)) continue
 
@@ -1403,8 +1455,9 @@ class InkCanvasView @JvmOverloads constructor(
             }
         }
         selectedBounds = computeSelectionBounds()
-        selectionInteractive = true  // remains interactive while selection tool is armed (or after paste)
+        selectionInteractive = true
     }
+
 
     // ===== Transform (drag/scale) =====
 

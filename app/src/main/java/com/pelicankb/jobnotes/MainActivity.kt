@@ -32,6 +32,17 @@ import java.io.File
 
 
 class MainActivity : AppCompatActivity() {
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        // --- Persist InkCanvasView document state (pages + strokes, v2) ---
+        val inkView = findViewById<InkCanvasView>(R.id.inkCanvas)
+        try {
+            outState.putByteArray("ink_state", inkView.serialize())
+        } catch (_: Throwable) { /* ignore */ }
+    }
+
+    private lateinit var inkView: com.pelicankb.jobnotes.drawing.InkCanvasView
+
     // ===== Export launchers =====
     private val exportPdfLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/pdf")
@@ -141,6 +152,15 @@ class MainActivity : AppCompatActivity() {
         // Prefer resize when keyboard shows
 
         setContentView(R.layout.activity_main)
+        // --- Restore InkCanvasView document state (pages + strokes, v2) ---
+        run {
+            val inkView = findViewById<InkCanvasView>(R.id.inkCanvas)
+            val bytes = savedInstanceState?.getByteArray("ink_state")
+            if (bytes != null) {
+                try { inkView.deserialize(bytes) } catch (_: Throwable) { /* ignore bad payloads */ }
+            }
+        }
+
 
         inkCanvas = findViewById(R.id.inkCanvas)
         // For quick verification, allow finger drawing too.
@@ -438,15 +458,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    // Persist canvas across rotation
-    override fun onSaveInstanceState(outState: Bundle) {
-        super.onSaveInstanceState(outState)
-        outState.putByteArray("ink_state_v1", inkCanvas.serialize())
-    }
-    override fun onRestoreInstanceState(savedInstanceState: Bundle) {
-        super.onRestoreInstanceState(savedInstanceState)
-        savedInstanceState.getByteArray("ink_state_v1")?.let { inkCanvas.deserialize(it) }
-    }
 
     // ───────── Menu show/hide (existing) ─────────
     fun onKeyboardToggleClicked(@Suppress("UNUSED_PARAMETER") v: View) {
