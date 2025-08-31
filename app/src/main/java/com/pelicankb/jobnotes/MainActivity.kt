@@ -27,6 +27,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 
 
 
@@ -198,23 +199,25 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        // Prefer resize when keyboard shows
-
         setContentView(R.layout.activity_main)
-        // ---- Title header: order + gravity + stable insets (no debug visuals) ----
-        val titleRow = findViewById<View>(R.id.titleRow)
-        val rootLL = findViewById<LinearLayout>(R.id.root)
+        setContentView(R.layout.activity_main)
+        WindowCompat.setDecorFitsSystemWindows(window, true)
 
-// 0) Make sure children stack from the top (this was in the debugger and is needed)
+        // ---- Title header: order + gravity + stable insets (no debug visuals) ----
+        /*
+        val titleRow = findViewById<View>(R.id.titleRow)
+        val rootLL   = findViewById<LinearLayout>(R.id.root)
+
+// Make sure children stack from the top
         rootLL.gravity = Gravity.TOP
 
-// 1) If titleRow was appended later, put it back at index 0 (top) once.
+// If titleRow was appended later, put it back at index 0 (top) once.
         if (rootLL.indexOfChild(titleRow) != 0) {
             rootLL.removeView(titleRow)
             rootLL.addView(titleRow, 0)
         }
 
-// 2) Status-bar insets without accumulating padding
+// Status-bar insets without accumulating padding
         val basePadLeft   = titleRow.paddingLeft
         val basePadTop    = titleRow.paddingTop
         val basePadRight  = titleRow.paddingRight
@@ -226,10 +229,13 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
-// 3) Keep visible & above other content
+// Keep visible & above other content
         titleRow.visibility = View.VISIBLE
         titleRow.bringToFront()
         titleRow.elevation = titleRow.elevation.coerceAtLeast(8f)
+
+         */
+
 
 
 
@@ -268,6 +274,15 @@ class MainActivity : AppCompatActivity() {
         titleDisplay = findViewById(R.id.noteTitleView)
         titleEdit = findViewById(R.id.noteTitleEdit)
         btnTitleEdit = findViewById(R.id.btnTitleEdit)
+        // ---- Safety: ensure header content is visible ----
+        if (titleDisplay.visibility != View.VISIBLE && titleEdit.visibility != View.VISIBLE) {
+            titleEdit.visibility = View.GONE
+            titleDisplay.visibility = View.VISIBLE
+        }
+        if (titleDisplay.text.isNullOrBlank()) {
+            titleDisplay.text = getString(R.string.untitled)
+        }
+
         // Make sure the pencil (edit title) button is a hard, live target.
         btnTitleEdit.isEnabled = true
         btnTitleEdit.isClickable = true
@@ -446,7 +461,7 @@ class MainActivity : AppCompatActivity() {
 
 
 
-        android.util.Log.d("LAYOUT", "root gravity=${rootLL.gravity}")
+       // android.util.Log.d("LAYOUT", "root gravity=${rootLL.gravity}")
 
 
 
