@@ -201,7 +201,8 @@ class MainActivity : AppCompatActivity() {
         // Force correct order without rewriting the XML
         val rootLL = findViewById<LinearLayout>(R.id.root)
         val dividerTop = findViewById<View>(R.id.dividerToolbarTop)
-        val toolbar = findViewById<View>(R.id/toolbarContainer)
+        val toolbar = findViewById<View>(R.id.toolbarContainer
+        )
 
 // Move titleRow to index 0 (top)
         rootLL.removeView(titleRow)
@@ -444,7 +445,7 @@ class MainActivity : AppCompatActivity() {
                 android.util.Log.d("LAYOUT", "#$i id=$idName top=${v.top} y=${loc[1]} h=${v.height}")
             }
         }
-        val rootLL = findViewById<LinearLayout>(R.id.root)
+
         android.util.Log.d("LAYOUT", "root gravity=${rootLL.gravity}")
 
 
