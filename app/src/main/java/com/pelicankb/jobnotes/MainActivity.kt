@@ -43,10 +43,11 @@ class MainActivity : AppCompatActivity() {
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         // --- Persist InkCanvasView document state (pages + strokes, v2) ---
-        val inkView = findViewById<InkCanvasView>(R.id.inkCanvas)
+        val iv = findViewById<InkCanvasView>(R.id.inkCanvas)
         try {
-            outState.putByteArray("ink_state", inkView.serialize())
+            outState.putByteArray("ink_state", iv.serialize())
         } catch (_: Throwable) { /* ignore */ }
+
     }
 
 
@@ -206,11 +207,7 @@ class MainActivity : AppCompatActivity() {
         titleRow.bringToFront()
         titleRow.elevation = titleRow.elevation.coerceAtLeast(12f)
 
-// Make sure the edit button is interactive and on top
-        val btnTitleEdit = findViewById<ImageButton>(R.id.btnTitleEdit)
-        btnTitleEdit.isEnabled = true
-        btnTitleEdit.isClickable = true
-        btnTitleEdit.bringToFront()
+
 
         // Ensure the top area (title row) is not hidden under status bar
         run {
@@ -224,17 +221,7 @@ class MainActivity : AppCompatActivity() {
 
 
 
-// ...inside onCreate() just after setContentView(...)
-                run {
-                    val titleRow = findViewById<View>(R.id.titleRow)
-                    ViewCompat.setOnApplyWindowInsetsListener(titleRow) { v, insets ->
-                        val topInset = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top
 
-                        // Preserve existing paddings; just add top inset so the row is pushed below status bar.
-                        v.setPadding(v.paddingLeft, topInset + v.paddingTop, v.paddingRight, v.paddingBottom)
-                        insets
-                    }
-                }
 
         // Initialize first
         inkCanvas = findViewById(R.id.inkCanvas)
