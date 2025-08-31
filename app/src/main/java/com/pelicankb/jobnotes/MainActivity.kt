@@ -23,7 +23,7 @@ import androidx.core.content.ContextCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
+
 
 
 import com.pelicankb.jobnotes.drawing.BrushType
@@ -199,7 +199,8 @@ class MainActivity : AppCompatActivity() {
                 run {
                     val titleRow = findViewById<View>(R.id.titleRow)
                     ViewCompat.setOnApplyWindowInsetsListener(titleRow) { v, insets ->
-                        val topInset = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
+                        val topInset = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top
+
                         // Preserve existing paddings; just add top inset so the row is pushed below status bar.
                         v.setPadding(v.paddingLeft, topInset + v.paddingTop, v.paddingRight, v.paddingBottom)
                         insets
