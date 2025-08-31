@@ -200,6 +200,8 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+
+        // This is the critical line
         WindowCompat.setDecorFitsSystemWindows(window, true)
 
         // ---- Title header: order + gravity + stable insets (no debug visuals) ----

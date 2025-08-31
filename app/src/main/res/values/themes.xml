@@ -1,16 +1,13 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
+    <!-- Base application theme (light / default). -->
     <style name="Base.Theme.JobNotes" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Make sure content does not draw under status/navigation bars -->
-        <item name="android:statusBarColor">@android:color/black</item>
-        <item name="android:windowLightStatusBar">false</item>
+        <!-- Solid opaque status bar with dark icons -->
+        <item name="android:statusBarColor">@android:color/white</item>
+        <item name="android:windowLightStatusBar">true</item>
 
-        <!-- Optional: also make navigation bar opaque -->
-        <item name="android:navigationBarColor">@android:color/black</item>
-        <item name="android:windowLightNavigationBar">false</item>
-
-        <!-- You can still customize your Material colors here if you want -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+        <!-- Solid opaque navigation bar with dark icons -->
+        <item name="android:navigationBarColor">@android:color/white</item>
+        <!-- NOTE: can't use android:windowLightNavigationBar (API 27+) since your minSdk=26 -->
     </style>
 
     <!-- Alias theme actually used by your activities -->
