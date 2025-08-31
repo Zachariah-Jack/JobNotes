@@ -26,18 +26,18 @@
         android:clickable="true"
         android:focusable="false"
         android:elevation="12dp"
-        android:background="@android:color/white">
+        android:background="#E3F2FD">
 
         <ImageButton
             android:id="@+id/btnTitleEdit"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
+            android:layout_width="36dpdp"
+            android:layout_height="36dp"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:padding="8dp"
+            android:padding="6dp"
             android:clickable="true"
             android:focusable="true"
             android:contentDescription="@string/edit_title"
-            android:tint="@color/black"
+            app:tint="@color/black"
             android:src="@drawable/ic_tool_editicon"
             android:onClick="onTitleEditClicked" />
 
@@ -57,11 +57,11 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/untitled"
-                android:textSize="18sp"
+                android:textSize="16sp"
                 android:textColor="@android:color/black"
                 android:singleLine="true"
                 android:ellipsize="end"
-                android:padding="8dp"/>
+                android:padding="6dp"/>
 
             <!-- Edit mode (hidden by default) -->
             <EditText

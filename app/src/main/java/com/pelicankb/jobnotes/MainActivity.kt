@@ -254,15 +254,23 @@ class MainActivity : AppCompatActivity() {
             rootLL.addView(toolbar, idx)
         }
 
+        // Capture the base paddings ONCE (before installing the listener)
+        val basePadLeft   = titleRow.paddingLeft
+        val basePadTop    = titleRow.paddingTop
+        val basePadRight  = titleRow.paddingRight
+        val basePadBottom = titleRow.paddingBottom
+
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(titleRow) { v, insets ->
             val topInset = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top
-            v.setPadding(v.paddingLeft, topInset + v.paddingTop, v.paddingRight, v.paddingBottom)
+            // Always compute from BASE padding, never from the current (which would accumulate)
+            v.setPadding(basePadLeft, basePadTop + topInset, basePadRight, basePadBottom)
             insets
         }
+
         titleRow.visibility = View.VISIBLE
         titleRow.bringToFront()
         titleRow.elevation = titleRow.elevation.coerceAtLeast(12f)
-        titleRow.setBackgroundColor(0x11FF0000) // faint red overlay
+
 
 
 
