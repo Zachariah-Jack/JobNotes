@@ -49,7 +49,7 @@ class MainActivity : AppCompatActivity() {
         } catch (_: Throwable) { /* ignore */ }
     }
 
-    private lateinit var inkView: com.pelicankb.jobnotes.drawing.InkCanvasView
+
 
     // ===== Export launchers =====
     private val exportPdfLauncher = registerForActivityResult(
@@ -236,17 +236,14 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-        // --- Restore InkCanvasView document state (pages + strokes, v2) ---
-        run {
-            val inkView = findViewById<InkCanvasView>(R.id.inkCanvas)
-            val bytes = savedInstanceState?.getByteArray("ink_state")
-            if (bytes != null) {
-                try { inkView.deserialize(bytes) } catch (_: Throwable) { /* ignore bad payloads */ }
-            }
+        // Initialize first
+        inkCanvas = findViewById(R.id.inkCanvas)
+
+// --- Restore InkCanvasView document state (pages + strokes, v2) ---
+        savedInstanceState?.getByteArray("ink_state")?.let { bytes ->
+            try { inkCanvas.deserialize(bytes) } catch (_: Throwable) { /* ignore bad payloads */ }
         }
 
-
-        inkCanvas = findViewById(R.id.inkCanvas)
         // For quick verification, allow finger drawing too.
         // Change to true later if you want stylus-only drawing.
         inkCanvas.setStylusOnly(true)
@@ -266,6 +263,7 @@ class MainActivity : AppCompatActivity() {
         btnTitleEdit = findViewById(R.id.btnTitleEdit)
         // Make sure the pencil (edit title) button is a hard, live target.
         btnTitleEdit.isEnabled = true
+        btnTitleEdit.isClickable = true
         btnTitleEdit.isClickable = true
         btnTitleEdit.isFocusable = true
         btnTitleEdit.isFocusableInTouchMode = false
