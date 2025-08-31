@@ -201,17 +201,20 @@ class MainActivity : AppCompatActivity() {
         // Prefer resize when keyboard shows
 
         setContentView(R.layout.activity_main)
-        // ---- Title header: order + stable insets (no debug visuals) ----
+        // ---- Title header: order + gravity + stable insets (no debug visuals) ----
         val titleRow = findViewById<View>(R.id.titleRow)
         val rootLL = findViewById<LinearLayout>(R.id.root)
 
-// If titleRow was appended later, put it back at index 0 (top) once.
+// 0) Make sure children stack from the top (this was in the debugger and is needed)
+        rootLL.gravity = Gravity.TOP
+
+// 1) If titleRow was appended later, put it back at index 0 (top) once.
         if (rootLL.indexOfChild(titleRow) != 0) {
             rootLL.removeView(titleRow)
             rootLL.addView(titleRow, 0)
         }
 
-// Status-bar insets without accumulating padding
+// 2) Status-bar insets without accumulating padding
         val basePadLeft   = titleRow.paddingLeft
         val basePadTop    = titleRow.paddingTop
         val basePadRight  = titleRow.paddingRight
@@ -223,10 +226,11 @@ class MainActivity : AppCompatActivity() {
             insets
         }
 
-// Keep visible & above other content
+// 3) Keep visible & above other content
         titleRow.visibility = View.VISIBLE
         titleRow.bringToFront()
         titleRow.elevation = titleRow.elevation.coerceAtLeast(8f)
+
 
 
 
