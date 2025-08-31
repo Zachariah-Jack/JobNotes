@@ -11,6 +11,8 @@ import android.text.InputType
 
 import android.view.*
 import android.view.inputmethod.EditorInfo
+import android.view.Gravity
+import android.view.ViewGroup
 import android.view.inputmethod.InputMethodManager
 import android.widget.*
 import android.widget.PopupMenu
@@ -27,7 +29,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.ViewCompat
 
 
-
+import com.google.android.material.snackbar.Snackbar
 import com.pelicankb.jobnotes.drawing.BrushType
 import com.pelicankb.jobnotes.drawing.InkCanvasView
 import com.pelicankb.jobnotes.drawing.InkCanvasView.SelectionPolicy
@@ -188,6 +190,43 @@ class MainActivity : AppCompatActivity() {
         0xFF795548.toInt(), 0xFF9E9E9E.toInt(), 0xFF607D8B.toInt(), 0xFF000000.toInt(),
         0xFFFFFFFF.toInt(), 0xFF7E57C2.toInt(), 0xFF26A69A.toInt(), 0xFFB2FF59.toInt()
     )
+
+    private fun debugHeaderPlacement() {
+        val rootLL = findViewById<LinearLayout>(R.id.root)
+        val titleRow = findViewById<View>(R.id.titleRow)
+        val dividerTop = findViewById<View>(R.id.dividerToolbarTop)
+        val toolbar = findViewById<View>(R.id.toolbarContainer)
+        val canvasHost = findViewById<View>(R.id.canvasHost)
+
+        // 1) Paint obvious colors so you can see them on screen
+        titleRow.setBackgroundColor(0x66FF0000.toInt())   // translucent red
+        dividerTop?.setBackgroundColor(0xFF00FF00.toInt()) // green line
+        toolbar?.setBackgroundColor(0x110000FF)            // faint blue
+        canvasHost?.setBackgroundColor(0x11FF00FF)         // faint magenta
+
+        // 2) Show the current child order + header index directly in the UI (title text)
+        val idx = rootLL.indexOfChild(titleRow)
+        titleDisplay.text = "idx=$idx / children=${rootLL.childCount}"
+
+        // 3) Force gravity TOP (in case it was changed elsewhere)
+        rootLL.gravity = Gravity.TOP
+
+        // 4) If header is not at top, move it to index 0 and request layout
+        if (idx != 0) {
+            rootLL.removeView(titleRow)
+            rootLL.addView(titleRow, 0)
+            rootLL.requestLayout()
+            // Recompute index after reorder and show
+            val newIdx = rootLL.indexOfChild(titleRow)
+            titleDisplay.append("  -> movedTo=$newIdx")
+        }
+
+        // 5) Optional toast/snackbar so you see state immediately
+        try {
+            Snackbar.make(rootLL, "titleRow idx=${rootLL.indexOfChild(titleRow)}  gravity=${rootLL.gravity}", Snackbar.LENGTH_SHORT).show()
+        } catch (_: Throwable) { /* if Material isn't in classpath, skip */ }
+    }
+
 
     // ───────── Lifecycle ─────────
 
@@ -455,6 +494,8 @@ class MainActivity : AppCompatActivity() {
         btnOverflowKbd.setOnClickListener { showOverflowMenu(it) }
 
         updateToolbarActiveStates()
+        debugHeaderPlacement()
+
     }
 
     @Suppress("UNUSED_PARAMETER")
