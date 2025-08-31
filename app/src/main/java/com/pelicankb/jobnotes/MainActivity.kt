@@ -11,8 +11,8 @@ import android.text.InputType
 
 import android.view.*
 import android.view.inputmethod.EditorInfo
-import android.view.Gravity
-import android.view.ViewGroup
+
+
 import android.view.inputmethod.InputMethodManager
 import android.widget.*
 import android.widget.PopupMenu
@@ -29,7 +29,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.core.view.ViewCompat
 
 
-import com.google.android.material.snackbar.Snackbar
+
 import com.pelicankb.jobnotes.drawing.BrushType
 import com.pelicankb.jobnotes.drawing.InkCanvasView
 import com.pelicankb.jobnotes.drawing.InkCanvasView.SelectionPolicy
@@ -191,41 +191,7 @@ class MainActivity : AppCompatActivity() {
         0xFFFFFFFF.toInt(), 0xFF7E57C2.toInt(), 0xFF26A69A.toInt(), 0xFFB2FF59.toInt()
     )
 
-    private fun debugHeaderPlacement() {
-        val rootLL = findViewById<LinearLayout>(R.id.root)
-        val titleRow = findViewById<View>(R.id.titleRow)
-        val dividerTop = findViewById<View>(R.id.dividerToolbarTop)
-        val toolbar = findViewById<View>(R.id.toolbarContainer)
-        val canvasHost = findViewById<View>(R.id.canvasHost)
 
-        // 1) Paint obvious colors so you can see them on screen
-        titleRow.setBackgroundColor(0x66FF0000.toInt())   // translucent red
-        dividerTop?.setBackgroundColor(0xFF00FF00.toInt()) // green line
-        toolbar?.setBackgroundColor(0x110000FF)            // faint blue
-        canvasHost?.setBackgroundColor(0x11FF00FF)         // faint magenta
-
-        // 2) Show the current child order + header index directly in the UI (title text)
-        val idx = rootLL.indexOfChild(titleRow)
-        titleDisplay.text = "idx=$idx / children=${rootLL.childCount}"
-
-        // 3) Force gravity TOP (in case it was changed elsewhere)
-        rootLL.gravity = Gravity.TOP
-
-        // 4) If header is not at top, move it to index 0 and request layout
-        if (idx != 0) {
-            rootLL.removeView(titleRow)
-            rootLL.addView(titleRow, 0)
-            rootLL.requestLayout()
-            // Recompute index after reorder and show
-            val newIdx = rootLL.indexOfChild(titleRow)
-            titleDisplay.append("  -> movedTo=$newIdx")
-        }
-
-        // 5) Optional toast/snackbar so you see state immediately
-        try {
-            Snackbar.make(rootLL, "titleRow idx=${rootLL.indexOfChild(titleRow)}  gravity=${rootLL.gravity}", Snackbar.LENGTH_SHORT).show()
-        } catch (_: Throwable) { /* if Material isn't in classpath, skip */ }
-    }
 
 
     // ───────── Lifecycle ─────────
@@ -235,41 +201,33 @@ class MainActivity : AppCompatActivity() {
         // Prefer resize when keyboard shows
 
         setContentView(R.layout.activity_main)
-        // Keep titleRow below status bar, visible, and above everything
+        // ---- Title header: order + stable insets (no debug visuals) ----
         val titleRow = findViewById<View>(R.id.titleRow)
-        // Force correct order without rewriting the XML
         val rootLL = findViewById<LinearLayout>(R.id.root)
-        val dividerTop = findViewById<View>(R.id.dividerToolbarTop)
-        val toolbar = findViewById<View>(R.id.toolbarContainer
-        )
 
-// Move titleRow to index 0 (top)
-        rootLL.removeView(titleRow)
-        rootLL.addView(titleRow, 0)
-
-// Ensure toolbar sits right under the top divider
-        if (toolbar != null && dividerTop != null) {
-            rootLL.removeView(toolbar)
-            val idx = rootLL.indexOfChild(dividerTop) + 1
-            rootLL.addView(toolbar, idx)
+// If titleRow was appended later, put it back at index 0 (top) once.
+        if (rootLL.indexOfChild(titleRow) != 0) {
+            rootLL.removeView(titleRow)
+            rootLL.addView(titleRow, 0)
         }
 
-        // Capture the base paddings ONCE (before installing the listener)
+// Status-bar insets without accumulating padding
         val basePadLeft   = titleRow.paddingLeft
         val basePadTop    = titleRow.paddingTop
         val basePadRight  = titleRow.paddingRight
         val basePadBottom = titleRow.paddingBottom
 
-        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(titleRow) { v, insets ->
-            val topInset = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top
-            // Always compute from BASE padding, never from the current (which would accumulate)
+        ViewCompat.setOnApplyWindowInsetsListener(titleRow) { v, insets ->
+            val topInset = insets.getInsets(WindowInsetsCompat.Type.statusBars()).top
             v.setPadding(basePadLeft, basePadTop + topInset, basePadRight, basePadBottom)
             insets
         }
 
+// Keep visible & above other content
         titleRow.visibility = View.VISIBLE
         titleRow.bringToFront()
-        titleRow.elevation = titleRow.elevation.coerceAtLeast(12f)
+        titleRow.elevation = titleRow.elevation.coerceAtLeast(8f)
+
 
 
 
@@ -385,13 +343,13 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.btnPenToggle).expandTouchTarget(12)
         btnTitleEdit.expandTouchTarget(12)
 
-        // Title edit behavior
-        btnTitleEdit.setOnClickListener { enterTitleEditMode() }
-        titleEdit.setOnEditorActionListener { v, actionId, _ ->
+        // Title edit behavior (keep only the IME action)
+        titleEdit.setOnEditorActionListener { _, actionId, _ ->
             if (actionId == EditorInfo.IME_ACTION_DONE) {
                 exitTitleEditMode(save = true); true
             } else false
         }
+
         if (savedInstanceState == null && titleDisplay.text.isNullOrBlank()) {
             titleDisplay.text = "Untitled"
         }
@@ -482,16 +440,7 @@ class MainActivity : AppCompatActivity() {
         btnGalleryPen.setOnClickListener(galToast)
         btnGalleryKbd.setOnClickListener(galToast)
 
-        // DEBUG: show root child order and screen positions
-        (findViewById<ViewGroup>(R.id.root)).post {
-            val root = findViewById<ViewGroup>(R.id.root)
-            for (i in 0 until root.childCount) {
-                val v = root.getChildAt(i)
-                val idName = try { resources.getResourceEntryName(v.id) } catch (_: Throwable) { "no-id" }
-                val loc = IntArray(2); v.getLocationOnScreen(loc)
-                android.util.Log.d("LAYOUT", "#$i id=$idName top=${v.top} y=${loc[1]} h=${v.height}")
-            }
-        }
+
 
         android.util.Log.d("LAYOUT", "root gravity=${rootLL.gravity}")
 
@@ -502,7 +451,7 @@ class MainActivity : AppCompatActivity() {
         btnOverflowKbd.setOnClickListener { showOverflowMenu(it) }
 
         updateToolbarActiveStates()
-        debugHeaderPlacement()
+
 
     }
 
