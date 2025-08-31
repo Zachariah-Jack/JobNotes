@@ -2911,28 +2911,36 @@ class InkCanvasView @JvmOverloads constructor(
         val h = height.toFloat()
         val docH = contentHeightPx().coerceAtLeast(1f)
 
-        // Always lock X at exactly 1×; otherwise clamp within view width.
+        // -------- X (horizontal) --------
+        // At 1× we lock X to 0. At other zooms, ensure a VALID range: minX must not exceed maxX (0).
+        val rawMinX = w - s * w            // can be > 0 when s < 1
+        val minX = kotlin.math.min(0f, rawMinX)  // force minX <= 0 so [minX, 0] is valid
+        val maxX = 0f
+
         if (kotlin.math.abs(s - 1f) < 1e-3f) {
             translationX = 0f
         } else {
-            val minX = w - s * w
-            val maxX = 0f
             translationX = translationX.coerceIn(minX, maxX)
         }
 
-        // ---- FIX: keep vertical clamp range VALID at any zoom ----
-        // If zoomed out and the document is shorter than the view, minYRaw > 0.
-        // Using coerceIn(minYRaw, 0f) would be an empty range (and crash).
-        // Force minY <= 0 so [minY, 0] is always a valid interval.
-        val minYRaw = h - (s * docH)
-        val minY = kotlin.math.min(0f, minYRaw)  // ensure minY <= 0
+        // -------- Y (vertical) --------
+        // Same idea: when doc is "shorter" than the viewport (or zoomed out), rawMinY > 0.
+        // Force minY <= 0 so [minY, 0] is valid for coerceIn.
+        val rawMinY = h - (s * docH)
+        val minY = kotlin.math.min(0f, rawMinY)
         val maxY = 0f
         translationY = translationY.coerceIn(minY, maxY)
 
         if (DEBUG_INPUT) {
-            Log.d(TAG, "clampPan: s=$s h=$h docH=$docH minYRaw=$minYRaw -> clampY[$minY, $maxY] ty=$translationY")
+            Log.d(
+                TAG,
+                "clampPan: s=$s w=$w h=$h docH=$docH " +
+                        "rawMinX=$rawMinX -> clampX[$minX, $maxX] tx=$translationX " +
+                        "rawMinY=$rawMinY -> clampY[$minY, $maxY] ty=$translationY"
+            )
         }
     }
+
 
 
 
