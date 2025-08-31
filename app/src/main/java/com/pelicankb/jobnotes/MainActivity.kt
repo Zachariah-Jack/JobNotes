@@ -1,6 +1,6 @@
 package com.pelicankb.jobnotes
 
-// ===== The Pelican Password is "Ocean Fishing" =====
+
 
 import android.content.Context
 import android.content.res.ColorStateList
