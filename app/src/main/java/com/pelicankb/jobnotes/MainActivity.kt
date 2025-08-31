@@ -206,18 +206,12 @@ class MainActivity : AppCompatActivity() {
         titleRow.visibility = View.VISIBLE
         titleRow.bringToFront()
         titleRow.elevation = titleRow.elevation.coerceAtLeast(12f)
+        titleRow.setBackgroundColor(0x11FF0000) // faint red overlay
 
 
 
-        // Ensure the top area (title row) is not hidden under status bar
-        run {
-            val root = findViewById<View>(R.id.root)
-            androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
-                val topInset = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top
-                v.setPadding(v.paddingLeft, topInset, v.paddingRight, v.paddingBottom)
-                insets
-            }
-        }
+
+
 
 
 
