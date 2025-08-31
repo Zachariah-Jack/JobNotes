@@ -2949,20 +2949,24 @@ class InkCanvasView @JvmOverloads constructor(
         val startX = translationX.toInt()
         val startY = translationY.toInt()
 
+        // Ensure vertical bounds are ALWAYS a valid range, even when zoomed out (<1×)
         fun safeMinY(): Int {
             val raw = (h - s * docH).toInt()
-            return kotlin.math.min(0, raw) // keep vertical range valid at any zoom
+            return kotlin.math.min(0, raw) // ==> minY <= 0, so [minY, 0] is valid
         }
 
         val (minX, maxX, minY, maxY) = when {
+            // Zoomed out: still clamp within a valid range (no recenters)
             s < 1f - 1e-3f -> {
                 val minx = (w - s * w).toInt()
                 val maxx = 0
                 Quad(minx, maxx, safeMinY(), 0)
             }
+            // Exactly 1×: lock X, fling within [minY, 0]
             kotlin.math.abs(s - 1f) < 1e-3f -> {
                 Quad(0, 0, safeMinY(), 0)
             }
+            // Zoomed in: clamp to scaled content
             else -> {
                 val minx = (w - s * w).toInt()
                 val maxx = 0
@@ -2979,6 +2983,7 @@ class InkCanvasView @JvmOverloads constructor(
         )
         postInvalidateOnAnimation()
     }
+
 
 
 
