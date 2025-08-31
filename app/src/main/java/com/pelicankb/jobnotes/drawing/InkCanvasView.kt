@@ -2921,12 +2921,17 @@ class InkCanvasView @JvmOverloads constructor(
         }
 
         // Y clamp: keep a VALID range even when zoomed out (<1×) and the doc is shorter than the view.
-        // minYRaw can be positive then; clamp to <= 0 so coerceIn(minY, 0f) is never an empty range.
+        // minYRaw can be positive then; force minY ≤ 0 so coerceIn(minY, 0f) is never an empty range.
         val minYRaw = h - (s * docH)
         val minY = kotlin.math.min(0f, minYRaw)  // ensure minY <= 0
         val maxY = 0f
         translationY = translationY.coerceIn(minY, maxY)
+
+        if (DEBUG_INPUT) {
+            Log.d(TAG, "clampPan: s=$s h=$h docH=$docH minYRaw=$minYRaw -> clampY[$minY, $maxY] ty=$translationY")
+        }
     }
+
 
 
 
