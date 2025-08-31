@@ -2525,6 +2525,11 @@ class InkCanvasView @JvmOverloads constructor(
             translationY = fy - dy * (scaleFactor / prev)
             clampPan()
             invalidate()
+            // Final safety: keep translations finite and within safe bounds after any scale step
+            if (!translationX.isFinite()) translationX = 0f
+            if (!translationY.isFinite()) translationY = 0f
+            clampPan()
+
             return true
         }
 
@@ -2906,26 +2911,35 @@ class InkCanvasView @JvmOverloads constructor(
         val h = height.toFloat()
         val docH = contentHeightPx().coerceAtLeast(1f)
 
-        // Always lock X at exactly 1x
-        if (abs(s - 1f) < 1e-3f) {
+        // Always lock X at exactly 1×; otherwise clamp within view width.
+        if (kotlin.math.abs(s - 1f) < 1e-3f) {
             translationX = 0f
         } else {
-            // When zoomed in/out, keep X within view width
             val minX = w - s * w
             val maxX = 0f
             translationX = translationX.coerceIn(minX, maxX)
         }
 
-        // For Y, DO NOT center when zoomed out. Always clamp to [minY, 0]
-        // minY corresponds to the bottom of the doc aligned with the bottom of the view.
-        val minY = h - (s * docH)
+        // Y clamp: never center when zoomed out; keep a VALID range.
+        // If minYRaw > 0 (zoomed out and doc shorter than view), use [0, 0] to avoid invalid coerceIn.
+        val minYRaw = h - (s * docH)
+        val minY = kotlin.math.min(0f, minYRaw)  // ensures minY <= 0
         val maxY = 0f
         translationY = translationY.coerceIn(minY, maxY)
     }
 
 
 
+
     private fun startFling(vx: Float, vy: Float) {
+        // Safety: avoid fling math when zoomed out (<1x). We'll just rely on pan inertia-less movement.
+        if (scaleFactor < 1f - 1e-3f) {
+            // No fling; just ensure we're within safe bounds and repaint.
+            clampPan()
+            postInvalidateOnAnimation()
+            return
+        }
+
         val s = scaleFactor
         val w = width.toFloat()
         val h = height.toFloat()
@@ -2934,32 +2948,34 @@ class InkCanvasView @JvmOverloads constructor(
         val startX = translationX.toInt()
         val startY = translationY.toInt()
 
-        // Compute fling bounds against the scaled document, not just the view.
+        fun safeMinY(): Int {
+            val raw = (h - s * docH).toInt()
+            return kotlin.math.min(0, raw)  // ensure minY <= 0 for a valid [minY, 0] range
+        }
+
         val (minX, maxX, minY, maxY) = when {
             s < 1f - 1e-3f -> {
-                // Zoomed out: center on the scaled document
-                val cx = ((w - s * w) * 0.5f).toInt()
-                val cy = ((h - s * docH) * 0.5f).toInt()
-                scroller.startScroll(startX, startY, cx - startX, cy - startY)
-                postInvalidateOnAnimation()
-                return
-            }
-            abs(s - 1f) < 1e-3f -> {
-                // At 1×: lock X; allow vertical fling within document bounds
-                val miny = (h - s * docH).toInt()
+                // No recenters; just scroll limits. If you want a gentle nudge here, we can add it later.
+                val minx = (w - s * w).toInt()
+                val maxx = 0
+                val miny = safeMinY()
                 val maxy = 0
-                Quad(0, 0, miny, maxy)
+                Quad(minx, maxx, miny, maxy)
+            }
+            kotlin.math.abs(s - 1f) < 1e-3f -> {
+                // 1×: lock X; allow vertical fling within [minY, 0]
+                Quad(0, 0, safeMinY(), 0)
             }
             else -> {
                 val minx = (w - s * w).toInt()
                 val maxx = 0
-                val miny = (h - s * docH).toInt()
+                val miny = safeMinY()
                 val maxy = 0
                 Quad(minx, maxx, miny, maxy)
             }
         }
 
-        val adjVx = if (abs(s - 1f) < 1e-3f) 0 else vx // horizontal lock at 1×
+        val adjVx = if (kotlin.math.abs(s - 1f) < 1e-3f) 0 else vx // horizontal lock at 1×
         scroller.fling(
             startX, startY,
             adjVx.toInt().coerceIn(-maxFlingVelocity, maxFlingVelocity),
@@ -2968,6 +2984,7 @@ class InkCanvasView @JvmOverloads constructor(
         )
         postInvalidateOnAnimation()
     }
+
 
 
     private fun stopFling() {
@@ -3014,20 +3031,15 @@ class InkCanvasView @JvmOverloads constructor(
     private fun hOverscrollPx(): Float = 0f                                // reserved (unused, keeping for parity)
 
     private fun animateBackIntoBoundsIfNeeded() {
-        // Only snap back when overscrolled ABOVE the top (translationY > 0).
-        // If we’re within [minY, 0], or below minY, do nothing—no snap at the bottom/middle.
-        val s = scaleFactor
-        val h = height.toFloat()
-        val docH = contentHeightPx().coerceAtLeast(1f)
-        val minY = h - (s * docH)
+        // Only snap-top when zoomed in or at exactly 1x; never snap anything at <1x.
+        if (scaleFactor < 1f - 1e-3f) return
 
-        // Snap-top-only rule
+        // Snap back only when overscrolled ABOVE the top (translationY > 0).
         if (translationY <= 0f) return
 
-        // Animate gently back to top bound (0f)
         val startY = translationY
         val endY = 0f
-        if (abs(startY - endY) < 1e-3f) return
+        if (kotlin.math.abs(startY - endY) < 1e-3f) return
 
         val anim = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 180
@@ -3040,6 +3052,7 @@ class InkCanvasView @JvmOverloads constructor(
         }
         anim.start()
     }
+
 
     // ===== Export & Share =====
 
