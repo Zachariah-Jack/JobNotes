@@ -195,6 +195,23 @@ class MainActivity : AppCompatActivity() {
         // Prefer resize when keyboard shows
 
         setContentView(R.layout.activity_main)
+        // Keep titleRow below status bar, visible, and above everything
+        val titleRow = findViewById<View>(R.id.titleRow)
+        androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(titleRow) { v, insets ->
+            val topInset = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top
+            v.setPadding(v.paddingLeft, topInset + v.paddingTop, v.paddingRight, v.paddingBottom)
+            insets
+        }
+        titleRow.visibility = View.VISIBLE
+        titleRow.bringToFront()
+        titleRow.elevation = titleRow.elevation.coerceAtLeast(12f)
+
+// Make sure the edit button is interactive and on top
+        val btnTitleEdit = findViewById<ImageButton>(R.id.btnTitleEdit)
+        btnTitleEdit.isEnabled = true
+        btnTitleEdit.isClickable = true
+        btnTitleEdit.bringToFront()
+
         // Ensure the top area (title row) is not hidden under status bar
         run {
             val root = findViewById<View>(R.id.root)

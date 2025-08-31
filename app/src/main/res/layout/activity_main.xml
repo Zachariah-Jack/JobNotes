@@ -82,7 +82,7 @@
     <View
         android:id="@+id/dividerToolbarTop"
         android:layout_width="match_parent"
-        android:layout_height="1dp"
+        android:layout_height="2dp"
         android:background="#33000000" />
 
     <!-- Toolbar container -->
@@ -443,7 +443,7 @@
         android:id="@+id/canvasHost"
         android:layout_width="match_parent"
         android:layout_height="0dp"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="24dp"
         android:layout_weight="1"
         android:background="#EFEFF2">
 
