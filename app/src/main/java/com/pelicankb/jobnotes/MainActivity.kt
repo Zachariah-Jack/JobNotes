@@ -198,6 +198,22 @@ class MainActivity : AppCompatActivity() {
         setContentView(R.layout.activity_main)
         // Keep titleRow below status bar, visible, and above everything
         val titleRow = findViewById<View>(R.id.titleRow)
+        // Force correct order without rewriting the XML
+        val rootLL = findViewById<LinearLayout>(R.id.root)
+        val dividerTop = findViewById<View>(R.id.dividerToolbarTop)
+        val toolbar = findViewById<View>(R.id/toolbarContainer)
+
+// Move titleRow to index 0 (top)
+        rootLL.removeView(titleRow)
+        rootLL.addView(titleRow, 0)
+
+// Ensure toolbar sits right under the top divider
+        if (toolbar != null && dividerTop != null) {
+            rootLL.removeView(toolbar)
+            val idx = rootLL.indexOfChild(dividerTop) + 1
+            rootLL.addView(toolbar, idx)
+        }
+
         androidx.core.view.ViewCompat.setOnApplyWindowInsetsListener(titleRow) { v, insets ->
             val topInset = insets.getInsets(androidx.core.view.WindowInsetsCompat.Type.statusBars()).top
             v.setPadding(v.paddingLeft, topInset + v.paddingTop, v.paddingRight, v.paddingBottom)
@@ -252,7 +268,7 @@ class MainActivity : AppCompatActivity() {
 
 // Keep it above the canvas in z-order at runtime (in case XML order/elevation lags)
         btnTitleEdit.bringToFront()
-        btnTitleEdit.parent?.let { (it as? View)?.bringToFront() }
+
 
 // Enlarge its hit target (you already call this; keep it after bringToFront)
         btnTitleEdit.expandTouchTarget(12)
@@ -417,6 +433,21 @@ class MainActivity : AppCompatActivity() {
         btnCameraKbd.setOnClickListener(camToast)
         btnGalleryPen.setOnClickListener(galToast)
         btnGalleryKbd.setOnClickListener(galToast)
+
+        // DEBUG: show root child order and screen positions
+        (findViewById<ViewGroup>(R.id.root)).post {
+            val root = findViewById<ViewGroup>(R.id.root)
+            for (i in 0 until root.childCount) {
+                val v = root.getChildAt(i)
+                val idName = try { resources.getResourceEntryName(v.id) } catch (_: Throwable) { "no-id" }
+                val loc = IntArray(2); v.getLocationOnScreen(loc)
+                android.util.Log.d("LAYOUT", "#$i id=$idName top=${v.top} y=${loc[1]} h=${v.height}")
+            }
+        }
+        val rootLL = findViewById<LinearLayout>(R.id.root)
+        android.util.Log.d("LAYOUT", "root gravity=${rootLL.gravity}")
+
+
 
         // Overflow menus
         btnOverflowPen.setOnClickListener { showOverflowMenu(it) }
