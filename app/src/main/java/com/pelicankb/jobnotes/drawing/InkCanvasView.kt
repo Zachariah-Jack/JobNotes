@@ -8,6 +8,8 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Shader
+import android.os.SystemClock
+
 
 import android.util.AttributeSet
 import android.util.Log
@@ -49,6 +51,44 @@ class InkCanvasView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
     defStyle: Int = 0
 ) : View(context, attrs, defStyle) {
+    // ---- Shape Snap (Samsung Notes-style) ----
+    private var shapeSnapEnabled: Boolean = true
+    private var shapeSnapForPenFamilyOnly: Boolean = true   // only Pen/Pencil/Marker; not Highlighter/Eraser
+
+    // Hold detection at stroke end
+    private val SNAP_HOLD_MS = 350L
+    private val STILL_MOVE_EPS = 10f.dp()       // allow more hand shake while holding
+    private val CLOSE_EPS = 20f.dp()            // easier to recognize “closed” shapes
+    private val LINE_MAX_DEVIATION = 14f.dp()   // more wobble allowed for straight lines
+    private val ARC_MAX_DEVIATION = 10f.dp()
+    private val CIRCLE_RAD_DEV_PCT = 0.12f
+    private val RIGHT_ANGLE_EPS_DEG = 32f       // rectangles tolerate bigger angle error
+
+
+
+    // Stroke buffer for current draw
+    private val currStrokePts = ArrayList<PointF>(256)
+    // Hold-at-end state
+    private var holdActive = false
+    private var holdStartTime = 0L
+    private var lastHoldX = 0f
+    private var lastHoldY = 0f
+    private val shapeSnapRunnable = Runnable { tryShapeSnapIfEligible() }
+    // Snap runtime state
+    private enum class SnapKind { NONE, LINE, ARC, CIRCLE, RECT }
+    private var snapKind: SnapKind = SnapKind.NONE
+    private var snapApplied = false          // preview currently showing a snapped shape
+    private var snapAborted = false          // user held longer to revert preview
+    private var snapPts: MutableList<PointF>? = null  // vector points to commit on lift
+
+    // Extra hold to REVERT the snap preview (return to freehand)
+    private val SNAP_REVERT_EXTRA_MS = 500L
+
+
+    // quick px<->dp helpers
+    private fun Float.dp(): Float = this * resources.displayMetrics.density
+    private fun Int.dp(): Float = this * resources.displayMetrics.density
+
     // Debug toggles (safe to ship; disabled by default)
     private val TAG = "InkCanvasView"
     private val DEBUG_INPUT = true
@@ -1180,6 +1220,47 @@ class InkCanvasView @JvmOverloads constructor(
                         val i = event.findPointerIndex(activePointerId)
                         if (i != -1) {
                             val (cx, cy) = toContent(event.getX(i), event.getY(i))
+
+                            run {
+                                // keep latest content-space sample
+                                currStrokePts.add(PointF(cx, cy))
+
+                                if (!holdActive) {
+                                    // if last few moves were tiny, treat as holding
+                                    val n = currStrokePts.size
+                                    if (n >= 3) {
+                                        val a = currStrokePts[n - 1]
+                                        val b = currStrokePts[n - 2]
+                                        val c = currStrokePts[n - 3]
+                                        val tiny = hypot(a.x - b.x, a.y - b.y) + hypot(b.x - c.x, b.y - c.y)
+                                        if (tiny <= STILL_MOVE_EPS) {
+                                            holdActive = true
+                                            holdStartTime = SystemClock.uptimeMillis()
+                                            lastHoldX = a.x
+                                            lastHoldY = a.y
+                                            removeCallbacks(shapeSnapRunnable)
+                                            postDelayed(shapeSnapRunnable, SNAP_HOLD_MS)
+                                        }
+                                    }
+                                } else {
+                                    // cancel hold if moved too much
+                                    val a = currStrokePts.last()
+                                    if (hypot(a.x - lastHoldX, a.y - lastHoldY) > STILL_MOVE_EPS) {
+                                        holdActive = false
+                                        removeCallbacks(shapeSnapRunnable)
+                                    } else {
+                                        // still holding: if preview is showing and we exceeded revert time, revert it
+                                        val heldFor = SystemClock.uptimeMillis() - holdStartTime
+                                        if (snapApplied && !snapAborted && heldFor >= (SNAP_HOLD_MS + SNAP_REVERT_EXTRA_MS)) {
+                                            current?.let { revertSnapPreview(it) }
+                                            snapAborted = true
+                                        }
+                                    }
+                                }
+                            }
+
+
+// normal stroke rendering
                             extendStroke(cx, cy)
                             val r = lastDirtyViewRect
                             if (r != null && !r.isEmpty) {
@@ -1187,6 +1268,7 @@ class InkCanvasView @JvmOverloads constructor(
                             } else {
                                 invalidate()
                             }
+
                         }
                     }
 
@@ -1291,6 +1373,11 @@ class InkCanvasView @JvmOverloads constructor(
                 cancelStylusHoldToPan()
                 endTracker()
                 performClick()
+                // SHAPE-SNAP: stop any pending snap
+                removeCallbacks(shapeSnapRunnable)
+                holdActive = false
+                currStrokePts.clear()
+
             }
         }
         return true
@@ -1345,6 +1432,17 @@ class InkCanvasView @JvmOverloads constructor(
 
         lastX = x
         lastY = y
+        // SHAPE-SNAP: reset buffers/hold and seed first point
+        currStrokePts.clear()
+        holdActive = false
+        removeCallbacks(shapeSnapRunnable)
+        currStrokePts.add(PointF(x, y))
+        snapKind = SnapKind.NONE
+        snapApplied = false
+        snapAborted = false
+        snapPts = null
+
+
         drawing = true
         selectingGesture = false
         transforming = false
@@ -2850,6 +2948,15 @@ class InkCanvasView @JvmOverloads constructor(
             if (stroke.type == BrushType.ERASER_AREA || stroke.type == BrushType.ERASER_STROKE) {
                 stroke.eraseHLOnly = eraserHLOnly
             }
+            // SHAPE-SNAP: if a preview was applied (and not reverted), replace points with snapped geometry
+            if (snapApplied && !snapAborted) {
+                replaceStrokePointsWithSnap(stroke)   // commits snapPts into stroke.points
+                snapApplied = false
+                snapAborted = false
+                snapKind = SnapKind.NONE
+                snapPts = null
+            }
+
             when (stroke.type) {
                 BrushType.CALLIGRAPHY -> {
                     try {
@@ -3119,6 +3226,490 @@ class InkCanvasView @JvmOverloads constructor(
         anim.start()
     }
 
+
+    // ======== Shape Snap core ========
+
+    private fun tryShapeSnapIfEligible() {
+        if (!shapeSnapEnabled) return
+        if (shapeSnapForPenFamilyOnly && !isPenFamilyBrush()) return
+        if (!holdActive) return
+        val op = current ?: return
+        if (currStrokePts.size < 6) return
+
+        val pts = currStrokePts.toList()
+        val kind = classifyShape(pts)
+        if (kind == SnapKind.NONE) return
+
+        // compute vector points for commit
+        snapPts = when (kind) {
+            SnapKind.LINE   -> sampleLinePoints(pts.first(), pts.last())
+            SnapKind.ARC    -> sampleArcPoints(pts)
+            SnapKind.CIRCLE -> sampleCirclePoints(pts)
+            SnapKind.RECT   -> sampleRectPoints(pts)
+            else -> null
+        }?.toMutableList()
+
+        if (snapPts.isNullOrEmpty()) return
+
+        // draw preview into scratch
+        when (kind) {
+            SnapKind.LINE   -> snapPreviewLine(op, pts.first(), pts.last())
+            SnapKind.ARC    -> snapPreviewArc(op, pts)
+            SnapKind.CIRCLE -> snapPreviewCircle(op, pts)
+            SnapKind.RECT   -> snapPreviewRect(op, pts)
+            else -> {}
+        }
+
+        snapKind = kind
+        snapApplied = true
+        invalidate()
+    }
+
+    private fun isPenFamilyBrush(): Boolean {
+        return when (baseBrush) {
+            BrushType.PEN, BrushType.PENCIL, BrushType.MARKER, BrushType.FOUNTAIN, BrushType.CALLIGRAPHY -> true
+            else -> false
+        }
+    }
+
+// --- Classification ---
+
+    private fun classifyShape(pts: List<PointF>): SnapKind {
+        val start = pts.first()
+        val end = pts.last()
+        val closed = dist(start, end) <= CLOSE_EPS
+
+        if (closed) {
+            // Prefer RECT when closed; only fall back to CIRCLE if not rectish
+            if (looksRect(pts))   return SnapKind.RECT
+            if (looksCircle(pts)) return SnapKind.CIRCLE
+        }
+        if (looksLine(pts)) return SnapKind.LINE
+        if (looksArc(pts))  return SnapKind.ARC
+        return SnapKind.NONE
+    }
+
+    private fun looksLine(pts: List<PointF>): Boolean {
+        val a = pts.first(); val b = pts.last()
+        val len = hypot(b.x - a.x, b.y - a.y)
+        if (len < 12f.dp()) return false
+
+        // quick gate (looser)
+        val maxDev = maxPerpDeviation(pts, a, b)
+        if (maxDev <= LINE_MAX_DEVIATION) return true
+
+        // robust RMS: trim 10% from both ends to ignore squiggles
+        val n = pts.size
+        val trim = (n * 0.10f).roundToInt().coerceAtMost(n/4)
+        val i0 = 0 + trim
+        val i1 = (n - 1) - trim
+        if (i1 - i0 + 1 < 4) return false
+        val rms = lineRmsPerp(pts, i0, i1)
+
+        // explicit Float to avoid any accidental BigDecimal promotions
+        val rel: Float = rms / len.coerceAtLeast(1f)
+        return (rms <= (LINE_MAX_DEVIATION * 0.9f)) || (rel <= 0.03f)
+    }
+
+
+
+
+    private fun looksArc(pts: List<PointF>): Boolean {
+        val a = pts.first()
+        val m = pts[pts.size / 2]
+        val b = pts.last()
+        val circle = circleFrom3(a, m, b) ?: return false
+        val (cx, cy, r) = circle
+        if (r <= 1f) return false
+        val avgDev = pts.asSequence().map { abs(hypot(it.x - cx, it.y - cy) - r) }.average().toFloat()
+        if (avgDev > ARC_MAX_DEVIATION) return false
+        val ang = arcAngleDegrees(cx, cy, a, b)
+        return ang > 20f && ang < 340f
+    }
+
+    private fun looksCircle(pts: List<PointF>): Boolean {
+        val bb = bbox(pts)
+        val aspect = (bb.width() / bb.height()).coerceAtLeast(bb.height() / bb.width())
+        if (aspect > 1.2f) return false
+        val (cx, cy, r) = circleLeastSquares(pts) ?: return false
+        if (r <= 1f) return false
+        val avgDev = pts.asSequence().map { abs(hypot(it.x - cx, it.y - cy) - r) }.average().toFloat()
+        return (avgDev / r) <= CIRCLE_RAD_DEV_PCT
+    }
+
+    private fun looksRect(pts: List<PointF>): Boolean {
+        // Easier closure — bigger allowed gap between first & last point
+        val closed = dist(pts.first(), pts.last()) <= (CLOSE_EPS * 1.8f)
+        if (!closed) return false
+
+        val bb = bbox(pts)
+        val w = bb.width(); val h = bb.height()
+        // Require non-trivial size
+        if (min(w, h) < 24f.dp()) return false
+
+        // 1) Edge-proximity score: how many samples lie close to one of the four edges?
+        //    Circles will fail this because most samples are far from edges except near mid-sides.
+        val edgeTol = max(12f.dp(), 0.02f * (w + h))
+        fun distToRectEdges(p: PointF): Float {
+            val dx = min(abs(p.x - bb.left), abs(p.x - bb.right))
+            val dy = min(abs(p.y - bb.top),  abs(p.y - bb.bottom))
+            return min(dx, dy)
+        }
+        var near = 0
+        for (p in pts) if (distToRectEdges(p) <= edgeTol) near++
+        val fracNear = near.toFloat() / pts.size
+        if (fracNear < 0.70f) return false   // need most points hugging the sides
+
+        // 2) Angle sanity on simplified corners (looser threshold)
+        val simplified = rdpPF(pts, epsilon = 12f.dp())
+        val corners = enforceClosedAndCornersPF(simplified)
+        // Accept 4 ±1 corners (5 -> merge the closest pair; 3 -> reject)
+        val four = when (corners.size) {
+            4 -> corners
+            5 -> {
+                var bestI = 1
+                var bestD = Float.MAX_VALUE
+                for (i in 1 until corners.size) {
+                    val d = hypot(corners[i].x - corners[i-1].x, corners[i].y - corners[i-1].y)
+                    if (d < bestD) { bestD = d; bestI = i }
+                }
+                val merged = ArrayList<PointF>(4)
+                for (i in corners.indices) if (i != bestI) merged.add(corners[i])
+                merged
+            }
+            else -> return false
+        }
+        if (four.size != 4) return false
+        for (i in four.indices) {
+            val p0 = four[(i + four.size - 1) % four.size]
+            val p1 = four[i]
+            val p2 = four[(i + 1) % four.size]
+            val ang = angleDegPF(p0, p1, p2)
+            if (abs(ang - 90f) > RIGHT_ANGLE_EPS_DEG) return false
+        }
+
+        return true
+    }
+
+
+
+// --- Preview drawers (to scratch) ---
+
+    private fun snapPreviewLine(op: StrokeOp, a: PointF, b: PointF) {
+        drawSnapped(op) { c, paint -> c.drawLine(a.x, a.y, b.x, b.y, paint) }
+    }
+
+    private fun snapPreviewArc(op: StrokeOp, pts: List<PointF>) {
+        val a = pts.first(); val m = pts[pts.size / 2]; val b = pts.last()
+        val circle = circleFrom3(a, m, b) ?: return
+        val (cx, cy, r) = circle
+        val startAng = atan2(a.y - cy, a.x - cx)
+        val endAng   = atan2(b.y - cy, b.x - cx)
+        val midAng   = atan2(m.y - cy, m.x - cx)
+        val sweep    = normalizedSweep(startAng, midAng, endAng)
+        drawSnapped(op) { c, paint ->
+            val rect = RectF(cx - r, cy - r, cx + r, cy + r)
+            c.drawArc(rect,
+                Math.toDegrees(startAng.toDouble()).toFloat(),
+                Math.toDegrees(sweep.toDouble()).toFloat(),
+                false, paint)
+        }
+    }
+
+    private fun snapPreviewCircle(op: StrokeOp, pts: List<PointF>) {
+        val circle = circleLeastSquares(pts) ?: return
+        val (cx, cy, r) = circle
+        drawSnapped(op) { c, paint -> c.drawCircle(cx, cy, r, paint) }
+    }
+
+    private fun snapPreviewRect(op: StrokeOp, pts: List<PointF>) {
+        val simplified = enforceClosedAndCornersPF(rdpPF(pts, epsilon = 8f.dp()))
+        if (simplified.size != 4) return
+        val bb = bbox(simplified)
+        drawSnapped(op) { c, paint -> c.drawRect(bb, paint) }
+    }
+
+    // Draw snapped preview into the proper scratch layer for the current stroke
+    private inline fun drawSnapped(op: StrokeOp, draw: (Canvas, Paint) -> Unit) {
+        val sec = op.sectionIndex
+        val paint = newStrokePaint(op.color, op.baseWidth).apply {
+            if (op.type == BrushType.HIGHLIGHTER_FREEFORM || op.type == BrushType.HIGHLIGHTER_STRAIGHT) {
+                strokeCap = Paint.Cap.SQUARE
+            }
+        }
+        if (op.type == BrushType.HIGHLIGHTER_FREEFORM || op.type == BrushType.HIGHLIGHTER_STRAIGHT) {
+            scratchHLBySection.getOrNull(sec)?.eraseColor(Color.TRANSPARENT)
+            scratchHLScratchCanvas(op)?.let { withSection(it, op) { c -> draw(c, paint) } }
+        } else {
+            scratchInkBySection.getOrNull(sec)?.eraseColor(Color.TRANSPARENT)
+            scratchInkCanvas(op)?.let { withSection(it, op) { c -> draw(c, paint) } }
+        }
+    }
+
+// --- Commit & Revert helpers ---
+
+    private fun replaceStrokePointsWithSnap(stroke: StrokeOp) {
+        val pts = snapPts ?: return
+        stroke.points.clear()
+        // Convert PointF -> StrokeOp.Point
+        pts.forEach { stroke.points.add(Point(it.x, it.y)) }
+        // Clear scratch for this page (we will rebuild committed right after)
+        val sec = stroke.sectionIndex
+        scratchInkBySection.getOrNull(sec)?.eraseColor(Color.TRANSPARENT)
+        scratchHLBySection.getOrNull(sec)?.eraseColor(Color.TRANSPARENT)
+    }
+
+    private fun revertSnapPreview(op: StrokeOp) {
+        // Clear preview from scratch and redraw the freehand so user sees original again
+        val sec = op.sectionIndex
+        scratchInkBySection.getOrNull(sec)?.eraseColor(Color.TRANSPARENT)
+        scratchHLBySection.getOrNull(sec)?.eraseColor(Color.TRANSPARENT)
+
+        val pts = op.points
+        if (pts.size < 2) return
+        if (op.type == BrushType.HIGHLIGHTER_FREEFORM || op.type == BrushType.HIGHLIGHTER_STRAIGHT) {
+            val ch = scratchHLScratchCanvas(op) ?: return
+            val p = newStrokePaint(op.color, op.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
+            withSection(ch, op) { c ->
+                for (i in 1 until pts.size) {
+                    val a = pts[i - 1]; val b = pts[i]
+                    c.drawLine(a.x, a.y, b.x, b.y, p)
+                }
+            }
+        } else {
+            val ci = scratchInkCanvas(op) ?: return
+            val p = newStrokePaint(op.color, op.baseWidth)
+            withSection(ci, op) { c ->
+                for (i in 1 until pts.size) {
+                    val a = pts[i - 1]; val b = pts[i]
+                    c.drawLine(a.x, a.y, b.x, b.y, p)
+                }
+            }
+        }
+        snapApplied = false
+        snapKind = SnapKind.NONE
+        snapPts = null
+    }
+
+// --- Vector point generators for commit ---
+
+    private fun sampleLinePoints(a: PointF, b: PointF): List<PointF> =
+        listOf(a, b)
+
+    private fun sampleArcPoints(pts: List<PointF>): List<PointF> {
+        val a = pts.first(); val m = pts[pts.size / 2]; val b = pts.last()
+        val circle = circleFrom3(a, m, b) ?: return emptyList()
+        val (cx, cy, r) = circle
+        val sa = atan2(a.y - cy, a.x - cx)
+        val ea = atan2(b.y - cy, b.x - cx)
+        val ma = atan2(m.y - cy, m.x - cx)
+        val sweep = normalizedSweep(sa, ma, ea)
+        val steps = max(16, (abs(sweep) * r / 6f).roundToInt().coerceAtMost(256))
+        val out = ArrayList<PointF>(steps + 1)
+        for (i in 0..steps) {
+            val t = i / steps.toFloat()
+            val ang = sa + sweep * t
+            out.add(PointF(cx + r * cos(ang), cy + r * sin(ang)))
+        }
+        return out
+    }
+
+    private fun sampleCirclePoints(pts: List<PointF>): List<PointF> {
+        val c = circleLeastSquares(pts) ?: return emptyList()
+        val (cx, cy, r) = c
+        val steps = 64
+        val out = ArrayList<PointF>(steps + 1)
+        for (i in 0..steps) {
+            val ang = (2f * Math.PI * i / steps).toFloat()
+            out.add(PointF(cx + r * cos(ang), cy + r * sin(ang)))
+        }
+        return out
+    }
+
+    private fun sampleRectPoints(pts: List<PointF>): List<PointF> {
+        val simplified = enforceClosedAndCornersPF(rdpPF(pts, 8f.dp()))
+        if (simplified.size != 4) return emptyList()
+        val bb = bbox(simplified)
+        return listOf(
+            PointF(bb.left,  bb.top),
+            PointF(bb.right, bb.top),
+            PointF(bb.right, bb.bottom),
+            PointF(bb.left,  bb.bottom),
+            PointF(bb.left,  bb.top) // close
+        )
+    }
+
+// --- Utilities for PointF ---
+
+    private fun dist(a: PointF, b: PointF): Float = hypot(a.x - b.x, a.y - b.y)
+
+    private fun bbox(pts: List<PointF>): RectF {
+        var minX = Float.POSITIVE_INFINITY; var minY = Float.POSITIVE_INFINITY
+        var maxX = Float.NEGATIVE_INFINITY; var maxY = Float.NEGATIVE_INFINITY
+        for (p in pts) {
+            if (p.x < minX) minX = p.x; if (p.y < minY) minY = p.y
+            if (p.x > maxX) maxX = p.x; if (p.y > maxY) maxY = p.y
+        }
+        return RectF(minX, minY, maxX, maxY)
+    }
+
+    private fun maxPerpDeviation(pts: List<PointF>, a: PointF, b: PointF): Float {
+        val vx = b.x - a.x; val vy = b.y - a.y
+        val len = hypot(vx, vy).coerceAtLeast(1f)
+        var maxDev = 0f
+        for (p in pts) {
+            val dev = abs((vy * p.x - vx * p.y + b.x * a.y - b.y * a.x) / len)
+            if (dev > maxDev) maxDev = dev
+        }
+        return maxDev
+    }
+    // Weighted least-squares line fit (unit direction + a point on the line)
+    private fun lineFit(pts: List<PointF>, i0: Int, i1: Int): Pair<PointF, PointF> {
+        var sx = 0f; var sy = 0f
+        var sxx = 0f; var syy = 0f; var sxy = 0f
+        val n = (i1 - i0 + 1).coerceAtLeast(2)
+        for (i in i0..i1) {
+            val p = pts[i]
+            sx += p.x; sy += p.y
+            sxx += p.x * p.x; syy += p.y * p.y
+            sxy += p.x * p.y
+        }
+        val mx = sx / n; val my = sy / n
+        val covXX = (sxx / n) - mx*mx
+        val covYY = (syy / n) - my*my
+        val covXY = (sxy / n) - mx*my
+
+        // principal direction (eigenvector with larger eigenvalue)
+        val t = covXX + covYY
+        val d = sqrt(max(0f, t*t - 4f*(covXX*covYY - covXY*covXY)))
+        val l1 = 0.5f*(t + d)
+        val vx = if (abs(covXY) > 1e-6f) covXY else 1f
+        val vy = if (abs(covXY) > 1e-6f) (l1 - covXX) else 0f
+        val len = hypot(vx, vy).coerceAtLeast(1e-6f)
+
+        // return unit direction and centroid
+        return PointF(vx/len, vy/len) to PointF(mx, my)
+    }
+
+    // RMS perpendicular distance to the fitted line over [i0..i1]
+    private fun lineRmsPerp(pts: List<PointF>, i0: Int, i1: Int): Float {
+        val fit = lineFit(pts, i0, i1)   // avoid destructuring ambiguity
+        val dir = fit.first              // unit direction
+        val ctr = fit.second             // point on line (centroid)
+
+        val nx = -dir.y; val ny = dir.x
+        var sum2 = 0f; var n = 0
+        for (i in i0..i1) {
+            val p = pts[i]
+            val dx = p.x - ctr.x; val dy = p.y - ctr.y
+            val dev = abs(nx*dx + ny*dy)
+            sum2 += dev*dev; n++
+        }
+        return sqrt(sum2 / max(1, n))
+    }
+
+
+
+
+
+
+
+
+
+
+    private fun circleFrom3(a: PointF, b: PointF, c: PointF): Triple<Float, Float, Float>? {
+        val d = 2f * (a.x*(b.y - c.y) + b.x*(c.y - a.y) + c.x*(a.y - b.y))
+        if (abs(d) < 1e-3f) return null
+        val ux = ((a.x*a.x + a.y*a.y)*(b.y - c.y) + (b.x*b.x + b.y*b.y)*(c.y - a.y) + (c.x*c.x + c.y*c.y)*(a.y - b.y)) / d
+        val uy = ((a.x*a.x + a.y*a.y)*(c.x - b.x) + (b.x*b.x + b.y*b.y)*(a.x - c.x) + (c.x*c.x + c.y*c.y)*(b.x - a.x)) / d
+        val r = hypot(a.x - ux, a.y - uy)
+        return Triple(ux, uy, r)
+    }
+
+    private fun circleLeastSquares(pts: List<PointF>): Triple<Float, Float, Float>? {
+        var sumX=0f; var sumY=0f; var sumX2=0f; var sumY2=0f; var sumXY=0f; var sumX3=0f; var sumY3=0f; var sumX1Y2=0f; var sumX2Y1=0f
+        val n = pts.size.toFloat()
+        for (p in pts) {
+            val x=p.x; val y=p.y; val x2=x*x; val y2=y*y
+            sumX+=x; sumY+=y; sumX2+=x2; sumY2+=y2; sumXY+=x*y
+            sumX3+=x2*x; sumY3+=y2*y; sumX1Y2+=x*y2; sumX2Y1+=x2*y
+        }
+        val C = n*sumX2 - sumX*sumX
+        val D = n*sumXY - sumX*sumY
+        val E = n*sumX3 + n*sumX1Y2 - (sumX2 + sumY2)*sumX
+        val G = n*sumY2 - sumY*sumY
+        val H = n*sumX2Y1 + n*sumY3 - (sumX2 + sumY2)*sumY
+        val denom = 2f*(C*G - D*D)
+        if (abs(denom) < 1e-3f) return null
+        val cx = (G*E - D*H) / denom
+        val cy = (C*H - D*E) / denom
+        val r  = sqrt(((sumX2 + sumY2 - 2f*(cx*sumX + cy*sumY)) / n) + cx*cx + cy*cy)
+        return if (r.isFinite()) Triple(cx, cy, r) else null
+    }
+
+    private fun rdpPF(pts: List<PointF>, epsilon: Float): List<PointF> {
+        if (pts.size < 3) return pts
+        val keep = BooleanArray(pts.size) { false }
+        keep[0] = true; keep[pts.size-1] = true
+        fun recurse(s: Int, e: Int) {
+            var maxDist = 0f; var idx = -1
+            val a = pts[s]; val b = pts[e]
+            for (i in s+1 until e) {
+                val d = pointLineDistancePF(pts[i], a, b)
+                if (d > maxDist) { maxDist = d; idx = i }
+            }
+            if (maxDist > epsilon && idx != -1) {
+                keep[idx] = true
+                recurse(s, idx); recurse(idx, e)
+            }
+        }
+        recurse(0, pts.size-1)
+        val out = ArrayList<PointF>()
+        for (i in pts.indices) if (keep[i]) out.add(pts[i])
+        return out
+    }
+
+    private fun pointLineDistancePF(p: PointF, a: PointF, b: PointF): Float {
+        val vx = b.x - a.x; val vy = b.y - a.y
+        val len = hypot(vx, vy).coerceAtLeast(1e-3f)
+        return abs((vy * p.x - vx * p.y + b.x * a.y - b.y * a.x) / len)
+    }
+
+    private fun enforceClosedAndCornersPF(simplified: List<PointF>): List<PointF> {
+        if (simplified.isEmpty()) return simplified
+        val out = ArrayList(simplified)
+        if (dist(out.first(), out.last()) <= CLOSE_EPS) out.removeAt(out.lastIndex)
+        return out
+    }
+
+    private fun angleDegPF(a: PointF, b: PointF, c: PointF): Float {
+        val v1x = a.x - b.x; val v1y = a.y - b.y
+        val v2x = c.x - b.x; val v2y = c.y - b.y
+        val dot = v1x*v2x + v1y*v2y
+        val l1 = hypot(v1x, v1y).coerceAtLeast(1e-3f)
+        val l2 = hypot(v2x, v2y).coerceAtLeast(1e-3f)
+        val cos = (dot / (l1*l2)).coerceIn(-1f, 1f)
+        return Math.toDegrees(acos(cos).toDouble()).toFloat()
+    }
+
+    private fun arcAngleDegrees(cx: Float, cy: Float, a: PointF, b: PointF): Float {
+        val a1 = atan2(a.y - cy, a.x - cx)
+        val a2 = atan2(b.y - cy, b.x - cx)
+        var d = Math.toDegrees((a2 - a1).toDouble()).toFloat()
+        while (d < 0f) d += 360f
+        while (d >= 360f) d -= 360f
+        return d
+    }
+
+    private fun normalizedSweep(sa: Float, mid: Float, ea: Float): Float {
+        fun norm(a: Float): Float { var x=a; while (x<0) x+= (2f*Math.PI).toFloat(); while (x>=2f*Math.PI) x-= (2f*Math.PI).toFloat(); return x }
+        val s = norm(sa); val m = norm(mid); val e = norm(ea)
+        var sweep = e - s; if (sweep < 0) sweep += (2f*Math.PI).toFloat()
+        // ensure the mid angle lies on the sweep path; else go the other way
+        val onPathCW = if (s <= e) (m in s..e) else (m >= s || m <= e)
+        if (!onPathCW) sweep = sweep - (2f*Math.PI).toFloat()
+        return sweep
+    }
 
     // ===== Export & Share =====
 
