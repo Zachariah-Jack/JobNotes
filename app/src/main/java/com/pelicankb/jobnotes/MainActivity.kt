@@ -193,6 +193,7 @@ class MainActivity : AppCompatActivity() {
         if (highlighterPopup != null && highlighterPopup != except) { highlighterPopup?.dismiss(); highlighterPopup = null }
         if (eraserPopup != null && eraserPopup != except) { eraserPopup?.dismiss(); eraserPopup = null }
         if (selectPopup != null && selectPopup != except) { selectPopup?.dismiss(); selectPopup = null }
+        if (shapesPopup != null && shapesPopup != except) { shapesPopup?.dismiss(); shapesPopup = null } // <— add this line
     }
 
 
@@ -1112,6 +1113,23 @@ class MainActivity : AppCompatActivity() {
             setOnDismissListener { shapesPopup = null; inkCanvas.requestFocus() }
         }
     }
+    private fun insertShapeFromPopup(kind: InkCanvasView.ShapeKind) {
+        val oneInchPx = resources.displayMetrics.xdpi           // ≈ 1"
+        val strokePx  = inkCanvas.dpToPx(shapesStrokeDp)        // use canvas dp→px
+
+        inkCanvas.insertShape(
+            kind          = kind,
+            approxSizePx  = oneInchPx,
+            strokeWidthPx = strokePx,
+            strokeColor   = shapesStrokeColor,
+            fillColor     = shapesFillColor
+        )
+
+        shapesPopup?.dismiss()
+        shapesPopup = null
+        inkCanvas.requestFocus()
+    }
+
 
 
 
