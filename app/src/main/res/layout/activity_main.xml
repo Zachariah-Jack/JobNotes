@@ -166,7 +166,7 @@
                 android:background="@drawable/bg_tool_toggle"
                 android:padding="8dp"
                 android:src="@drawable/ic_tool_shapes"
-                android:contentDescription="@string/cd_shapes" />
+                android:contentDescription="@null" />
 
 
 
