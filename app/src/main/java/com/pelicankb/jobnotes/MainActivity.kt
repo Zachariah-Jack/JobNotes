@@ -365,13 +365,7 @@ class MainActivity : AppCompatActivity() {
             dismissAllPopups()
             toggleShapesPopup(v)  // I'll give you this popup builder if you want me to paste it next
         }
-        inkCanvas.insertShape(
-            kind = InkCanvasView.ShapeKind.RECT,        // or TRI_EQ, TRI_RIGHT, CIRCLE, ARC, LINE
-            approxSizePx = resources.displayMetrics.xdpi, // ~1 inch
-            strokeWidthPx = inkCanvas.dpToPx(shapesStrokeDp),
-            strokeColor = shapesStrokeColor,
-            fillColor = shapesFillColor // null = No fill
-        )
+
 
 
 
@@ -1029,6 +1023,129 @@ class MainActivity : AppCompatActivity() {
             isOutsideTouchable = true
             elevation = 8f
             setOnDismissListener { selectPopup = null; inkCanvas.requestFocus() }
+        }
+    }
+    private fun toggleShapesPopup(anchor: View) {
+        shapesPopup?.let { if (it.isShowing) { it.dismiss(); shapesPopup = null; return } }
+        dismissAllPopups()
+        shapesPopup = createShapesPopup().also { p ->
+            p.isOutsideTouchable = true
+            p.isFocusable = true
+            showPopupAnchoredWithinScreen(p, anchor)
+        }
+    }
+
+    private fun createShapesPopup(): PopupWindow {
+        // Build programmatically: row of shape buttons + stroke slider + fill controls
+        val pad = (8 * resources.displayMetrics.density).toInt()
+
+        val root = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(pad, pad, pad, pad)
+        }
+
+        // Row 1: shape buttons
+        val rowShapes = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        fun shapeBtn(label: String, kind: InkCanvasView.ShapeKind) = Button(this).apply {
+            text = label
+            setOnClickListener {
+                // ~1 inch on this screen
+                val oneInchPx = resources.displayMetrics.xdpi
+                inkCanvas.insertShape(
+                    kind = kind,
+                    approxSizePx = oneInchPx,
+                    strokeWidthPx = inkCanvas.dpToPx(shapesStrokeDp),
+                    strokeColor = shapesStrokeColor,
+                    fillColor = shapesFillColor
+                )
+                // keep popup open and selection active; user can immediately resize / adjust
+                inkCanvas.requestFocus()
+            }
+        }
+        rowShapes.addView(shapeBtn("Rect",   InkCanvasView.ShapeKind.RECT))
+        rowShapes.addView(shapeBtn("EqTri",  InkCanvasView.ShapeKind.TRI_EQ))
+        rowShapes.addView(shapeBtn("Right",  InkCanvasView.ShapeKind.TRI_RIGHT))
+        rowShapes.addView(shapeBtn("Circle", InkCanvasView.ShapeKind.CIRCLE))
+        rowShapes.addView(shapeBtn("Arc",    InkCanvasView.ShapeKind.ARC))
+        rowShapes.addView(shapeBtn("Line",   InkCanvasView.ShapeKind.LINE))
+        root.addView(rowShapes)
+
+        // Row 2: stroke thickness slider
+        val strokeRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, pad, 0, 0)
+            gravity = Gravity.CENTER_VERTICAL
+        }
+        val strokeLabel = TextView(this).apply { text = "Stroke (dp): " }
+        val strokeValue = TextView(this).apply { text = shapesStrokeDp.toInt().toString() }
+        val strokeBar = SeekBar(this).apply {
+            max = 40
+            progress = shapesStrokeDp.toInt().coerceIn(1, 40)
+            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
+                    val v = value.coerceIn(1, 40)
+                    shapesStrokeDp = v.toFloat()
+                    strokeValue.text = v.toString()
+                    // live-update any current selection
+                    inkCanvas.updateSelectedStrokeWidthDp(shapesStrokeDp)
+                }
+                override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            })
+        }
+        strokeRow.addView(strokeLabel)
+        strokeRow.addView(strokeBar, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+        strokeRow.addView(strokeValue)
+        root.addView(strokeRow)
+
+        // Row 3: stroke color + fill controls
+        val colorRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, pad, 0, 0)
+            gravity = Gravity.CENTER_VERTICAL
+        }
+
+        val btnStrokeColor = Button(this).apply {
+            text = "Stroke Color"
+            setOnClickListener {
+                showAdvancedColorPicker(shapesStrokeColor) { picked ->
+                    shapesStrokeColor = picked
+                    // live-update
+                    inkCanvas.updateSelectedStrokeColor(picked)
+                }
+            }
+        }
+        val btnFillColor = Button(this).apply {
+            text = "Fill Color"
+            setOnClickListener {
+                showAdvancedColorPicker(shapesFillColor ?: Color.TRANSPARENT) { picked ->
+                    shapesFillColor = picked
+                    inkCanvas.updateSelectedShapeFill(picked)
+                }
+            }
+        }
+        val btnNoFill = Button(this).apply {
+            text = "No Fill"
+            setOnClickListener {
+                shapesFillColor = null
+                inkCanvas.updateSelectedShapeFill(null)
+            }
+        }
+        colorRow.addView(btnStrokeColor)
+        colorRow.addView(btnFillColor)
+        colorRow.addView(btnNoFill)
+        root.addView(colorRow)
+
+        return PopupWindow(
+            root,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            true
+        ).apply {
+            setBackgroundDrawable(ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card_popup))
+            isOutsideTouchable = true
+            elevation = 8f
+            setOnDismissListener { shapesPopup = null; inkCanvas.requestFocus() }
         }
     }
 

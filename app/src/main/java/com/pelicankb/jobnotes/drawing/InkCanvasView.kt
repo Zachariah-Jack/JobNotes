@@ -539,12 +539,11 @@ class InkCanvasView @JvmOverloads constructor(
         // transform helper
         var hidden: Boolean = false,
         var sectionIndex: Int = 0
-        var shapeKind: ShapeKind? = null         // null = freehand; non-null = prebuilt shape
-        var shapeFillColor: Int? = null          // null = no fill; otherwise ARGB color
-
-
-
-    )
+    ) {
+        // shape metadata (null => freehand)
+        var shapeKind: ShapeKind? = null
+        var shapeFillColor: Int? = null
+    }
 
     private val strokes = mutableListOf<StrokeOp>()
     private val redoStack = mutableListOf<StrokeOp>()
@@ -2874,19 +2873,19 @@ class InkCanvasView @JvmOverloads constructor(
             zoomTo(target, e.x, e.y)
             return true
         }
-    }
-    override fun onLongPress(e: MotionEvent) {
-        val (cx, cy) = toContent(e.x, e.y)
-        for (i in strokes.size - 1 downTo 0) {
-            val s = strokes[i]
-            if (hitStroke(s, cx, cy, dpToPx(10f))) {
-                selectedStrokes.clear()
-                selectedStrokes.add(s)
-                selectedBounds = strokeBounds(s)
-                selectionInteractive = true
-                overlayActive = true
-                invalidate()
-                return
+        override fun onLongPress(e: MotionEvent) {
+            val (cx, cy) = toContent(e.x, e.y)
+            for (i in strokes.size - 1 downTo 0) {
+                val s = strokes[i]
+                if (hitStroke(s, cx, cy, dpToPx(10f))) {
+                    selectedStrokes.clear()
+                    selectedStrokes.add(s)
+                    selectedBounds = strokeBounds(s)
+                    selectionInteractive = true
+                    overlayActive = true
+                    invalidate()
+                    return
+                }
             }
         }
     }
