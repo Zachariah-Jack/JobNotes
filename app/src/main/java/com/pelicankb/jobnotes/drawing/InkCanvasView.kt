@@ -3277,17 +3277,36 @@ class InkCanvasView @JvmOverloads constructor(
     private fun classifyShape(pts: List<PointF>): SnapKind {
         val start = pts.first()
         val end = pts.last()
-        val closed = dist(start, end) <= CLOSE_EPS
+        val basicClosed = dist(start, end) <= CLOSE_EPS
 
-        if (closed) {
-            // Prefer RECT when closed; only fall back to CIRCLE if not rectish
-            if (looksRect(pts))   return SnapKind.RECT
-            if (looksCircle(pts)) return SnapKind.CIRCLE
+        // If not strictly closed, apply “closure forgiveness”
+        // Case A: endpoint within 3× CLOSE_EPS of start
+        // Case B: the stroke crosses near the start point
+        // Case C: endpoint lies inside the overall bbox (common when you cross the first edge)
+        var closedPts: List<PointF>? = null
+        if (!basicClosed) {
+            val nearByDist = dist(start, end) <= (CLOSE_EPS * 3f)
+            val nearByCross = crossesNearStart(pts, start, CLOSE_EPS * 2f)
+            val endInsideBBox = bbox(pts).contains(end.x, end.y)
+
+            if (nearByDist || nearByCross || endInsideBBox) {
+                // Force closure for rectangle detection by appending the start point
+                closedPts = pts.toMutableList().apply { add(PointF(start.x, start.y)) }
+            }
         }
+
+        // Prefer rectangles over circles when we have any form of closure.
+        val candidateClosed = closedPts ?: (if (basicClosed) pts else null)
+        if (candidateClosed != null) {
+            if (looksRect(candidateClosed)) return SnapKind.RECT
+            if (looksCircle(candidateClosed)) return SnapKind.CIRCLE
+        }
+
         if (looksLine(pts)) return SnapKind.LINE
         if (looksArc(pts))  return SnapKind.ARC
         return SnapKind.NONE
     }
+
 
     private fun looksLine(pts: List<PointF>): Boolean {
         val a = pts.first(); val b = pts.last()
@@ -3338,58 +3357,90 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     private fun looksRect(pts: List<PointF>): Boolean {
-        // Easier closure — bigger allowed gap between first & last point
-        val closed = dist(pts.first(), pts.last()) <= (CLOSE_EPS * 1.8f)
-        if (!closed) return false
+        // ----- Closure forgiveness (very lenient) -----
+        val start = pts.first()
+        val end   = pts.last()
+        val bb    = bbox(pts)
+        val w     = bb.width()
+        val h     = bb.height()
 
-        val bb = bbox(pts)
-        val w = bb.width(); val h = bb.height()
         // Require non-trivial size
-        if (min(w, h) < 24f.dp()) return false
+        if (min(w, h) < 20f.dp()) return false
 
-        // 1) Edge-proximity score: how many samples lie close to one of the four edges?
-        //    Circles will fail this because most samples are far from edges except near mid-sides.
-        val edgeTol = max(12f.dp(), 0.02f * (w + h))
+        // Consider it "closed-ish" if ANY of these are true:
+        //  - endpoint near start within 3.5× tolerance
+        //  - the stroke crosses near the start point
+        //  - the endpoint lies inside the overall bbox (very common when crossing first edge)
+        val closedish =
+            (dist(start, end) <= (CLOSE_EPS * 3.5f)) ||
+                    crossesNearStart(pts, start, CLOSE_EPS * 2.5f) ||
+                    bb.contains(end.x, end.y)
+
+        if (!closedish) return false
+
+        // ----- Tier 1: strong rectangle signal (edge hugging + corner sanity) -----
+        // Edge proximity score: how many samples lie close to *any* of the 4 bbox edges?
+        // Circles typically fail this, rectangles pass it easily even when drawn rough.
+        val edgeTolStrong = max(14f.dp(), 0.03f * (w + h))
         fun distToRectEdges(p: PointF): Float {
-            val dx = min(abs(p.x - bb.left), abs(p.x - bb.right))
-            val dy = min(abs(p.y - bb.top),  abs(p.y - bb.bottom))
+            val dx = min(abs(p.x - bb.left),  abs(p.x - bb.right))
+            val dy = min(abs(p.y - bb.top),   abs(p.y - bb.bottom))
             return min(dx, dy)
         }
-        var near = 0
-        for (p in pts) if (distToRectEdges(p) <= edgeTol) near++
-        val fracNear = near.toFloat() / pts.size
-        if (fracNear < 0.70f) return false   // need most points hugging the sides
+        var nearStrong = 0
+        for (p in pts) if (distToRectEdges(p) <= edgeTolStrong) nearStrong++
 
-        // 2) Angle sanity on simplified corners (looser threshold)
-        val simplified = rdpPF(pts, epsilon = 12f.dp())
-        val corners = enforceClosedAndCornersPF(simplified)
-        // Accept 4 ±1 corners (5 -> merge the closest pair; 3 -> reject)
-        val four = when (corners.size) {
-            4 -> corners
+        val fracNearStrong = nearStrong.toFloat() / pts.size
+
+        // Corner sanity (loose): RDP + merge (5 -> 4) then angles ~90°
+        val simplified = rdpPF(pts, epsilon = 14f.dp())
+        val cornersRaw = enforceClosedAndCornersPF(simplified)
+        val four = when (cornersRaw.size) {
+            4 -> cornersRaw
             5 -> {
                 var bestI = 1
                 var bestD = Float.MAX_VALUE
-                for (i in 1 until corners.size) {
-                    val d = hypot(corners[i].x - corners[i-1].x, corners[i].y - corners[i-1].y)
+                for (i in 1 until cornersRaw.size) {
+                    val d = hypot(cornersRaw[i].x - cornersRaw[i-1].x, cornersRaw[i].y - cornersRaw[i-1].y)
                     if (d < bestD) { bestD = d; bestI = i }
                 }
                 val merged = ArrayList<PointF>(4)
-                for (i in corners.indices) if (i != bestI) merged.add(corners[i])
+                for (i in cornersRaw.indices) if (i != bestI) merged.add(cornersRaw[i])
                 merged
             }
-            else -> return false
-        }
-        if (four.size != 4) return false
-        for (i in four.indices) {
-            val p0 = four[(i + four.size - 1) % four.size]
-            val p1 = four[i]
-            val p2 = four[(i + 1) % four.size]
-            val ang = angleDegPF(p0, p1, p2)
-            if (abs(ang - 90f) > RIGHT_ANGLE_EPS_DEG) return false
+            else -> emptyList()
         }
 
-        return true
+        var cornersOk = false
+        if (four.size == 4) {
+            cornersOk = true
+            for (i in four.indices) {
+                val p0 = four[(i + four.size - 1) % four.size]
+                val p1 = four[i]
+                val p2 = four[(i + 1) % four.size]
+                val ang = angleDegPF(p0, p1, p2)
+                if (abs(ang - 90f) > RIGHT_ANGLE_EPS_DEG) { cornersOk = false; break }
+            }
+        }
+
+        // Strong acceptance: lots of edge hugging and corners look ~right
+        if (fracNearStrong >= 0.60f && cornersOk) return true
+
+        // ----- Tier 2: very forgiving fallback -----
+        // If at least half the points hug edges (looser tol) we accept rectangle,
+        // even if corners didn’t simplify nicely (common with fast-drawn boxes).
+        val edgeTolLoose = max(18f.dp(), 0.04f * (w + h))
+        var nearLoose = 0
+        for (p in pts) if (distToRectEdges(p) <= edgeTolLoose) nearLoose++
+        val fracNearLoose = nearLoose.toFloat() / pts.size
+
+        if (fracNearLoose >= 0.50f) return true
+
+        // Otherwise, not rectangle.
+        return false
     }
+
+
 
 
 
@@ -3527,9 +3578,8 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     private fun sampleRectPoints(pts: List<PointF>): List<PointF> {
-        val simplified = enforceClosedAndCornersPF(rdpPF(pts, 8f.dp()))
-        if (simplified.size != 4) return emptyList()
-        val bb = bbox(simplified)
+        // Always snap to the bounding box of the entire stroke (more stable & forgiving)
+        val bb = bbox(pts)
         return listOf(
             PointF(bb.left,  bb.top),
             PointF(bb.right, bb.top),
@@ -3538,6 +3588,7 @@ class InkCanvasView @JvmOverloads constructor(
             PointF(bb.left,  bb.top) // close
         )
     }
+
 
 // --- Utilities for PointF ---
 
@@ -3674,6 +3725,32 @@ class InkCanvasView @JvmOverloads constructor(
         val len = hypot(vx, vy).coerceAtLeast(1e-3f)
         return abs((vy * p.x - vx * p.y + b.x * a.y - b.y * a.x) / len)
     }
+
+    // Minimum distance from point P to any segment in the polyline
+    private fun minDistToPolylinePF(pts: List<PointF>, p: PointF): Float {
+        if (pts.size < 2) return Float.POSITIVE_INFINITY
+        var best = Float.POSITIVE_INFINITY
+        for (i in 1 until pts.size) {
+            val a = pts[i - 1]; val b = pts[i]
+            val d = pointLineDistancePF(p, a, b)
+            if (d < best) best = d
+        }
+        return best
+    }
+
+    // Returns true if any segment passes within tol of the start point (ignoring the very first short segment)
+    private fun crossesNearStart(pts: List<PointF>, start: PointF, tol: Float): Boolean {
+        if (pts.size < 3) return false
+        // skip the first 1–2 segments to avoid trivially hitting the start
+        val skip = (pts.size * 0.08f).roundToInt().coerceIn(1, 3)
+        for (i in (skip + 1) until pts.size) {
+            val a = pts[i - 1]; val b = pts[i]
+            if (pointLineDistancePF(start, a, b) <= tol) return true
+        }
+        // also accept if endpoint is near any interior part of the polyline
+        return minDistToPolylinePF(pts.subList(1, pts.size - 1), pts.last()) <= tol
+    }
+
 
     private fun enforceClosedAndCornersPF(simplified: List<PointF>): List<PointF> {
         if (simplified.isEmpty()) return simplified
