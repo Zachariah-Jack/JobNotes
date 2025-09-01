@@ -2,13 +2,13 @@
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:orientation="vertical"
     android:padding="12dp"
+    android:background="@drawable/bg_card_popup"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content">
 
-    <!-- Row of shape icon buttons -->
+    <!-- Row of shape icons -->
     <LinearLayout
         android:orientation="horizontal"
-        android:gravity="center_vertical"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content">
 
@@ -16,8 +16,8 @@
             android:id="@+id/btnShapeRect"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/ic_shape_rect"
             android:contentDescription="@null"/>
 
@@ -25,8 +25,8 @@
             android:id="@+id/btnShapeTriEq"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/ic_shape_triangle_eq"
             android:contentDescription="@null"/>
 
@@ -34,8 +34,8 @@
             android:id="@+id/btnShapeTriRight"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/ic_shape_triangle_right"
             android:contentDescription="@null"/>
 
@@ -43,8 +43,8 @@
             android:id="@+id/btnShapeCircle"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/ic_shape_circle"
             android:contentDescription="@null"/>
 
@@ -52,8 +52,8 @@
             android:id="@+id/btnShapeArc"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/ic_shape_arc"
             android:contentDescription="@null"/>
 
@@ -61,20 +61,20 @@
             android:id="@+id/btnShapeLine"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
             android:padding="8dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@drawable/ic_shape_line"
             android:contentDescription="@null"/>
     </LinearLayout>
 
     <!-- Stroke thickness -->
     <TextView
-        android:id="@+id/shapeStrokeLabel"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Thickness"
+        android:layout_marginTop="8dp"
+        android:text="@string/stroke"
         android:textSize="12sp"
-        android:layout_marginTop="8dp"/>
+        android:textColor="#666"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"/>
 
     <SeekBar
         android:id="@+id/seekShapeStroke"
@@ -83,12 +83,11 @@
         android:max="48"
         android:progress="6"/>
 
-    <!-- No Fill toggle -->
+    <!-- Fill toggle -->
     <CheckBox
         android:id="@+id/chkNoFill"
+        android:layout_marginTop="6dp"
+        android:text="@string/no_fill"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="No fill"
-        android:checked="true"
-        android:layout_marginTop="6dp"/>
+        android:layout_height="wrap_content"/>
 </LinearLayout>

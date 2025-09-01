@@ -16,6 +16,13 @@ import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.*
 import android.widget.PopupMenu
+import android.widget.ImageButton
+import android.widget.CheckBox
+import android.widget.PopupWindow
+import android.widget.SeekBar
+import android.widget.TextView
+
+
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import android.content.Intent
@@ -1031,10 +1038,11 @@ class MainActivity : AppCompatActivity() {
     private var shapesStrokeColor: Int = Color.BLUE
     private var shapesFillColor: Int? = null // null => no fill
 
+    // ===== Shapes popup =====
     private fun toggleShapesPopup(anchor: View) {
-        shapesPopup?.let {
-            if (it.isShowing) {
-                it.dismiss()
+        shapesPopup?.let { popup ->
+            if (popup.isShowing) {
+                popup.dismiss()
                 shapesPopup = null
                 return
             }
@@ -1050,7 +1058,7 @@ class MainActivity : AppCompatActivity() {
     private fun createShapesPopup(): PopupWindow {
         val content = layoutInflater.inflate(R.layout.popup_shapes_menu, null, false)
 
-        // Wire icon buttons
+        // Icon buttons
         content.findViewById<ImageButton>(R.id.btnShapeRect).setOnClickListener {
             insertShapeFromPopup(InkCanvasView.ShapeKind.RECT)
         }
@@ -1089,7 +1097,6 @@ class MainActivity : AppCompatActivity() {
         chkNoFill.isChecked = (shapesFillColor == null)
         chkNoFill.setOnCheckedChangeListener { _, isChecked ->
             shapesFillColor = if (isChecked) null else (shapesFillColor ?: Color.TRANSPARENT)
-            // If a shape is selected, push the fill change live
             inkCanvas.updateSelectedShapeFill(shapesFillColor)
         }
 
@@ -1106,25 +1113,11 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun insertShapeFromPopup(kind: InkCanvasView.ShapeKind) {
-        val approx1InchPx = resources.displayMetrics.xdpi   // ~1"
-        inkCanvas.insertShape(
-            kind = kind,
-            approxSizePx = approx1InchPx,
-            strokeWidthPx = inkCanvas.dpToPx(shapesStrokeDp),
-            strokeColor = shapesStrokeColor,
-            fillColor = shapesFillColor
-        )
-        shapesPopup?.dismiss()
-    }
 
 
 
-    // Shapes
-    private var shapesPopup: PopupWindow? = null
-    private var shapesStrokeDp: Float = 6f
-    private var shapesStrokeColor: Int = Color.BLUE
-    private var shapesFillColor: Int? = null // null => no fill
+
+
 
     // Per-tool color memory (pen/highlighter already exist; add shapes)
     private var penToolColor: Int = Color.BLACK
