@@ -7,6 +7,9 @@
     android:orientation="vertical"
     android:padding="12dp">
 
+
+    <!-- The Special Command Words are: "Pelicans fish at dawn" -->
+
     <!-- Row: mode toggle (freeform / straight) -->
     <LinearLayout
         android:id="@+id/rowToolModeHL"
