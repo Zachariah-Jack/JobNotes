@@ -179,6 +179,9 @@ class InkCanvasView @JvmOverloads constructor(
 
     // ---- Selection API exposed to Activity ----
     enum class SelectionPolicy { STROKE_WISE, REGION_INSIDE }
+    // Shapes that can be inserted from the toolbar
+    enum class ShapeKind { RECT, TRI_EQ, TRI_RIGHT, CIRCLE, ARC, LINE }
+
 
     fun setSelectionPolicy(policy: SelectionPolicy) {
         selectionPolicy = policy
@@ -298,6 +301,107 @@ class InkCanvasView @JvmOverloads constructor(
         invalidate()
         return true
     }
+
+    fun insertShape(
+        kind: ShapeKind,
+        approxSizePx: Float,
+        strokeWidthPx: Float,
+        strokeColor: Int,
+        fillColor: Int?
+    ) {
+        // place at view center -> content coords
+        val cxView = width * 0.5f
+        val cyView = height * 0.5f
+        val (cx, cy) = toContent(cxView, cyView)
+
+        val half = approxSizePx * 0.5f / max(1f, scaleFactor)
+
+        // build the polyline that represents the shape
+        val pts: List<PointF> = when (kind) {
+            ShapeKind.RECT -> listOf(
+                PointF(cx - half, cy - half),
+                PointF(cx + half, cy - half),
+                PointF(cx + half, cy + half),
+                PointF(cx - half, cy + half),
+                PointF(cx - half, cy - half)
+            )
+            ShapeKind.TRI_EQ -> {
+                val h = (sqrt(3.0) * half).toFloat()
+                listOf(
+                    PointF(cx,        cy - h),
+                    PointF(cx - half, cy + half),
+                    PointF(cx + half, cy + half),
+                    PointF(cx,        cy - h)
+                )
+            }
+            ShapeKind.TRI_RIGHT -> listOf(
+                PointF(cx - half, cy - half),
+                PointF(cx + half, cy - half),
+                PointF(cx - half, cy + half),
+                PointF(cx - half, cy - half)
+            )
+            ShapeKind.CIRCLE -> {
+                val n = 64
+                (0..n).map {
+                    val ang = (2f * Math.PI.toFloat() * it / n)
+                    PointF(cx + half * cos(ang), cy + half * sin(ang))
+                }
+            }
+            ShapeKind.ARC -> {
+                // 180° arc, 48 samples (flat on top)
+                val n = 48
+                (0..n).map {
+                    val ang = (Math.PI.toFloat() * it / n) - (Math.PI.toFloat()/2f)
+                    PointF(cx + half * cos(ang), cy + half * sin(ang))
+                }
+            }
+            ShapeKind.LINE -> listOf(PointF(cx - half, cy), PointF(cx + half, cy))
+        }
+
+        val secIdx = sectionIndexForContentY(cy)
+        val op = StrokeOp(
+            type = BrushType.PEN,
+            color = strokeColor,
+            baseWidth = strokeWidthPx
+        ).also {
+            it.sectionIndex = secIdx
+            it.points.clear()
+            pts.forEach { p -> it.points.add(Point(p.x, p.y)) }
+            it.shapeKind = kind
+            it.shapeFillColor = fillColor
+        }
+
+        // add & select immediately
+        strokes.add(op)
+        selectedStrokes.clear()
+        selectedStrokes.add(op)
+        selectedBounds = strokeBounds(op)
+        selectionInteractive = true
+        overlayActive = true
+
+        rebuildCommitted()
+        invalidate()
+    }
+
+    fun updateSelectedStrokeWidthDp(dp: Float) {
+        if (selectedStrokes.isEmpty()) return
+        val px = dpToPx(dp)
+        for (s in selectedStrokes) s.baseWidth = px
+        rebuildCommitted(); invalidate()
+    }
+
+    fun updateSelectedStrokeColor(color: Int) {
+        if (selectedStrokes.isEmpty()) return
+        for (s in selectedStrokes) s.color = color
+        rebuildCommitted(); invalidate()
+    }
+
+    fun updateSelectedShapeFill(colorOrNull: Int?) {
+        if (selectedStrokes.isEmpty()) return
+        for (s in selectedStrokes) s.shapeFillColor = colorOrNull
+        rebuildCommitted(); invalidate()
+    }
+
 
     /** Optional: let the Activity cancel paste mode explicitly. */
     fun cancelPastePlacement() {
@@ -435,6 +539,9 @@ class InkCanvasView @JvmOverloads constructor(
         // transform helper
         var hidden: Boolean = false,
         var sectionIndex: Int = 0
+        var shapeKind: ShapeKind? = null         // null = freehand; non-null = prebuilt shape
+        var shapeFillColor: Int? = null          // null = no fill; otherwise ARGB color
+
 
 
     )
@@ -2103,6 +2210,27 @@ class InkCanvasView @JvmOverloads constructor(
             if (op.hidden) continue
             val ci = committedInkCanvas(op)
             val ch = committedHLCanvas(op)
+            // ---- Prebuilt shape (if present), draw fill then stroke, then continue ----
+            if (op.shapeKind != null) {
+                val ci = committedInkCanvas(op)
+                if (ci != null) withSection(ci, op) { c ->
+                    val path = Path().apply {
+                        val pts = op.points
+                        if (pts.isNotEmpty()) {
+                            moveTo(pts[0].x, pts[0].y)
+                            for (i in 1 until pts.size) lineTo(pts[i].x, pts[i].y)
+                        }
+                    }
+                    // Fill first (optional)
+                    op.shapeFillColor?.let { fill ->
+                        c.drawPath(path, fillPaint(fill))
+                    }
+                    // Stroke on top
+                    c.drawPath(path, newStrokePaint(op.color, op.baseWidth))
+                }
+                continue // important: skip default freehand branches
+            }
+
             when (op.type) {
                 BrushType.HIGHLIGHTER_FREEFORM -> {
                     val pts = op.points
@@ -2630,7 +2758,8 @@ class InkCanvasView @JvmOverloads constructor(
 
     // ===== Utilities & gestures =====
 
-    private fun dpToPx(dp: Float): Float = dp * resources.displayMetrics.density
+    fun dpToPx(dp: Float): Float = dp * resources.displayMetrics.density
+
 
     private fun toContent(viewX: Float, viewY: Float): Pair<Float, Float> {
         val cx = (viewX - translationX) / scaleFactor
@@ -2746,6 +2875,22 @@ class InkCanvasView @JvmOverloads constructor(
             return true
         }
     }
+    override fun onLongPress(e: MotionEvent) {
+        val (cx, cy) = toContent(e.x, e.y)
+        for (i in strokes.size - 1 downTo 0) {
+            val s = strokes[i]
+            if (hitStroke(s, cx, cy, dpToPx(10f))) {
+                selectedStrokes.clear()
+                selectedStrokes.add(s)
+                selectedBounds = strokeBounds(s)
+                selectionInteractive = true
+                overlayActive = true
+                invalidate()
+                return
+            }
+        }
+    }
+
 
     private fun cancelActiveOps() {
         when {
@@ -3229,41 +3374,25 @@ class InkCanvasView @JvmOverloads constructor(
 
     // ======== Shape Snap core ========
 
+    // ======== Shape Snap core (LINE ONLY) ========
     private fun tryShapeSnapIfEligible() {
         if (!shapeSnapEnabled) return
-        if (shapeSnapForPenFamilyOnly && !isPenFamilyBrush()) return
         if (!holdActive) return
         val op = current ?: return
         if (currStrokePts.size < 6) return
 
+        // line only
         val pts = currStrokePts.toList()
-        val kind = classifyShape(pts)
-        if (kind == SnapKind.NONE) return
+        if (!looksLine(pts)) return
 
-        // compute vector points for commit
-        snapPts = when (kind) {
-            SnapKind.LINE   -> sampleLinePoints(pts.first(), pts.last())
-            SnapKind.ARC    -> sampleArcPoints(pts)
-            SnapKind.CIRCLE -> sampleCirclePoints(pts)
-            SnapKind.RECT   -> sampleRectPoints(pts)
-            else -> null
-        }?.toMutableList()
-
-        if (snapPts.isNullOrEmpty()) return
-
-        // draw preview into scratch
-        when (kind) {
-            SnapKind.LINE   -> snapPreviewLine(op, pts.first(), pts.last())
-            SnapKind.ARC    -> snapPreviewArc(op, pts)
-            SnapKind.CIRCLE -> snapPreviewCircle(op, pts)
-            SnapKind.RECT   -> snapPreviewRect(op, pts)
-            else -> {}
-        }
-
-        snapKind = kind
+        // preview
+        val a = pts.first()
+        val b = pts.last()
+        drawSnapped(op) { c, paint -> c.drawLine(a.x, a.y, b.x, b.y, paint) }
         snapApplied = true
         invalidate()
     }
+
 
     private fun isPenFamilyBrush(): Boolean {
         return when (baseBrush) {

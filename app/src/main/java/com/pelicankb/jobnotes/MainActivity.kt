@@ -361,6 +361,19 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, if (btn.isSelected) "Hand (pan) tool ON" else "Hand tool OFF", Toast.LENGTH_SHORT).show()
         }
 
+        findViewById<ImageButton>(R.id.btnShapes).setOnClickListener { v ->
+            dismissAllPopups()
+            toggleShapesPopup(v)  // I'll give you this popup builder if you want me to paste it next
+        }
+        inkCanvas.insertShape(
+            kind = InkCanvasView.ShapeKind.RECT,        // or TRI_EQ, TRI_RIGHT, CIRCLE, ARC, LINE
+            approxSizePx = resources.displayMetrics.xdpi, // ~1 inch
+            strokeWidthPx = inkCanvas.dpToPx(shapesStrokeDp),
+            strokeColor = shapesStrokeColor,
+            fillColor = shapesFillColor // null = No fill
+        )
+
+
 
         // Show pen toolbar
         showPenMenu()
@@ -965,6 +978,8 @@ class MainActivity : AppCompatActivity() {
     }
 
 
+
+
     private fun createSelectPopup(): PopupWindow {
         val content = layoutInflater.inflate(R.layout.popup_select_menu, null, false)
 
@@ -1016,6 +1031,19 @@ class MainActivity : AppCompatActivity() {
             setOnDismissListener { selectPopup = null; inkCanvas.requestFocus() }
         }
     }
+
+    // Shapes
+    private var shapesPopup: PopupWindow? = null
+    private var shapesStrokeDp: Float = 6f
+    private var shapesStrokeColor: Int = Color.BLUE
+    private var shapesFillColor: Int? = null // null => no fill
+
+    // Per-tool color memory (pen/highlighter already exist; add shapes)
+    private var penToolColor: Int = Color.BLACK
+    private var highlighterToolColor: Int = 0x66FFD54F.toInt()
+    private var shapesToolColor: Int get() = shapesStrokeColor
+        set(v) { shapesStrokeColor = v }
+
 
     // ───────── Helpers ─────────
     private fun suggestedFileName(ext: String): String {

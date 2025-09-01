@@ -159,6 +159,17 @@
                 android:src="@drawable/ic_tool_select_rect"
                 android:contentDescription="@null" />
 
+            <ImageButton
+                android:id="@+id/btnShapes"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@drawable/bg_tool_toggle"
+                android:padding="8dp"
+                android:src="@drawable/ic_tool_shapes"
+                android:contentDescription="@string/cd_shapes" />
+
+
+
             <!-- Undo / Redo -->
             <ImageButton
                 android:id="@+id/btnUndoPen"

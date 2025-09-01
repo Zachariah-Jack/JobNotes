@@ -1,0 +1,124 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:orientation="vertical"
+    android:padding="12dp"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content">
+
+    <!-- Row: shape icons -->
+    <LinearLayout
+        android:id="@+id/rowShapes"
+        android:orientation="horizontal"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content">
+
+        <ImageButton
+            android:id="@+id/btnShapeRect"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_shape_rect"
+            android:contentDescription="@null"/>
+
+        <ImageButton
+            android:id="@+id/btnShapeTriEq"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_shape_triangle_eq"
+            android:contentDescription="@null"/>
+
+        <ImageButton
+            android:id="@+id/btnShapeTriRight"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_shape_triangle_right"
+            android:contentDescription="@null"/>
+
+        <ImageButton
+            android:id="@+id/btnShapeCircle"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_shape_circle"
+            android:contentDescription="@null"/>
+
+        <ImageButton
+            android:id="@+id/btnShapeArc"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_shape_arc"
+            android:contentDescription="@null"/>
+
+        <ImageButton
+            android:id="@+id/btnShapeLine"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@drawable/ic_shape_line"
+            android:contentDescription="@null"/>
+    </LinearLayout>
+
+    <!-- Stroke thickness -->
+    <TextView
+        android:id="@+id/txtStroke"
+        android:text="Stroke"
+        android:textSize="13sp"
+        android:layout_marginTop="8dp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"/>
+    <SeekBar
+        android:id="@+id/seekStroke"
+        android:max="60"
+        android:progress="6"
+        android:layout_width="180dp"
+        android:layout_height="wrap_content"/>
+
+    <!-- Stroke color chip -->
+    <TextView
+        android:text="Stroke color"
+        android:textSize="13sp"
+        android:layout_marginTop="6dp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"/>
+    <ImageButton
+        android:id="@+id/chipShapeStroke"
+        android:layout_width="36dp"
+        android:layout_height="36dp"
+        android:background="@drawable/bg_color_chip_selector"
+        android:padding="6dp"
+        android:src="@drawable/ic_tool_color"
+        android:contentDescription="@null"/>
+
+    <!-- Fill color -->
+    <TextView
+        android:text="Fill"
+        android:textSize="13sp"
+        android:layout_marginTop="6dp"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"/>
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content">
+
+        <ImageButton
+            android:id="@+id/chipShapeFill"
+            android:layout_width="36dp"
+            android:layout_height="36dp"
+            android:background="@drawable/bg_color_chip_selector"
+            android:padding="6dp"
+            android:src="@drawable/ic_tool_color"
+            android:contentDescription="@null"/>
+
+        <CheckBox
+            android:id="@+id/checkNoFill"
+            android:text="No fill"
+            android:layout_marginStart="10dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"/>
+    </LinearLayout>
+
+</LinearLayout>
