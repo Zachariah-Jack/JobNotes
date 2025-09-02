@@ -3992,6 +3992,10 @@ class InkCanvasView @JvmOverloads constructor(
         } finally {
             try { doc.close() } catch (_: Throwable) {}
         }
+        // Back-compat helpers (aliases) — safe to leave in place
+        @Suppress("FunctionName")
+        fun setStrokeWidthDP(sizeDp: Float) { setStrokeWidthDp(sizeDp) }
+
     }
 
 }

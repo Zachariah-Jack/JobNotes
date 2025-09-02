@@ -50,6 +50,15 @@ import java.io.File
 
 
 class MainActivity : AppCompatActivity() {
+    // ───────── Per-tool color memory (persistent) ─────────
+    private val prefs by lazy { getSharedPreferences("jobnotes_prefs", Context.MODE_PRIVATE) }
+
+    private companion object {
+        private const val PREF_PEN_COLOR   = "pen_color"
+        private const val PREF_HL_COLOR    = "hl_color_argb"
+        private const val PREF_HL_SIZE_DP  = "hl_size_dp"
+    }
+
     override fun onSaveInstanceState(outState: Bundle) {
         super.onSaveInstanceState(outState)
         // --- Persist InkCanvasView document state (pages + strokes, v2) ---
@@ -216,6 +225,9 @@ class MainActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+
+
+
         // This is the critical line
         WindowCompat.setDecorFitsSystemWindows(window, true)
 
@@ -267,6 +279,20 @@ class MainActivity : AppCompatActivity() {
 
         // Initialize first
         inkCanvas = findViewById(R.id.inkCanvas)
+        // Restore per-tool color/size memory (must be after inkCanvas is bound)
+        run {
+            // Pen family
+            penFamilyColor = prefs.getInt(PREF_PEN_COLOR, Color.BLACK)
+            // Highlighter
+            highlighterColor = prefs.getInt(PREF_HL_COLOR, 0x66FFD54F.toInt()) // amber @ ~40% alpha
+            highlighterSizeDp = prefs.getFloat(PREF_HL_SIZE_DP, 12f)
+
+            // Apply restored defaults to canvas
+            inkCanvas.setBrush(BrushType.PEN)
+            inkCanvas.setStrokeWidthDp(brushSizeDp)
+            inkCanvas.setColor(penFamilyColor)
+        }
+
 
 // --- Restore InkCanvasView document state (pages + strokes, v2) ---
         savedInstanceState?.getByteArray("ink_state")?.let { bytes ->
@@ -691,6 +717,9 @@ class MainActivity : AppCompatActivity() {
         val c = currentPenColor()
         penFamilyColor = c
         if (toolFamily == ToolFamily.PEN_FAMILY) inkCanvas.setColor(c)
+
+        // Persist latest pen color
+        prefs.edit().putInt(PREF_PEN_COLOR, penFamilyColor).apply()
     }
 
     private fun showColorPaletteDialog(targetChip: ImageButton) {
@@ -836,26 +865,106 @@ class MainActivity : AppCompatActivity() {
                 BrushTypeLocal.MARKER      -> BrushType.MARKER
             }
         )
-        inkCanvas.setColor(currentPenColor())
+        // Use per-tool memory for color
+        inkCanvas.setColor(penFamilyColor)
+        // Persist latest pen color
+        prefs.edit().putInt(PREF_PEN_COLOR, penFamilyColor).apply()
+
         updateToolbarActiveStates()
     }
 
     // ───────── Highlighter popup ─────────
     private fun toggleHighlighterPopup(anchor: View) {
-        highlighterPopup?.let { if (it.isShowing) { it.dismiss(); highlighterPopup = null; return } }
+        highlighterPopup?.let {
+            if (it.isShowing) { it.dismiss(); highlighterPopup = null; return }
+        }
         dismissAllPopups()
         highlighterPopup = createHighlighterPopup().also { popup ->
             popup.isOutsideTouchable = true
             popup.isFocusable = true
-
             showPopupAnchoredWithinScreen(popup, anchor)
         }
     }
 
 
+
+
     private fun createHighlighterPopup(): PopupWindow {
         val content = layoutInflater.inflate(R.layout.popup_highlighter_menu, null, false)
-        // (… your existing content wiring …)
+
+        // Views
+        val iconFree = content.findViewById<ImageButton>(R.id.iconHLFreeform)
+        val iconLine = content.findViewById<ImageButton>(R.id.iconHLStraight)
+        val chip     = content.findViewById<ImageButton>(R.id.chipHLColor)
+        val slider   = content.findViewById<SeekBar>(R.id.sizeSliderHL)
+        val sizeTxt  = content.findViewById<TextView>(R.id.sizeValueHL)
+        val preview  = content.findViewById<BrushPreviewView?>(R.id.previewHL)
+
+        // Reflect current state
+        fun updateModeUI() {
+            iconFree.isSelected = (highlighterMode == HighlighterMode.FREEFORM)
+            iconLine.isSelected = (highlighterMode == HighlighterMode.STRAIGHT)
+        }
+        updateModeUI()
+
+        chip.imageTintList = ColorStateList.valueOf(highlighterColor)
+        slider.max = 60
+        slider.progress = highlighterSizeDp.toInt().coerceIn(1, slider.max)
+        sizeTxt.text = "${slider.progress} dp"
+        preview?.setColor(highlighterColor)
+        preview?.setStrokeWidthDp(slider.progress.toFloat())
+
+        // Mode toggle
+        val modeClick = View.OnClickListener { v ->
+            highlighterMode = if (v.id == R.id.iconHLStraight)
+                HighlighterMode.STRAIGHT else HighlighterMode.FREEFORM
+            updateModeUI()
+            if (toolFamily == ToolFamily.HIGHLIGHTER) {
+                inkCanvas.setBrush(
+                    if (highlighterMode == HighlighterMode.FREEFORM)
+                        BrushType.HIGHLIGHTER_FREEFORM
+                    else
+                        BrushType.HIGHLIGHTER_STRAIGHT
+                )
+            }
+            inkCanvas.requestFocus()
+        }
+        iconFree.setOnClickListener(modeClick)
+        iconLine.setOnClickListener(modeClick)
+
+        // Color chip → advanced picker
+        chip.setOnClickListener {
+            showAdvancedColorPicker(highlighterColor) { picked ->
+                highlighterColor = if ((picked ushr 24) == 0xFF) {
+                    (0x66 shl 24) or (picked and 0x00FFFFFF)
+                } else picked
+                chip.imageTintList = ColorStateList.valueOf(highlighterColor)
+                preview?.setColor(highlighterColor)
+                if (toolFamily == ToolFamily.HIGHLIGHTER) {
+                    inkCanvas.setColor(highlighterColor)
+                }
+                // Persist HL color
+                prefs.edit().putInt(PREF_HL_COLOR, highlighterColor).apply()
+            }
+        }
+
+        // Size slider (live update + persist on release)
+        slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
+                val v = value.coerceAtLeast(1)
+                sizeTxt.text = "$v dp"
+                highlighterSizeDp = v.toFloat()
+                preview?.setStrokeWidthDp(highlighterSizeDp)
+                if (toolFamily == ToolFamily.HIGHLIGHTER) {
+                    inkCanvas.setStrokeWidthDp(highlighterSizeDp)
+                }
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                prefs.edit().putFloat(PREF_HL_SIZE_DP, highlighterSizeDp).apply()
+            }
+        })
+
         return PopupWindow(
             content,
             ViewGroup.LayoutParams.WRAP_CONTENT,
@@ -877,8 +986,16 @@ class MainActivity : AppCompatActivity() {
             else
                 BrushType.HIGHLIGHTER_STRAIGHT
         )
+        // Apply persisted size/color for HL
         inkCanvas.setStrokeWidthDp(highlighterSizeDp)
         inkCanvas.setColor(highlighterColor)
+
+        // Persist HL state on each application
+        prefs.edit()
+            .putInt(PREF_HL_COLOR, highlighterColor)
+            .putFloat(PREF_HL_SIZE_DP, highlighterSizeDp)
+            .apply()
+
         updateToolbarActiveStates()
     }
 
