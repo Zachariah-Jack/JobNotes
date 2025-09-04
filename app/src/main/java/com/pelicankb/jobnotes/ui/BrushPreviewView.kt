@@ -21,12 +21,13 @@ class BrushPreviewView @JvmOverloads constructor(
         strokeWidth = dpToPx(4f)
     }
 
+    /** Set the preview stroke color (ARGB int). */
     fun setColor(color: Int) {
         paint.color = color
         invalidate()
     }
 
-    /** Size in dp for the stroke preview line. */
+    /** Set the preview stroke width in dp. */
     fun setStrokeWidthDp(sizeDp: Float) {
         paint.strokeWidth = dpToPx(sizeDp)
         invalidate()

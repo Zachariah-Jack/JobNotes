@@ -911,10 +911,10 @@ class MainActivity : AppCompatActivity() {
         chip.imageTintList = ColorStateList.valueOf(highlighterColor)
         slider.max = 60
         slider.progress = highlighterSizeDp.toInt().coerceIn(1, slider.max)
+        sizeTxt.text = "${slider.progress} dp"
         preview?.setColor(highlighterColor)
-
-        preview?.inkCanvas.setHighlighterColor(color)
         preview?.setStrokeWidthDp(slider.progress.toFloat())
+
 
         // Mode toggle
         val modeClick = View.OnClickListener { v ->
