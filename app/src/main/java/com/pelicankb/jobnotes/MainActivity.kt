@@ -836,16 +836,96 @@ class MainActivity : AppCompatActivity() {
     }
 
 
+    // REPLACE THIS ENTIRE FUNCTION
     private fun createStylusMenuPopup(): PopupWindow {
         val content = layoutInflater.inflate(R.layout.popup_stylus_menu, null, false)
-        // (… your existing content wiring …)
+
+        // --- Views from popup_stylus_menu.xml ---
+        val btnFountain   = content.findViewById<ImageButton>(R.id.iconFountain)
+        val btnCalligraphy= content.findViewById<ImageButton>(R.id.iconCalligraphy)
+        val btnPen        = content.findViewById<ImageButton>(R.id.iconPen)
+        val btnPencil     = content.findViewById<ImageButton>(R.id.iconPencil)
+        val btnMarker     = content.findViewById<ImageButton>(R.id.iconMarker)
+
+        val sizeSlider    = content.findViewById<SeekBar>(R.id.sizeSlider)
+        val sizeValue     = content.findViewById<TextView>(R.id.sizeValue)
+        val preview       = content.findViewById<BrushPreviewView>(R.id.brushPreview)
+
+        // --- Helpers to reflect current brush state in the UI ---
+        fun selectBrushButtons(type: BrushTypeLocal) {
+            fun ImageButton.sel(on: Boolean) {
+                isSelected = on
+                alpha = if (on) 1f else 0.82f
+            }
+            btnFountain.sel(type == BrushTypeLocal.FOUNTAIN)
+            btnCalligraphy.sel(type == BrushTypeLocal.CALLIGRAPHY)
+            btnPen.sel(type == BrushTypeLocal.PEN)
+            btnPencil.sel(type == BrushTypeLocal.PENCIL)
+            btnMarker.sel(type == BrushTypeLocal.MARKER)
+        }
+
+        fun applySizeToUiAndCanvas(dp: Float, live: Boolean) {
+            val clamped = dp.coerceIn(1f, 60f)
+            sizeValue.text = clamped.toInt().toString() + " dp"
+            preview?.setColor(penFamilyColor)
+            preview?.setStrokeWidthDp(clamped)
+            brushSizeDp = clamped
+            if (live && toolFamily == ToolFamily.PEN_FAMILY) {
+                inkCanvas.setStrokeWidthDp(brushSizeDp)
+            }
+        }
+
+        // --- Initialize UI from current in-memory state ---
+        selectBrushButtons(brushType)
+        sizeSlider.max = 60
+        sizeSlider.progress = brushSizeDp.toInt().coerceIn(1, sizeSlider.max)
+        applySizeToUiAndCanvas(brushSizeDp, live = false)
+
+        // --- Click listeners: change brush type, then apply ---
+        val onBrushClick = View.OnClickListener { v ->
+            brushType = when (v.id) {
+                R.id.iconFountain    -> BrushTypeLocal.FOUNTAIN
+                R.id.iconCalligraphy -> BrushTypeLocal.CALLIGRAPHY
+                R.id.iconPen         -> BrushTypeLocal.PEN
+                R.id.iconPencil      -> BrushTypeLocal.PENCIL
+                R.id.iconMarker      -> BrushTypeLocal.MARKER
+                else                 -> brushType
+            }
+            selectBrushButtons(brushType)
+            // Ensure we're in stylus family and push the current size/color to canvas
+            applyPenFamilyBrush()
+            // Keep focus on canvas so drawing continues smoothly
+            inkCanvas.requestFocus()
+        }
+
+        btnFountain.setOnClickListener(onBrushClick)
+        btnCalligraphy.setOnClickListener(onBrushClick)
+        btnPen.setOnClickListener(onBrushClick)
+        btnPencil.setOnClickListener(onBrushClick)
+        btnMarker.setOnClickListener(onBrushClick)
+
+        // --- Size slider (live) ---
+        sizeSlider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
+                val dp = value.coerceAtLeast(1).toFloat()
+                applySizeToUiAndCanvas(dp, live = true)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                // Persist latest size only when pen family is active
+                if (toolFamily == ToolFamily.PEN_FAMILY) {
+                    // nothing else to persist here yet; size is in brushSizeDp already
+                }
+            }
+        })
+
+        // Return a focusable popup that dismisses on outside-tap and restores canvas focus
         return PopupWindow(
             content,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
-            true // focusable -> lets BACK/outside taps dismiss
+            true // focusable
         ).apply {
-            // Non-null background enables outside-touch dismissal path
             setBackgroundDrawable(ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card_popup))
             isOutsideTouchable = true
             elevation = 8f
