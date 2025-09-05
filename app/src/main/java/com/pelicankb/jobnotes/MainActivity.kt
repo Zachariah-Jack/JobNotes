@@ -445,16 +445,24 @@ class MainActivity : AppCompatActivity() {
             findViewById<ImageButton?>(R.id.btnHandKbd)?.isSelected = false
             inkCanvas.setPanMode(false)
 
-            inkCanvas.setSelectionToolNone(keepSelection = false)
-            selectionArmed = false
-            selectPopup?.dismiss()
+            val switching = (toolFamily != ToolFamily.PEN_FAMILY)
+            if (switching) {
+                // Real tool switch → end selection and arm the new family
+                inkCanvas.setSelectionToolNone(keepSelection = false)
+                selectionArmed = false
+                selectPopup?.dismiss()
 
-            toolFamily = ToolFamily.PEN_FAMILY
-            applyPenFamilyBrush()
-            updateToolbarActiveStates()
-
-            toggleStylusPopup(v)
+                toolFamily = ToolFamily.PEN_FAMILY
+                applyPenFamilyBrush()
+                updateToolbarActiveStates()
+                toggleStylusPopup(v)              // open popup after switching
+            } else {
+                // Same family → just open/close the popup, keep selection intact
+                toggleStylusPopup(v)
+                updateToolbarActiveStates()
+            }
         }
+
 
         // Toolbar: Highlighter
         btnHighlighter.setOnClickListener { v ->
@@ -462,16 +470,24 @@ class MainActivity : AppCompatActivity() {
             findViewById<ImageButton?>(R.id.btnHandKbd)?.isSelected = false
             inkCanvas.setPanMode(false)
 
-            inkCanvas.setSelectionToolNone(keepSelection = false)
-            selectionArmed = false
-            selectPopup?.dismiss()
+            val switching = (toolFamily != ToolFamily.HIGHLIGHTER)
+            if (switching) {
+                // Real tool switch → end selection and arm the new family
+                inkCanvas.setSelectionToolNone(keepSelection = false)
+                selectionArmed = false
+                selectPopup?.dismiss()
 
-            toolFamily = ToolFamily.HIGHLIGHTER
-            applyHighlighterBrush()
-            updateToolbarActiveStates()
-
-            toggleHighlighterPopup(v)
+                toolFamily = ToolFamily.HIGHLIGHTER
+                applyHighlighterBrush()
+                updateToolbarActiveStates()
+                toggleHighlighterPopup(v)
+            } else {
+                // Same family → only toggle popup; keep selection
+                toggleHighlighterPopup(v)
+                updateToolbarActiveStates()
+            }
         }
+
 
         // Toolbar: Eraser
         btnEraser.setOnClickListener { v ->
@@ -479,16 +495,24 @@ class MainActivity : AppCompatActivity() {
             findViewById<ImageButton?>(R.id.btnHandKbd)?.isSelected = false
             inkCanvas.setPanMode(false)
 
-            inkCanvas.setSelectionToolNone(keepSelection = false )
-            selectionArmed = false
-            selectPopup?.dismiss()
+            val switching = (toolFamily != ToolFamily.ERASER)
+            if (switching) {
+                // Real tool switch → end selection and arm the new family
+                inkCanvas.setSelectionToolNone(keepSelection = false)
+                selectionArmed = false
+                selectPopup?.dismiss()
 
-            toolFamily = ToolFamily.ERASER
-            applyEraserBrush()
-            updateToolbarActiveStates()
-
-            toggleEraserPopup(v)
+                toolFamily = ToolFamily.ERASER
+                applyEraserBrush()
+                updateToolbarActiveStates()
+                toggleEraserPopup(v)
+            } else {
+                // Same family → only toggle popup; keep selection
+                toggleEraserPopup(v)
+                updateToolbarActiveStates()
+            }
         }
+
 
         // Selection popup (lasso/rect + mode)
         btnSelectRect.setOnClickListener { v -> toggleSelectPopup(v) }
