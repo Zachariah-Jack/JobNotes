@@ -1,26 +1,53 @@
 [versions]
-agp = "8.12.2"
+agp = "8.12.0"
 kotlin = "2.2.10"
+
+# AndroidX + Google
 coreKtx = "1.17.0"
+appcompat = "1.7.1"
+material = "1.13.0"
+activity = "1.9.2"
+constraintlayout = "2.2.1"
+coordinatorlayout = "1.3.0"
+camerax = "1.3.3"
+exif = "1.3.7"
+
+# Test
 junit = "4.13.2"
 junitVersion = "1.3.0"
 espressoCore = "3.7.0"
-appcompat = "1.7.1"
-material = "1.13.0"
-activity = "1.10.1"
-constraintlayout = "2.2.1"
-colorpickerview = "2.3.0"                # ← added
+
+# 3rd party
+colorpickerview = "2.3.0"
 
 [libraries]
+# AndroidX core
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+
+# AppCompat / Material / Activity / Layout
+androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
+material = { group = "com.google.android.material", name = "material", version.ref = "material" }
+# Use the -ktx artifact via the existing alias name to satisfy IDE warnings
+androidx-activity = { group = "androidx.activity", name = "activity-ktx", version.ref = "activity" }
+androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
+androidx-coordinatorlayout = { group = "androidx.coordinatorlayout", name = "coordinatorlayout", version.ref = "coordinatorlayout" }
+
+# CameraX (PreviewView is in camera-view)
+androidx-camera-core = { group = "androidx.camera", name = "camera-core", version.ref = "camerax" }
+androidx-camera-camera2 = { group = "androidx.camera", name = "camera-camera2", version.ref = "camerax" }
+androidx-camera-lifecycle = { group = "androidx.camera", name = "camera-lifecycle", version.ref = "camerax" }
+androidx-camera-view = { group = "androidx.camera", name = "camera-view", version.ref = "camerax" }
+
+# EXIF
+androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exif" }
+
+# Test libs
 junit = { group = "junit", name = "junit", version.ref = "junit" }
 androidx-junit = { group = "androidx.test.ext", name = "junit", version.ref = "junitVersion" }
 androidx-espresso-core = { group = "androidx.test.espresso", name = "espresso-core", version.ref = "espressoCore" }
-androidx-appcompat = { group = "androidx.appcompat", name = "appcompat", version.ref = "appcompat" }
-material = { group = "com.google.android.material", name = "material", version.ref = "material" }
-androidx-activity = { group = "androidx.activity", name = "activity", version.ref = "activity" }
-androidx-constraintlayout = { group = "androidx.constraintlayout", name = "constraintlayout", version.ref = "constraintlayout" }
-skydoves-colorpickerview = { module = "com.github.skydoves:colorpickerview", version.ref = "colorpickerview" }  # ← added
+
+# 3rd party
+skydoves-colorpickerview = { module = "com.github.skydoves:colorpickerview", version.ref = "colorpickerview" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

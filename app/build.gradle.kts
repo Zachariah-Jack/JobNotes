@@ -43,25 +43,30 @@ android {
 }
 
 dependencies {
-    // AndroidX core KTX
+    // AndroidX core + appcompat + material (via version catalog)
     implementation(libs.androidx.core.ktx)
-
-    // AppCompat
     implementation(libs.androidx.appcompat)
-
-    // Material Components
     implementation(libs.material)
 
-    // Activity KTX
+    // Activity KTX, CoordinatorLayout, ConstraintLayout (catalog)
     implementation(libs.androidx.activity)
-
-    // ConstraintLayout
+    implementation(libs.androidx.coordinatorlayout)
     implementation(libs.androidx.constraintlayout)
 
-    // Color picker (already in your catalog)
+    // CameraX (PreviewView is in camera-view)
+    implementation(libs.androidx.camera.core)
+    implementation(libs.androidx.camera.camera2)
+    implementation(libs.androidx.camera.lifecycle)
+    implementation(libs.androidx.camera.view)
+
+    // EXIF
+    implementation(libs.androidx.exifinterface)
+
+    // Color picker (catalog)
     implementation(libs.skydoves.colorpickerview)
 
-    // (Optional) CameraX etc. — add here using catalog aliases if you’ve defined them
-    // implementation(libs.androidx.camera.view)
-    // implementation(libs.androidx.camera.lifecycle)
+    // Tests
+    testImplementation(libs.junit)
+    androidTestImplementation(libs.androidx.junit)
+    androidTestImplementation(libs.androidx.espresso.core)
 }
