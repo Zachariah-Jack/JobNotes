@@ -1368,12 +1368,10 @@ class InkCanvasView @JvmOverloads constructor(
 
 // normal stroke rendering
                             extendStroke(cx, cy)
-                            val r = lastDirtyViewRect
-                            if (r != null && !r.isEmpty) {
-                                invalidate(r)
-                            } else {
-                                invalidate()
-                            }
+// Per framework deprecation notes, the dirty rect is ignored on modern HW rendering;
+// calling plain invalidate() is the recommended path (API 21+).
+                            invalidate()
+
 
                         }
                     }
