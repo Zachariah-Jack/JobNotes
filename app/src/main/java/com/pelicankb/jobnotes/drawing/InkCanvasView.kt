@@ -3374,20 +3374,31 @@ class InkCanvasView @JvmOverloads constructor(
     // ======== Shape Snap core ========
 
     // ======== Shape Snap core (LINE ONLY) ========
+// REPLACE the entire body of this function
     private fun tryShapeSnapIfEligible() {
         if (!shapeSnapEnabled) return
         if (!holdActive) return
         val op = current ?: return
+        // Need enough points to make a useful judgement
         if (currStrokePts.size < 6) return
 
-        // line only
-        val pts = currStrokePts.toList()
-        if (!looksLine(pts)) return
+        // ---- LINE ONLY (current behavior) ----
+        val a = currStrokePts.first()
+        val b = currStrokePts.last()
 
-        // preview
-        val a = pts.first()
-        val b = pts.last()
-        drawSnapped(op) { c, paint -> c.drawLine(a.x, a.y, b.x, b.y, paint) }
+        // Quick gates for a "line-ish" stroke (reuse your existing thresholds)
+        val len = hypot(b.x - a.x, b.y - a.y)
+        if (len < 12f.dp()) return
+
+        // Show the snapped preview into the proper scratch layer
+        snapPreviewLine(op, a, b)
+
+        // 🔴 CRITICAL: also set the geometry to commit on lift
+        // (finishStroke() calls replaceStrokePointsWithSnap(stroke) if snapApplied && !snapAborted)
+        snapPts = sampleLinePoints(a, b).toMutableList()
+
+        // Preview is now active; if the user holds longer than the revert window,
+        // your move code elsewhere will set snapAborted = true to revert the preview.
         snapApplied = true
         invalidate()
     }
