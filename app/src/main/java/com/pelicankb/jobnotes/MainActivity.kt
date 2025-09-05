@@ -439,79 +439,42 @@ class MainActivity : AppCompatActivity() {
         selectChip(selectedChipId)
         penFamilyColor = currentPenColor()
 
-        // Toolbar: Stylus
+        // Toolbar: Stylus (open/close only; DO NOT switch family here)
         btnStylus.setOnClickListener { v ->
             findViewById<ImageButton?>(R.id.btnHandPen)?.isSelected = false
             findViewById<ImageButton?>(R.id.btnHandKbd)?.isSelected = false
             inkCanvas.setPanMode(false)
 
-            val switching = (toolFamily != ToolFamily.PEN_FAMILY)
-            if (switching) {
-                // Real tool switch → end selection and arm the new family
-                inkCanvas.setSelectionToolNone(keepSelection = false)
-                selectionArmed = false
-                selectPopup?.dismiss()
-
-                toolFamily = ToolFamily.PEN_FAMILY
-                applyPenFamilyBrush()
-                updateToolbarActiveStates()
-                toggleStylusPopup(v)              // open popup after switching
-            } else {
-                // Same family → just open/close the popup, keep selection intact
-                toggleStylusPopup(v)
-                updateToolbarActiveStates()
-            }
+            // Never touch selection or toolFamily on toolbar open
+            toggleStylusPopup(v)
+            updateToolbarActiveStates()
         }
 
 
-        // Toolbar: Highlighter
+
+        // Toolbar: Highlighter (open/close only; DO NOT switch family here)
         btnHighlighter.setOnClickListener { v ->
             findViewById<ImageButton?>(R.id.btnHandPen)?.isSelected = false
             findViewById<ImageButton?>(R.id.btnHandKbd)?.isSelected = false
             inkCanvas.setPanMode(false)
 
-            val switching = (toolFamily != ToolFamily.HIGHLIGHTER)
-            if (switching) {
-                // Real tool switch → end selection and arm the new family
-                inkCanvas.setSelectionToolNone(keepSelection = false)
-                selectionArmed = false
-                selectPopup?.dismiss()
-
-                toolFamily = ToolFamily.HIGHLIGHTER
-                applyHighlighterBrush()
-                updateToolbarActiveStates()
-                toggleHighlighterPopup(v)
-            } else {
-                // Same family → only toggle popup; keep selection
-                toggleHighlighterPopup(v)
-                updateToolbarActiveStates()
-            }
+            toggleHighlighterPopup(v)
+            updateToolbarActiveStates()
         }
 
 
-        // Toolbar: Eraser
+
+        // Toolbar: Eraser (open/close only; DO NOT switch family here)
         btnEraser.setOnClickListener { v ->
             findViewById<ImageButton?>(R.id.btnHandPen)?.isSelected = false
             findViewById<ImageButton?>(R.id.btnHandKbd)?.isSelected = false
             inkCanvas.setPanMode(false)
 
-            val switching = (toolFamily != ToolFamily.ERASER)
-            if (switching) {
-                // Real tool switch → end selection and arm the new family
-                inkCanvas.setSelectionToolNone(keepSelection = false)
-                selectionArmed = false
-                selectPopup?.dismiss()
-
-                toolFamily = ToolFamily.ERASER
-                applyEraserBrush()
-                updateToolbarActiveStates()
-                toggleEraserPopup(v)
-            } else {
-                // Same family → only toggle popup; keep selection
-                toggleEraserPopup(v)
-                updateToolbarActiveStates()
-            }
+            toggleEraserPopup(v)
+            updateToolbarActiveStates()
         }
+
+
 
 
         // Selection popup (lasso/rect + mode)
@@ -905,6 +868,49 @@ class MainActivity : AppCompatActivity() {
         sizeSlider.progress = brushSizeDp.toInt().coerceIn(1, sizeSlider.max)
         applySizeToUiAndCanvas(brushSizeDp, live = false)
 
+        // --- Selection width contextual UI ---
+        val selRow   = content.findViewById<View>(R.id.selWidthRow)
+        val bN10     = content.findViewById<Button?>(R.id.btnDeltaN10)
+        val bN1      = content.findViewById<Button?>(R.id.btnDeltaN1)
+        val bP1      = content.findViewById<Button?>(R.id.btnDeltaP1)
+        val bP10     = content.findViewById<Button?>(R.id.btnDeltaP10)
+        val seekNorm = content.findViewById<SeekBar?>(R.id.seekSelNormalize)
+        val txtNorm  = content.findViewById<TextView?>(R.id.selNormalizeValue)
+
+// Show row only if a selection exists
+        selRow.visibility = if (inkCanvas.hasSelection()) View.VISIBLE else View.GONE
+
+        bN10?.setOnClickListener {
+            // relative: -10 dp per selected stroke
+            inkCanvas.updateSelectedStrokeWidthDeltaDp(-10f)
+            inkCanvas.requestFocus()
+        }
+        bN1?.setOnClickListener {
+            inkCanvas.updateSelectedStrokeWidthDeltaDp(-1f)
+            inkCanvas.requestFocus()
+        }
+        bP1?.setOnClickListener {
+            inkCanvas.updateSelectedStrokeWidthDeltaDp(+1f)
+            inkCanvas.requestFocus()
+        }
+        bP10?.setOnClickListener {
+            inkCanvas.updateSelectedStrokeWidthDeltaDp(+10f)
+            inkCanvas.requestFocus()
+        }
+
+        seekNorm?.max = 120
+        seekNorm?.progress = 24
+        txtNorm?.text = "24 dp"
+        seekNorm?.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
+                txtNorm?.text = "$value dp"
+                // absolute normalize
+                inkCanvas.updateSelectedStrokeWidthDp(value.toFloat())
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
         // --- Click listeners: change brush type, then apply ---
         val onBrushClick = View.OnClickListener { v ->
             brushType = when (v.id) {
@@ -916,11 +922,19 @@ class MainActivity : AppCompatActivity() {
                 else                 -> brushType
             }
             selectBrushButtons(brushType)
-            // Ensure we're in stylus family and push the current size/color to canvas
+
+            // This is the moment the user actually CHOOSES a tool → switch family & clear selection
+            if (toolFamily != ToolFamily.PEN_FAMILY) {
+                inkCanvas.setSelectionToolNone(keepSelection = false)
+                selectionArmed = false
+                selectPopup?.dismiss()
+                toolFamily = ToolFamily.PEN_FAMILY
+            }
             applyPenFamilyBrush()
-            // Keep focus on canvas so drawing continues smoothly
+            updateToolbarActiveStates()
             inkCanvas.requestFocus()
         }
+
 
         btnFountain.setOnClickListener(onBrushClick)
         btnCalligraphy.setOnClickListener(onBrushClick)
@@ -1025,16 +1039,24 @@ class MainActivity : AppCompatActivity() {
             highlighterMode = if (v.id == R.id.iconHLStraight)
                 HighlighterMode.STRAIGHT else HighlighterMode.FREEFORM
             updateModeUI()
-            if (toolFamily == ToolFamily.HIGHLIGHTER) {
-                inkCanvas.setBrush(
-                    if (highlighterMode == HighlighterMode.FREEFORM)
-                        BrushType.HIGHLIGHTER_FREEFORM
-                    else
-                        BrushType.HIGHLIGHTER_STRAIGHT
-                )
+
+            // The user chose a Highlighter mode → this is the real tool switch moment
+            if (toolFamily != ToolFamily.HIGHLIGHTER) {
+                inkCanvas.setSelectionToolNone(keepSelection = false)
+                selectionArmed = false
+                selectPopup?.dismiss()
+                toolFamily = ToolFamily.HIGHLIGHTER
             }
+            inkCanvas.setBrush(
+                if (highlighterMode == HighlighterMode.FREEFORM)
+                    BrushType.HIGHLIGHTER_FREEFORM
+                else
+                    BrushType.HIGHLIGHTER_STRAIGHT
+            )
+            updateToolbarActiveStates()
             inkCanvas.requestFocus()
         }
+
         iconFree.setOnClickListener(modeClick)
         iconLine.setOnClickListener(modeClick)
 
@@ -1137,14 +1159,22 @@ class MainActivity : AppCompatActivity() {
         val onModeClick = View.OnClickListener { v ->
             eraserMode = if (v.id == R.id.iconEraseStroke) EraserMode.STROKE else EraserMode.AREA
             updateModeUI()
-            if (toolFamily == ToolFamily.ERASER) {
-                inkCanvas.setBrush(
-                    if (eraserMode == EraserMode.AREA) BrushType.ERASER_AREA else BrushType.ERASER_STROKE
-                )
+
+            // The user chose Eraser mode → this is the real tool switch moment
+            if (toolFamily != ToolFamily.ERASER) {
+                inkCanvas.setSelectionToolNone(keepSelection = false)
+                selectionArmed = false
+                selectPopup?.dismiss()
+                toolFamily = ToolFamily.ERASER
             }
+            inkCanvas.setBrush(
+                if (eraserMode == EraserMode.AREA) BrushType.ERASER_AREA else BrushType.ERASER_STROKE
+            )
+            updateToolbarActiveStates()
             // keep popup open
             inkCanvas.requestFocus()
         }
+
         btnStroke.setOnClickListener(onModeClick)
         btnArea.setOnClickListener(onModeClick)
 

@@ -8,6 +8,82 @@
     android:paddingTop="12dp"
     android:paddingBottom="12dp">
 
+    <!-- Selection width: shows only when a selection exists -->
+    <LinearLayout
+        android:id="@+id/selWidthRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:paddingBottom="8dp">
+
+        <TextView
+            android:id="@+id/selWidthTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Selection width"
+            android:textStyle="bold"
+            android:textColor="@android:color/black"
+            android:paddingBottom="4dp" />
+
+        <!-- Relative step row -->
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnDeltaN10"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="-10" />
+
+            <Button
+                android:id="@+id/btnDeltaN1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="-1"
+                android:layout_marginStart="6dp" />
+
+            <Button
+                android:id="@+id/btnDeltaP1"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="+1"
+                android:layout_marginStart="6dp" />
+
+            <Button
+                android:id="@+id/btnDeltaP10"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="+10"
+                android:layout_marginStart="6dp" />
+        </LinearLayout>
+
+        <!-- Absolute normalize slider -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:paddingTop="6dp">
+
+            <SeekBar
+                android:id="@+id/seekSelNormalize"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:max="120" />
+
+            <TextView
+                android:id="@+id/selNormalizeValue"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="— dp"
+                android:layout_marginStart="8dp" />
+        </LinearLayout>
+    </LinearLayout>
+
     <!-- Brush buttons row -->
     <LinearLayout
         android:id="@+id/brushRow"
