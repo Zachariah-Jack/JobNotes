@@ -445,7 +445,7 @@ class MainActivity : AppCompatActivity() {
             findViewById<ImageButton?>(R.id.btnHandKbd)?.isSelected = false
             inkCanvas.setPanMode(false)
 
-            inkCanvas.setSelectionToolNone(keepSelection = true)
+            inkCanvas.setSelectionToolNone(keepSelection = false)
             selectionArmed = false
             selectPopup?.dismiss()
 
@@ -462,7 +462,7 @@ class MainActivity : AppCompatActivity() {
             findViewById<ImageButton?>(R.id.btnHandKbd)?.isSelected = false
             inkCanvas.setPanMode(false)
 
-            inkCanvas.setSelectionToolNone(keepSelection = true)
+            inkCanvas.setSelectionToolNone(keepSelection = false)
             selectionArmed = false
             selectPopup?.dismiss()
 
@@ -479,7 +479,7 @@ class MainActivity : AppCompatActivity() {
             findViewById<ImageButton?>(R.id.btnHandKbd)?.isSelected = false
             inkCanvas.setPanMode(false)
 
-            inkCanvas.setSelectionToolNone(keepSelection = true)
+            inkCanvas.setSelectionToolNone(keepSelection = false )
             selectionArmed = false
             selectPopup?.dismiss()
 

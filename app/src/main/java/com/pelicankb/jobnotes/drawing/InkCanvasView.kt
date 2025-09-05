@@ -1131,6 +1131,19 @@ class InkCanvasView @JvmOverloads constructor(
                     transforming = false
                     obtainTracker()
                     velocityTracker?.addMovement(event)
+                    // If a selection existed and finger tapped on blank area, clear selection now
+                    run {
+                        val (cx, cy) = toContent(lastPanFocusX, lastPanFocusY)
+                        if (selectedStrokes.isNotEmpty()) {
+                            val anyHit = hitAnyStrokeAt(cx, cy, dpToPx(10f)) != null
+                            val insideSel = selectedBounds?.contains(cx, cy) == true
+                            val onHandle = detectHandle(cx, cy) != Handle.NONE
+                            if (!anyHit && !insideSel && !onHandle) {
+                                clearSelection()
+                            }
+                        }
+                    }
+
                     return true
                 }
 
@@ -1193,6 +1206,18 @@ class InkCanvasView @JvmOverloads constructor(
                             return true
                         } else if (selectionTool != SelTool.NONE && selectionSticky) {
                             clearSelection()
+                        }
+                    }
+
+                    // If something is selected and the tap is on blank canvas (no stroke hit), deselect.
+                    run {
+                        if (selectedStrokes.isNotEmpty()) {
+                            val anyHit = hitAnyStrokeAt(cx, cy, dpToPx(10f)) != null
+                            val insideSel = selectedBounds?.contains(cx, cy) == true
+                            val onHandle = detectHandle(cx, cy) != Handle.NONE
+                            if (!anyHit && !insideSel && !onHandle) {
+                                clearSelection()
+                            }
                         }
                     }
 
@@ -2494,6 +2519,39 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     // ===== Hit testing / selection predicates =====
+    // Hit a single stroke at (x,y) within tolerance, topmost first (view-space tol converted to content)
+    private fun hitAnyStrokeAt(cx: Float, cy: Float, tolPx: Float = dpToPx(10f)): StrokeOp? {
+        // search topmost first
+        for (i in strokes.size - 1 downTo 0) {
+            val s = strokes[i]
+            if (s.hidden) continue
+            if (hitStroke(s, cx, cy, tolPx)) return s
+        }
+        return null
+    }
+
+    /** Select the given stroke and any 'connected' strokes.
+     *  Connection heuristic: bounding boxes overlap or touch within a small margin. */
+    private fun selectStrokeAndConnected(seed: StrokeOp, expandMarginPx: Float = dpToPx(6f)) {
+        selectedStrokes.clear()
+        // compute seed bounds
+        val seedB = strokeBounds(seed) ?: return
+        val margin = expandMarginPx
+        val expanded = RectF(seedB.left - margin, seedB.top - margin, seedB.right + margin, seedB.bottom + margin)
+        // collect strokes whose bounds intersect the expanded seed bounds
+        for (s in strokes) {
+            if (s === seed || !s.hidden) {
+                if (s.type == BrushType.ERASER_AREA || s.type == BrushType.ERASER_STROKE) continue
+                val b = strokeBounds(s) ?: continue
+                if (RectF.intersects(expanded, b)) selectedStrokes.add(s)
+            }
+        }
+        selectedBounds = computeSelectionBounds()
+        selectionInteractive = true
+        overlayActive = true
+        invalidate()
+    }
+
 
     private fun hitStroke(s: StrokeOp, x: Float, y: Float, tol: Float): Boolean {
         val path = s.calligPath ?: s.fountainPath
@@ -2873,19 +2931,18 @@ class InkCanvasView @JvmOverloads constructor(
         }
         override fun onLongPress(e: MotionEvent) {
             val (cx, cy) = toContent(e.x, e.y)
-            for (i in strokes.size - 1 downTo 0) {
-                val s = strokes[i]
-                if (hitStroke(s, cx, cy, dpToPx(10f))) {
-                    selectedStrokes.clear()
-                    selectedStrokes.add(s)
-                    selectedBounds = strokeBounds(s)
-                    selectionInteractive = true
-                    overlayActive = true
-                    invalidate()
-                    return
+            // Prefer handles/inside handling elsewhere; here, long-press selects stroke + connected group.
+            val hit = hitAnyStrokeAt(cx, cy, dpToPx(10f))
+            if (hit != null) {
+                selectStrokeAndConnected(hit)
+            } else {
+                // Long-press on blank area clears any lingering selection
+                if (selectedStrokes.isNotEmpty()) {
+                    clearSelection()
                 }
             }
         }
+
     }
 
 
