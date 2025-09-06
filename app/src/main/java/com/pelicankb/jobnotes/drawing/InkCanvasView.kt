@@ -866,7 +866,7 @@ class InkCanvasView @JvmOverloads constructor(
     // ---- Rotation handle (above top-middle) ----
     private var rotateHandleOffsetDp = 28f
     private var rotateSnapDeg = 90f
-    private var rotateSnapTolDeg = 6f
+
     private var rotateStartAngleRad: Float? = null
     private var rotateCenterX = 0f
     private var rotateCenterY = 0f
