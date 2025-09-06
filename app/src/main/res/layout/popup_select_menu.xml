@@ -1,53 +1,66 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:id="@+id/rootSelectMenu"
+    android:id="@+id/selectRoot"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="12dp">
+    android:orientation="horizontal"
+    android:minWidth="220dp"
+    android:paddingStart="12dp"
+    android:paddingEnd="12dp"
+    android:paddingTop="10dp"
+    android:paddingBottom="10dp"
+    android:background="@android:color/white">
 
-    <!-- Row: selection tool -->
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginBottom="8dp">
+        android:orientation="vertical">
 
-        <ImageButton
-            android:id="@+id/iconSelectLasso"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@drawable/bg_tool_toggle"
-            android:padding="8dp"
-            android:src="@drawable/ic_tool_select_lasso"
-            app:tint="@color/black"
-            android:contentDescription="@null" />
+        <LinearLayout
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
 
-        <ImageButton
-            android:id="@+id/iconSelectRect"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="@drawable/bg_tool_toggle"
-            android:padding="8dp"
-            android:layout_marginStart="6dp"
-            android:src="@drawable/ic_tool_select_rect"
-            app:tint="@color/black"
-            android:contentDescription="@null" />
+            <ImageButton
+                android:id="@+id/iconSelectLasso"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:background="@drawable/bg_tool_toggle"
+                android:padding="8dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_tool_select_lasso" />
+
+            <ImageButton
+                android:id="@+id/iconSelectRect"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:layout_marginStart="6dp"
+                android:background="@drawable/bg_tool_toggle"
+                android:padding="8dp"
+                android:contentDescription="@null"
+                android:src="@drawable/ic_tool_select_rect" />
+        </LinearLayout>
     </LinearLayout>
 
-    <!-- Mode toggle -->
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
+        android:layout_width="wrap_content"
+        android:layout_height="match_parent"
         android:orientation="horizontal"
-        android:gravity="center_vertical">
+        android:gravity="center_vertical"
+        android:layout_marginStart="12dp">
+
+        <TextView
+            android:id="@+id/labelStrokeMode"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Stroke"
+            android:textColor="@android:color/black"
+            android:layout_marginEnd="8dp"/>
 
         <Switch
             android:id="@+id/switchStrokeSelect"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/stroke_select" />
+            android:layout_height="wrap_content" />
     </LinearLayout>
 
 </LinearLayout>

@@ -210,6 +210,8 @@ class InkCanvasView @JvmOverloads constructor(
 
     fun clearSelection() {
         cancelTransform()
+        hideSelectionWidthPopup()
+
         // make absolutely sure nothing stays hidden
         for (s in selectedStrokes) s.hidden = false
         selectedStrokes.clear()
@@ -815,6 +817,11 @@ class InkCanvasView @JvmOverloads constructor(
         color = Color.WHITE
         strokeWidth = dpToPx(1.5f)
     }
+    // ---- Selection HUD (width button + popup) ----
+    private var selHudBtnRadiusDp = 14f
+    private var selHudBtnRectView: RectF? = null
+    private var selWidthPopup: android.widget.PopupWindow? = null
+
 
     private enum class Handle { NONE, INSIDE, N, S, E, W, NE, NW, SE, SW }
     private enum class TransformKind { TRANSLATE, SCALE_X, SCALE_Y, SCALE_UNIFORM }
@@ -1059,6 +1066,44 @@ class InkCanvasView @JvmOverloads constructor(
                 }
             }
         }
+
+        // Draw selection width HUD button at bottom-right (outside bbox)
+        if (selectedStrokes.isNotEmpty() && selectedBounds != null) {
+            val r = selectedBounds!!
+            // Convert bottom-right corner (content) to view coords
+            val brXv = contentToViewX(r.right)
+            val brYv = contentToViewY(r.bottom)
+            val gap = dpToPx(6f)
+            val cx = brXv + gap
+            val cy = brYv + gap
+
+            val radius = dpToPx(selHudBtnRadiusDp)
+            selHudBtnRectView = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
+
+            // Draw opaque circle
+            val paintFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFAFAFA.toInt() }
+            val paintStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeWidth = dpToPx(1.5f)
+                color = 0xFF9E9E9E.toInt()
+            }
+            canvas.drawCircle(cx, cy, radius, paintFill)
+            canvas.drawCircle(cx, cy, radius, paintStroke)
+
+            // Draw a simple line-weight glyph
+            val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                strokeCap = Paint.Cap.ROUND
+                color = 0xFF424242.toInt()
+            }
+            val y1 = cy - dpToPx(3f)
+            val y2 = cy
+            val y3 = cy + dpToPx(3f)
+            linePaint.strokeWidth = dpToPx(1f); canvas.drawLine(cx - dpToPx(6f), y1, cx + dpToPx(6f), y1, linePaint)
+            linePaint.strokeWidth = dpToPx(2f); canvas.drawLine(cx - dpToPx(6f), y2, cx + dpToPx(6f), y2, linePaint)
+            linePaint.strokeWidth = dpToPx(3f); canvas.drawLine(cx - dpToPx(6f), y3, cx + dpToPx(6f), y3, linePaint)
+        }
+
         canvas.restore()
 
         // 3) Page edge fades at 1× (view space)
@@ -1288,6 +1333,34 @@ class InkCanvasView @JvmOverloads constructor(
                             }
                         }
                     }
+
+                    // Selection HUD button tap?
+                    run {
+                        if (selectedStrokes.isNotEmpty()) {
+                            val rect = selHudBtnRectView
+                            if (rect != null) {
+                                // event.x / event.y are VIEW coords
+                                val vx = event.getX(idx)
+                                val vy = event.getY(idx)
+                                if (rect.contains(vx, vy)) {
+                                    showSelectionWidthPopupAt(rect)
+                                    return true
+                                }
+                            }
+                        }
+                    }
+                    // If popup is open and user taps inside selection, close it
+                    run {
+                        if (selWidthPopup?.isShowing == true && selectedStrokes.isNotEmpty()) {
+                            val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
+                            val insideSel = selectedBounds?.contains(cx, cy) == true
+                            if (insideSel) {
+                                hideSelectionWidthPopup()
+                                return true
+                            }
+                        }
+                    }
+
 
                     // Either start selection marquee or a stroke
                     if (selectionTool != SelTool.NONE) {
@@ -1578,6 +1651,99 @@ class InkCanvasView @JvmOverloads constructor(
             }
         }
         return true
+    }
+
+
+    private fun hideSelectionWidthPopup() {
+        selWidthPopup?.dismiss()
+        selWidthPopup = null
+    }
+
+    private fun showSelectionWidthPopupAt(anchorRectView: RectF) {
+        hideSelectionWidthPopup()
+
+        val content = android.view.LayoutInflater.from(context)
+            .inflate(com.pelicankb.jobnotes.R.layout.popup_selection_width, null, false)
+
+        val preview = content.findViewById<View>(com.pelicankb.jobnotes.R.id.previewLine)
+        val seek = content.findViewById<android.widget.SeekBar>(com.pelicankb.jobnotes.R.id.seekSelStroke)
+        val value = content.findViewById<android.widget.TextView>(com.pelicankb.jobnotes.R.id.valueDp)
+
+        // Initialize value from average DP of selection
+        val density = resources.displayMetrics.density
+        val avgPx = selectedStrokes.map { it.baseWidth }.average().toFloat().coerceAtLeast(0.5f)
+        val startDp = (avgPx / density).coerceIn(1f, 120f)
+        seek.max = 120
+        seek.progress = startDp.toInt()
+        value.text = "${startDp.toInt()} dp"
+
+        // Paint preview line using a drawable background (draw manually)
+        preview.background = object : android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT) {
+            override fun draw(canvas: android.graphics.Canvas) {
+                super.draw(canvas)
+                val cy = bounds.centerY().toFloat()
+                val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                    style = android.graphics.Paint.Style.STROKE
+                    strokeCap = android.graphics.Paint.Cap.ROUND
+                    color = android.graphics.Color.BLACK
+                    strokeWidth = seek.progress * density
+                }
+                val pad = (12 * density)
+                canvas.drawLine(bounds.left + pad, cy, bounds.right - pad, cy, p)
+            }
+        }
+
+        seek.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: android.widget.SeekBar?, v: Int, fromUser: Boolean) {
+                val dp = v.coerceAtLeast(1)
+                value.text = "$dp dp"
+                // absolute normalize
+                updateSelectedStrokeWidthDp(dp.toFloat())
+                // refresh preview
+                preview.invalidate()
+            }
+            override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
+        })
+
+        selWidthPopup = android.widget.PopupWindow(
+            content,
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
+            true
+        ).apply {
+            isOutsideTouchable = true
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.WHITE))
+            elevation = 12f
+            setOnDismissListener { selWidthPopup = null }
+        }
+
+        // Compute screen position near bottom-right of selection, open down-right, flip if needed
+        val loc = IntArray(2)
+        getLocationOnScreen(loc) // this view's top-left on screen
+        val screenX = (loc[0] + anchorRectView.right).toInt()
+        val screenY = (loc[1] + anchorRectView.bottom).toInt()
+
+        // Measure popup size
+        content.measure(
+            android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED),
+            android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED)
+        )
+        val pw = content.measuredWidth
+        val ph = content.measuredHeight
+
+        val displayRect = android.graphics.Rect()
+        getWindowVisibleDisplayFrame(displayRect)
+
+        var x = screenX + dpToPx(6f).toInt()
+        var y = screenY + dpToPx(6f).toInt()
+
+        // Flip left/up only if needed (edge case)
+        if (x + pw > displayRect.right) x = (screenX - pw - dpToPx(6f)).toInt()
+        if (y + ph > displayRect.bottom) y = (screenY - ph - dpToPx(6f)).toInt()
+
+        // Show at absolute screen coords
+        selWidthPopup?.showAtLocation(this, android.view.Gravity.START or android.view.Gravity.TOP, x, y)
     }
 
     // ===== Zoom helpers =====
@@ -2819,6 +2985,9 @@ class InkCanvasView @JvmOverloads constructor(
         val clampedBottom = bottom.coerceIn(clampedTop, height)
         return Rect(clampedLeft, clampedTop, clampedRight, clampedBottom)
     }
+    private fun contentToViewX(cx: Float): Float = translationX + cx * scaleFactor
+    private fun contentToViewY(cy: Float): Float = translationY + cy * scaleFactor
+
 
     /**
      * Compute a conservative dirty rect in VIEW space for a stroke segment from (x0,y0) -> (x1,y1).

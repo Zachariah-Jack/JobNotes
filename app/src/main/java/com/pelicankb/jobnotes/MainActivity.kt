@@ -918,48 +918,7 @@ class MainActivity : AppCompatActivity() {
             }
         })
 
-        // --- Selection width contextual UI (null-safe wiring; only shows if IDs exist AND selection exists) ---
-        run {
-            val selRow     = content.findViewById<View?>(R.id.selWidthRow)
-            val bN10       = content.findViewById<Button?>(R.id.btnDeltaN10)
-            val bN1        = content.findViewById<Button?>(R.id.btnDeltaN1)
-            val bP1        = content.findViewById<Button?>(R.id.btnDeltaP1)
-            val bP10       = content.findViewById<Button?>(R.id.btnDeltaP10)
-            val seekNorm   = content.findViewById<SeekBar?>(R.id.seekSelNormalize)
-            val txtNorm    = content.findViewById<TextView?>(R.id.selNormalizeValue)
-            val bScaleM10  = content.findViewById<Button?>(R.id.btnScaleM10)   // optional if you add to XML
-            val bScaleM5   = content.findViewById<Button?>(R.id.btnScaleM5)    // optional
-            val bScaleP5   = content.findViewById<Button?>(R.id.btnScaleP5)    // optional
-            val bScaleP10  = content.findViewById<Button?>(R.id.btnScaleP10)   // optional
 
-            val hasSel = inkCanvas.hasSelection()
-            selRow?.visibility = if (hasSel) View.VISIBLE else View.GONE
-
-            if (hasSel) {
-                bN10?.setOnClickListener { inkCanvas.updateSelectedStrokeWidthDeltaDp(-10f); inkCanvas.requestFocus() }
-                bN1 ?.setOnClickListener { inkCanvas.updateSelectedStrokeWidthDeltaDp(-1f ); inkCanvas.requestFocus() }
-                bP1 ?.setOnClickListener { inkCanvas.updateSelectedStrokeWidthDeltaDp(+1f ); inkCanvas.requestFocus() }
-                bP10?.setOnClickListener { inkCanvas.updateSelectedStrokeWidthDeltaDp(+10f); inkCanvas.requestFocus() }
-
-                // Optional percent controls (if present in XML)
-                bScaleM10?.setOnClickListener { inkCanvas.updateSelectedStrokeWidthScale(0.90f); inkCanvas.requestFocus() }
-                bScaleM5 ?.setOnClickListener { inkCanvas.updateSelectedStrokeWidthScale(0.95f); inkCanvas.requestFocus() }
-                bScaleP5 ?.setOnClickListener { inkCanvas.updateSelectedStrokeWidthScale(1.05f); inkCanvas.requestFocus() }
-                bScaleP10?.setOnClickListener { inkCanvas.updateSelectedStrokeWidthScale(1.10f); inkCanvas.requestFocus() }
-
-                // Absolute normalize (existing). If seek/label exist, wire them.
-                seekNorm?.max = 120
-                // If you want to reflect a "mixed" state, you can leave progress as-is.
-                seekNorm?.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                    override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
-                        txtNorm?.text = "$value dp"
-                        inkCanvas.updateSelectedStrokeWidthDp(value.toFloat())
-                    }
-                    override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-                    override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-                })
-            }
-        }
 
         // Return a focusable popup that dismisses on outside-tap and restores canvas focus
         return PopupWindow(
@@ -1350,13 +1309,44 @@ class MainActivity : AppCompatActivity() {
             override fun onStopTrackingTouch(sb: SeekBar?) {}
         })
 
+        // Stroke & Fill color chips
+        val chipStroke = content.findViewById<ImageButton>(R.id.chipShapeStrokeColor)
+        val chipFill   = content.findViewById<ImageButton>(R.id.chipShapeFillColor)
+
+// Initialize tints
+        chipStroke.imageTintList = ColorStateList.valueOf(shapesStrokeColor)
+        chipFill.imageTintList = ColorStateList.valueOf(shapesFillColor ?: Color.TRANSPARENT)
+
+// Stroke color picker
+        chipStroke.setOnClickListener {
+            showAdvancedColorPicker(shapesStrokeColor) { picked ->
+                shapesStrokeColor = picked
+                chipStroke.imageTintList = ColorStateList.valueOf(shapesStrokeColor)
+                // Live-update stroke color on selection
+                inkCanvas.updateSelectedStrokeColor(shapesStrokeColor)
+            }
+        }
+
+// Fill color picker (only meaningful if not "No fill")
+        chipFill.setOnClickListener {
+            val start = shapesFillColor ?: Color.TRANSPARENT
+            showAdvancedColorPicker(start) { picked ->
+                shapesFillColor = picked
+                chipFill.imageTintList = ColorStateList.valueOf(shapesFillColor ?: Color.TRANSPARENT)
+                inkCanvas.updateSelectedShapeFill(shapesFillColor)
+            }
+        }
+
         // No fill checkbox
         val chkNoFill = content.findViewById<CheckBox>(R.id.chkNoFill)
         chkNoFill.isChecked = (shapesFillColor == null)
+        chipFill.isEnabled = !chkNoFill.isChecked
         chkNoFill.setOnCheckedChangeListener { _, isChecked ->
             shapesFillColor = if (isChecked) null else (shapesFillColor ?: Color.TRANSPARENT)
+            chipFill.isEnabled = !isChecked
             inkCanvas.updateSelectedShapeFill(shapesFillColor)
         }
+
 
         return PopupWindow(
             content,
