@@ -60,6 +60,42 @@
                 android:layout_marginStart="6dp" />
         </LinearLayout>
 
+        <!-- Proportional (% scale) row -->
+        <LinearLayout
+            android:id="@+id/selWidthScaleRow"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:paddingTop="6dp">
+
+            <Button
+                android:id="@+id/btnScaleM10"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="-10%" />
+
+            <Button
+                android:id="@+id/btnScaleM5"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="-5%"
+                android:layout_marginStart="6dp" />
+
+            <Button
+                android:id="@+id/btnScaleP5"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="+5%"
+                android:layout_marginStart="6dp" />
+
+            <Button
+                android:id="@+id/btnScaleP10"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="+10%"
+                android:layout_marginStart="6dp" />
+        </LinearLayout>
+
         <!-- Absolute normalize slider -->
         <LinearLayout
             android:layout_width="match_parent"
