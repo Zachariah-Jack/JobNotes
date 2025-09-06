@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/selectionWidthRoot"
-    android:layout_width="260dp"
+    android:layout_width="300dp"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:padding="12dp"
+    android:padding="14dp"
     android:background="@android:color/white"
     android:elevation="8dp">
 
@@ -15,27 +15,28 @@
         android:text="Stroke"
         android:textStyle="bold"
         android:textColor="@android:color/black"
-        android:paddingBottom="6dp" />
+        android:paddingBottom="8dp" />
 
     <!-- Live preview line -->
     <View
         android:id="@+id/previewLine"
         android:layout_width="match_parent"
-        android:layout_height="20dp"
+        android:layout_height="22dp"
         android:background="@android:color/transparent" />
 
     <LinearLayout
         android:id="@+id/rowSlider"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:minHeight="48dp"
         android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:paddingTop="8dp">
+        android:paddingTop="10dp">
 
         <SeekBar
             android:id="@+id/seekSelStroke"
             android:layout_width="0dp"
-            android:layout_height="wrap_content"
+            android:layout_height="40dp"
             android:layout_weight="1"
             android:max="120" />
 
@@ -44,6 +45,6 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="24 dp"
-            android:layout_marginStart="8dp" />
+            android:layout_marginStart="10dp" />
     </LinearLayout>
 </LinearLayout>

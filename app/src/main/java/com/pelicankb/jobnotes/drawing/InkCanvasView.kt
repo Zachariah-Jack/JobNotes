@@ -825,8 +825,9 @@ class InkCanvasView @JvmOverloads constructor(
 
 
 
-    private enum class Handle { NONE, INSIDE, N, S, E, W, NE, NW, SE, SW }
-    private enum class TransformKind { TRANSLATE, SCALE_X, SCALE_Y, SCALE_UNIFORM }
+    private enum class Handle { NONE, INSIDE, N, S, E, W, NE, NW, SE, SW, ROTATE }
+    private enum class TransformKind { TRANSLATE, SCALE_X, SCALE_Y, SCALE_UNIFORM, ROTATE }
+
 
     private var transformKind: TransformKind? = null
     private var transformAnchorX = 0f
@@ -852,6 +853,14 @@ class InkCanvasView @JvmOverloads constructor(
     private var pullHudVisible = false
     private var pullHudProgress = 0f     // 0..1
     private var pullCommittedThisDrag = false
+    // ---- Rotation handle (above top-middle) ----
+    private var rotateHandleOffsetDp = 28f
+    private var rotateSnapDeg = 90f
+    private var rotateSnapTolDeg = 6f
+    private var rotateStartAngleRad: Float? = null
+    private var rotateCenterX = 0f
+    private var rotateCenterY = 0f
+
 
 
 
@@ -1066,6 +1075,9 @@ class InkCanvasView @JvmOverloads constructor(
                 if (selectionInteractive) {
                     drawHandles(canvas, r)
                 }
+                // Draw rotate handle above top-middle of the selection box
+                drawRotateHandle(canvas, r)
+
             }
         }
 
@@ -1982,6 +1994,13 @@ class InkCanvasView @JvmOverloads constructor(
             Handle.NE     -> { transformAnchorX = r.left;   transformAnchorY = r.bottom;    TransformKind.SCALE_UNIFORM }
             Handle.SW     -> { transformAnchorX = r.right;  transformAnchorY = r.top;       TransformKind.SCALE_UNIFORM }
             Handle.SE     -> { transformAnchorX = r.left;   transformAnchorY = r.top;       TransformKind.SCALE_UNIFORM }
+            Handle.ROTATE -> {
+                // rotation around selection center
+                rotateCenterX = r.centerX()
+                rotateCenterY = r.centerY()
+                rotateStartAngleRad = atan2(cy - rotateCenterY, cx - rotateCenterX)
+                TransformKind.ROTATE
+            }
             else -> null
         }
 
@@ -2011,23 +2030,56 @@ class InkCanvasView @JvmOverloads constructor(
             }
             TransformKind.SCALE_X -> {
                 val startW = max(1e-3f, r.width())
-                val newW = abs(cx - transformAnchorX)
-                sx = max(minScale, newW / startW)
-                sy = 1f
+                val newW = abs(cy - cy + cx - transformAnchorX) // dummy to keep structure—unused here
+                val sx = max(0.1f, abs(cx - transformAnchorX) / startW)
+                applyScale(sx, 1f, transformAnchorX, transformAnchorY)
+                selectedBounds = computeSelectionBounds()
+                return
             }
             TransformKind.SCALE_Y -> {
                 val startH = max(1e-3f, r.height())
-                val newH = abs(cy - transformAnchorY)
-                sx = 1f
-                sy = max(minScale, newH / startH)
+                val sy = max(0.1f, abs(cy - transformAnchorY) / startH)
+                applyScale(1f, sy, transformAnchorX, transformAnchorY)
+                selectedBounds = computeSelectionBounds()
+                return
             }
             TransformKind.SCALE_UNIFORM -> {
                 val startW = max(1e-3f, r.width())
                 val startH = max(1e-3f, r.height())
                 val nx = abs(cx - transformAnchorX) / startW
                 val ny = abs(cy - transformAnchorY) / startH
-                val s = max(minScale, max(nx, ny)) // proportional
-                sx = s; sy = s
+                val s = max(0.1f, max(nx, ny))
+                applyScale(s, s, transformAnchorX, transformAnchorY)
+                selectedBounds = computeSelectionBounds()
+                return
+            }
+            TransformKind.ROTATE -> {
+                val start = rotateStartAngleRad ?: return
+                val cur = atan2(cy - rotateCenterY, cx - rotateCenterX)
+                var delta = cur - start
+
+                // Snap to multiples of 90°
+                val deltaDeg = Math.toDegrees(delta.toDouble()).toFloat()
+                val snapped = (deltaDeg / rotateSnapDeg).roundToInt() * rotateSnapDeg
+                val snapUse = if (abs(deltaDeg - snapped) <= rotateSnapTolDeg) snapped else deltaDeg
+                val deltaRad = Math.toRadians(snapUse.toDouble()).toFloat()
+
+                // Apply rotation to saved points
+                for ((s, pts0) in savedPoints) {
+                    s.points.clear()
+                    for (p in pts0) {
+                        val dx = p.x - rotateCenterX
+                        val dy = p.y - rotateCenterY
+                        val rx = rotateCenterX + (dx * cos(deltaRad) - dy * sin(deltaRad))
+                        val ry = rotateCenterY + (dx * sin(deltaRad) + dy * cos(deltaRad))
+                        s.points.add(Point(rx, ry))
+                    }
+                    s.calligPath = null
+                    s.fountainPath = null
+                }
+
+                selectedBounds = computeSelectionBounds()
+                return
             }
         }
 
@@ -2770,12 +2822,59 @@ class InkCanvasView @JvmOverloads constructor(
         box(r.left, r.centerY())
         box(r.right, r.centerY())
     }
+    private fun drawRotateHandle(canvas: Canvas, r: RectF) {
+        val off = dpToPx(rotateHandleOffsetDp)
+        val cx = r.centerX()
+        val cy = r.top - off
+
+        // handle disc
+        val discR = dpToPx(9f)
+        val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFAFAFA.toInt() }
+        val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            color = 0xFF9E9E9E.toInt()
+            strokeWidth = dpToPx(1.5f)
+        }
+        canvas.drawCircle(cx, cy, discR, fill)
+        canvas.drawCircle(cx, cy, discR, stroke)
+
+        // simple rotate glyph (quarter arc + arrow head)
+        val arc = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            style = Paint.Style.STROKE
+            color = 0xFF424242.toInt()
+            strokeWidth = dpToPx(1.8f)
+            strokeCap = Paint.Cap.ROUND
+        }
+        val box = RectF(cx - dpToPx(6f), cy - dpToPx(6f), cx + dpToPx(6f), cy + dpToPx(6f))
+        canvas.drawArc(box, -210f, 240f, false, arc)
+
+        val ah = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF424242.toInt() }
+        val ax = cx + dpToPx(6f)
+        val ay = cy
+        val tri = Path().apply {
+            moveTo(ax, ay)
+            lineTo(ax - dpToPx(3.2f), ay - dpToPx(2.2f))
+            lineTo(ax - dpToPx(1.0f), ay + dpToPx(2.8f))
+            close()
+        }
+        canvas.drawPath(tri, ah)
+    }
+
 
     private fun detectHandle(x: Float, y: Float): Handle {
         val r = selectedBounds ?: return Handle.NONE
         val pad = dpToPx(handleTouchPadDp)
 
+        // ROTATE handle (check first)
+        run {
+            val off = dpToPx(rotateHandleOffsetDp)
+            val rx = r.centerX()
+            val ry = r.top - off
+            if (abs(x - rx) <= pad && abs(y - ry) <= pad) return Handle.ROTATE
+        }
+
         fun near(px: Float, py: Float) = (abs(px - x) <= pad && abs(py - y) <= pad)
+
         if (near(r.left, r.top)) return Handle.NW
         if (near(r.right, r.top)) return Handle.NE
         if (near(r.left, r.bottom)) return Handle.SW
