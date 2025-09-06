@@ -825,6 +825,8 @@ class InkCanvasView @JvmOverloads constructor(
     private var selHudBtnRadiusDp = 16f
     private var selHudBtnRectView: RectF? = null
     private var selWidthPopup: android.widget.PopupWindow? = null
+    private var selWidthPopupRectScreen: android.graphics.Rect? = null
+
     private val rotateIcon: Drawable? by lazy { ContextCompat.getDrawable(context, com.pelicankb.jobnotes.R.drawable.ic_rotate) }
 
 
@@ -1236,6 +1238,16 @@ class InkCanvasView @JvmOverloads constructor(
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                // If the selection width popup is open and the tap lands inside it,
+// consume the event so the canvas does not draw/deselect beneath it.
+                selWidthPopupRectScreen?.let { r ->
+                    val rx = event.rawX.toInt()
+                    val ry = event.rawY.toInt()
+                    if (selWidthPopup?.isShowing == true && r.contains(rx, ry)) {
+                        return true
+                    }
+                }
+
                 // (removed) old bottom-line tap gate; new flow is viewport-relative while panning
 
 
@@ -1302,8 +1314,16 @@ class InkCanvasView @JvmOverloads constructor(
                     velocityTracker?.addMovement(event)
                     // If a selection existed and finger tapped on blank area, clear selection now
                     run {
-                        val (cx, cy) = toContent(lastPanFocusX, lastPanFocusY)
                         if (selectedStrokes.isNotEmpty()) {
+                            // Ignore taps inside the width popup
+                            selWidthPopupRectScreen?.let { r ->
+                                if (selWidthPopup?.isShowing == true) {
+                                    val rx = event.rawX.toInt()
+                                    val ry = event.rawY.toInt()
+                                    if (r.contains(rx, ry)) return@run
+                                }
+                            }
+                            val (cx, cy) = toContent(lastPanFocusX, lastPanFocusY)
                             val anyHit = hitAnyStrokeAt(cx, cy, dpToPx(10f)) != null
                             val insideSel = selectedBounds?.contains(cx, cy) == true
                             val onHandle = detectHandle(cx, cy) != Handle.NONE
@@ -1312,6 +1332,7 @@ class InkCanvasView @JvmOverloads constructor(
                             }
                         }
                     }
+
 
                     return true
                 }
@@ -1394,17 +1415,7 @@ class InkCanvasView @JvmOverloads constructor(
                         }
                     }
 
-                    // If something is selected and the tap is on blank canvas (no stroke hit), deselect.
-                    run {
-                        if (selectedStrokes.isNotEmpty()) {
-                            val anyHit = hitAnyStrokeAt(cx, cy, dpToPx(10f)) != null
-                            val insideSel = selectedBounds?.contains(cx, cy) == true
-                            val onHandle = detectHandle(cx, cy) != Handle.NONE
-                            if (!anyHit && !insideSel && !onHandle) {
-                                clearSelection()
-                            }
-                        }
-                    }
+                    something is selected and the tap is on blank
 
                     // Selection HUD button tap?
                     run {
@@ -1729,6 +1740,7 @@ class InkCanvasView @JvmOverloads constructor(
     private fun hideSelectionWidthPopup() {
         selWidthPopup?.dismiss()
         selWidthPopup = null
+        selWidthPopupRectScreen = null
     }
 
     private fun showSelectionWidthPopupAt(anchorRectView: RectF) {
@@ -1827,6 +1839,9 @@ class InkCanvasView @JvmOverloads constructor(
         if (y + ph > displayRect.bottom) y = (screenY - ph - dpToPx(6f)).toInt()
 
         selWidthPopup?.showAtLocation(this, android.view.Gravity.START or android.view.Gravity.TOP, x, y)
+        // Save the popup's screen rect so we can ignore canvas touches inside it
+        selWidthPopupRectScreen = android.graphics.Rect(x, y, x + pw, y + ph)
+
     }
 
     // ===== Zoom helpers =====
