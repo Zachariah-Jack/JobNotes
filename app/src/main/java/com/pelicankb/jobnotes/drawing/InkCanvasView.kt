@@ -818,9 +818,11 @@ class InkCanvasView @JvmOverloads constructor(
         strokeWidth = dpToPx(1.5f)
     }
     // ---- Selection HUD (width button + popup) ----
-    private var selHudBtnRadiusDp = 14f
+// Slightly larger button; we’ll also offset past the handle touch-pad so clicks never collide.
+    private var selHudBtnRadiusDp = 16f
     private var selHudBtnRectView: RectF? = null
     private var selWidthPopup: android.widget.PopupWindow? = null
+
 
 
     private enum class Handle { NONE, INSIDE, N, S, E, W, NE, NW, SE, SW }
@@ -1068,14 +1070,16 @@ class InkCanvasView @JvmOverloads constructor(
         }
 
         // Draw selection width HUD button at bottom-right (outside bbox)
+// Offset by the handle touch pad + extra, so we never overlap the resize handle.
         if (selectedStrokes.isNotEmpty() && selectedBounds != null) {
             val r = selectedBounds!!
             // Convert bottom-right corner (content) to view coords
             val brXv = contentToViewX(r.right)
             val brYv = contentToViewY(r.bottom)
-            val gap = dpToPx(6f)
+            val gap = dpToPx(handleTouchPadDp + 16f) // push past handle pad + extra room
             val cx = brXv + gap
             val cy = brYv + gap
+
 
             val radius = dpToPx(selHudBtnRadiusDp)
             selHudBtnRectView = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
@@ -1216,6 +1220,21 @@ class InkCanvasView @JvmOverloads constructor(
                 if (!isStylus(event, idx) && event.pointerCount == 1 && !scalingInProgress) {
                     val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
 
+                    // HUD button tap has priority over handle hit-testing (finger)
+                    run {
+                        if (selectedStrokes.isNotEmpty()) {
+                            val rect = selHudBtnRectView
+                            if (rect != null) {
+                                val vx = event.getX(idx)
+                                val vy = event.getY(idx)
+                                if (rect.contains(vx, vy)) {
+                                    showSelectionWidthPopupAt(rect)
+                                    return true
+                                }
+                            }
+                        }
+                    }
+
                     // Finger can transform selection: handles first, then inside box
                     if (selectedStrokes.isNotEmpty() && selectionInteractive) {
                         val h = detectHandle(cx, cy)
@@ -1298,6 +1317,22 @@ class InkCanvasView @JvmOverloads constructor(
                         transforming = true
                         activePointerId = event.getPointerId(idx)
                         return true
+                    }
+
+                    // HUD button tap has priority over handle hit-testing
+                    run {
+                        if (selectedStrokes.isNotEmpty()) {
+                            val rect = selHudBtnRectView
+                            if (rect != null) {
+                                // event coords are in VIEW space
+                                val vx = event.getX(idx)
+                                val vy = event.getY(idx)
+                                if (rect.contains(vx, vy)) {
+                                    showSelectionWidthPopupAt(rect)
+                                    return true
+                                }
+                            }
+                        }
                     }
 
                     // Transform selection (handles first, then inside; otherwise maybe clear)
@@ -1923,6 +1958,8 @@ class InkCanvasView @JvmOverloads constructor(
     // ===== Transform (drag/scale) =====
 
     private fun beginTransform(handle: Handle, cx: Float, cy: Float) {
+        hideSelectionWidthPopup()
+
         val r = selectedBounds ?: return
         downX = cx
         downY = cy
