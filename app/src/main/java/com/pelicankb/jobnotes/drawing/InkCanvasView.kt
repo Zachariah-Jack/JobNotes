@@ -2817,7 +2817,8 @@ class InkCanvasView @JvmOverloads constructor(
         val cy = r.top - off
 
         // handle disc
-        val discR = dpToPx( nine = 9f ) // helper below; keeps the call legible
+        val discR = dpToPx(9f)
+
         val fill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFAFAFA.toInt() }
         val stroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
             style = Paint.Style.STROKE
@@ -3169,7 +3170,8 @@ class InkCanvasView @JvmOverloads constructor(
 
     // ===== Utilities & gestures =====
 
-    private fun dpToPx(nine: Float): Float = nine * resources.displayMetrics.density
+    fun dpToPx(dp: Float): Float = dp * resources.displayMetrics.density
+
 
 
 
