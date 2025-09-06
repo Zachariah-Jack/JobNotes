@@ -1415,7 +1415,8 @@ class InkCanvasView @JvmOverloads constructor(
                         }
                     }
 
-                    something is selected and the tap is on blank
+                    // If something is selected and the tap is on blank canvas (no stroke hit), deselect,
+// except when the tap is on the width popup.
 
                     // Selection HUD button tap?
                     run {
