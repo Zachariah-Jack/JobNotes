@@ -842,6 +842,11 @@ class InkCanvasView @JvmOverloads constructor(
     private var startBounds = RectF()
     private val savedPoints: MutableMap<StrokeOp, List<Point>> = HashMap()
     private val savedBaseWidth: MutableMap<StrokeOp, Float> = HashMap()
+    // Rotation overlay state (rotate selection box during rotation gesture)
+    private var overlayRotateAngleRad: Float = 0f
+    private var overlayRotateActive: Boolean = false
+    private var overlayStartBounds = RectF()
+
 
     private val handleSizeDp = 14f
     private val handleTouchPadDp = 18f
@@ -865,6 +870,8 @@ class InkCanvasView @JvmOverloads constructor(
     private var rotateStartAngleRad: Float? = null
     private var rotateCenterX = 0f
     private var rotateCenterY = 0f
+    private var rotateSnapTolDeg = 8f
+
 
 
 
@@ -1074,17 +1081,30 @@ class InkCanvasView @JvmOverloads constructor(
             canvas.drawPath(path, marqueeOutline)
         }
         if (selectedStrokes.isNotEmpty()) {
-            drawSelectionHighlights(canvas)
-            selectedBounds?.let { r ->
-                canvas.drawRect(r, selectionOutline)
-                if (selectionInteractive) {
-                    drawHandles(canvas, r)
+            // During rotation gesture, draw rotated box/handles around the original bounds.
+            if (overlayRotateActive && overlayStartBounds.width() > 0f && overlayStartBounds.height() > 0f) {
+                drawRotatedSelectionBox(canvas, overlayStartBounds, overlayRotateAngleRad)
+                // Rotate-handle should also appear aligned over the rotated box: draw using rotated top-mid.
+                // We'll draw it relative to rotated canvas for consistency:
+                canvas.save()
+                val cx = overlayStartBounds.centerX()
+                val cy = overlayStartBounds.centerY()
+                canvas.rotate(Math.toDegrees(overlayRotateAngleRad.toDouble()).toFloat(), cx, cy)
+                drawRotateHandle(canvas, overlayStartBounds)
+                canvas.restore()
+            } else {
+                // Normal (not rotating): axis-aligned visuals using current bounds
+                drawSelectionHighlights(canvas)
+                selectedBounds?.let { r ->
+                    canvas.drawRect(r, selectionOutline)
+                    if (selectionInteractive) {
+                        drawHandles(canvas, r)
+                    }
+                    drawRotateHandle(canvas, r)
                 }
-                // Draw rotate handle above top-middle of the selection box
-                drawRotateHandle(canvas, r)
-
             }
         }
+
 
         // Draw selection width HUD button at bottom-right (outside bbox)
 // Offset by the handle touch pad + extra, so we never overlap the resize handle.
@@ -1721,7 +1741,16 @@ class InkCanvasView @JvmOverloads constructor(
         val seek = content.findViewById<android.widget.SeekBar>(com.pelicankb.jobnotes.R.id.seekSelStroke)
         val value = content.findViewById<android.widget.TextView>(com.pelicankb.jobnotes.R.id.valueDp)
 
-        // Initialize value from average DP of selection
+        // Ensure these views can receive touch/focus
+        content.isClickable = true
+        content.isFocusable = true
+        content.isFocusableInTouchMode = true
+        seek.isEnabled = true
+        seek.isClickable = true
+        seek.isFocusable = true
+        seek.isFocusableInTouchMode = true
+
+        // Initialize from selection: average DP
         val density = resources.displayMetrics.density
         val avgPx = selectedStrokes.map { it.baseWidth }.average().toFloat().coerceAtLeast(0.5f)
         val startDp = (avgPx / density).coerceIn(1f, 120f)
@@ -1729,7 +1758,7 @@ class InkCanvasView @JvmOverloads constructor(
         seek.progress = startDp.toInt()
         value.text = "${startDp.toInt()} dp"
 
-        // Paint preview line using a drawable background (draw manually)
+        // Preview line drawable
         preview.background = object : android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT) {
             override fun draw(canvas: android.graphics.Canvas) {
                 super.draw(canvas)
@@ -1749,9 +1778,9 @@ class InkCanvasView @JvmOverloads constructor(
             override fun onProgressChanged(sb: android.widget.SeekBar?, v: Int, fromUser: Boolean) {
                 val dp = v.coerceAtLeast(1)
                 value.text = "$dp dp"
-                // absolute normalize
+                // Absolute normalize on current selection
                 updateSelectedStrokeWidthDp(dp.toFloat())
-                // refresh preview
+                // Refresh preview
                 preview.invalidate()
             }
             override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
@@ -1762,21 +1791,25 @@ class InkCanvasView @JvmOverloads constructor(
             content,
             android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
             android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-            true
+            true /* focusable: true so SeekBar gets key/touch focus */
         ).apply {
             isOutsideTouchable = true
+            isTouchable = true
             setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.WHITE))
             elevation = 12f
+            inputMethodMode = android.widget.PopupWindow.INPUT_METHOD_NEEDED
+            softInputMode = android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
             setOnDismissListener { selWidthPopup = null }
+            // Allow over-screen edges if needed
+            isClippingEnabled = false
         }
 
-        // Compute screen position near bottom-right of selection, open down-right, flip if needed
+        // Compute screen pos down-right from corner; flip if near edges.
         val loc = IntArray(2)
-        getLocationOnScreen(loc) // this view's top-left on screen
+        getLocationOnScreen(loc)
         val screenX = (loc[0] + anchorRectView.right).toInt()
         val screenY = (loc[1] + anchorRectView.bottom).toInt()
 
-        // Measure popup size
         content.measure(
             android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED),
             android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED)
@@ -1790,11 +1823,9 @@ class InkCanvasView @JvmOverloads constructor(
         var x = screenX + dpToPx(6f).toInt()
         var y = screenY + dpToPx(6f).toInt()
 
-        // Flip left/up only if needed (edge case)
         if (x + pw > displayRect.right) x = (screenX - pw - dpToPx(6f)).toInt()
         if (y + ph > displayRect.bottom) y = (screenY - ph - dpToPx(6f)).toInt()
 
-        // Show at absolute screen coords
         selWidthPopup?.showAtLocation(this, android.view.Gravity.START or android.view.Gravity.TOP, x, y)
     }
 
@@ -2004,6 +2035,10 @@ class InkCanvasView @JvmOverloads constructor(
                 rotateCenterX = r.centerX()
                 rotateCenterY = r.centerY()
                 rotateStartAngleRad = atan2(cy - rotateCenterY, cx - rotateCenterX)
+                overlayRotateActive = true
+                overlayRotateAngleRad = 0f
+                overlayStartBounds.set(startBounds)  // keep the original bounds for drawing a rotated box
+
                 TransformKind.ROTATE
             }
             else -> null
@@ -2061,8 +2096,11 @@ class InkCanvasView @JvmOverloads constructor(
 
                 val deltaDeg = Math.toDegrees(delta.toDouble()).toFloat()
                 val snapped = (deltaDeg / rotateSnapDeg).roundToInt() * rotateSnapDeg
-                val snapUse = if (abs(deltaDeg - snapped) <= rotateSnapTolDeg) snapped else deltaDeg
-                val deltaRad = Math.toRadians(snapUse.toDouble()).toFloat()
+                val useDeg = if (abs(deltaDeg - snapped) <= rotateSnapTolDeg) snapped else deltaDeg
+                val deltaRad = Math.toRadians(useDeg.toDouble()).toFloat()
+                overlayRotateAngleRad = Math.toRadians(useDeg.toDouble()).toFloat()
+
+
 
                 for ((s, pts0) in savedPoints) {
                     s.points.clear()
@@ -2084,6 +2122,9 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     private fun finishTransform() {
+        overlayRotateActive = false
+        overlayRotateAngleRad = 0f
+
         transforming = false
         transformKind = null
         savedPoints.clear()
@@ -2811,6 +2852,22 @@ class InkCanvasView @JvmOverloads constructor(
         box(r.left, r.centerY())
         box(r.right, r.centerY())
     }
+    private fun drawRotatedSelectionBox(canvas: Canvas, r: RectF, angleRad: Float) {
+        // Rotate around selection center
+        val cx = r.centerX()
+        val cy = r.centerY()
+        canvas.save()
+        canvas.rotate(Math.toDegrees(angleRad.toDouble()).toFloat(), cx, cy)
+
+        // Draw the same selection visuals on the rotated canvas using the "start" bounds
+        canvas.drawRect(overlayStartBounds, selectionOutline)
+        if (selectionInteractive) {
+            // Draw handles at the corners/edges of the start bounds under rotation
+            drawHandles(canvas, overlayStartBounds)
+        }
+        canvas.restore()
+    }
+
     private fun drawRotateHandle(canvas: Canvas, r: RectF) {
         val off = dpToPx(rotateHandleOffsetDp)
         val cx = r.centerX()
