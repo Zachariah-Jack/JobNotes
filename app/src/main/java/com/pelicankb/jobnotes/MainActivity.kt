@@ -21,6 +21,8 @@ import android.widget.CheckBox
 import android.widget.PopupWindow
 import android.widget.SeekBar
 import android.widget.TextView
+import android.widget.Button
+
 
 
 import androidx.appcompat.app.AlertDialog
@@ -868,48 +870,7 @@ class MainActivity : AppCompatActivity() {
         sizeSlider.progress = brushSizeDp.toInt().coerceIn(1, sizeSlider.max)
         applySizeToUiAndCanvas(brushSizeDp, live = false)
 
-        // --- Selection width contextual UI ---
-        val selRow   = content.findViewById<View>(R.id.selWidthRow)
-        val bN10     = content.findViewById<Button?>(R.id.btnDeltaN10)
-        val bN1      = content.findViewById<Button?>(R.id.btnDeltaN1)
-        val bP1      = content.findViewById<Button?>(R.id.btnDeltaP1)
-        val bP10     = content.findViewById<Button?>(R.id.btnDeltaP10)
-        val seekNorm = content.findViewById<SeekBar?>(R.id.seekSelNormalize)
-        val txtNorm  = content.findViewById<TextView?>(R.id.selNormalizeValue)
 
-// Show row only if a selection exists
-        selRow.visibility = if (inkCanvas.hasSelection()) View.VISIBLE else View.GONE
-
-        bN10?.setOnClickListener {
-            // relative: -10 dp per selected stroke
-            inkCanvas.updateSelectedStrokeWidthDeltaDp(-10f)
-            inkCanvas.requestFocus()
-        }
-        bN1?.setOnClickListener {
-            inkCanvas.updateSelectedStrokeWidthDeltaDp(-1f)
-            inkCanvas.requestFocus()
-        }
-        bP1?.setOnClickListener {
-            inkCanvas.updateSelectedStrokeWidthDeltaDp(+1f)
-            inkCanvas.requestFocus()
-        }
-        bP10?.setOnClickListener {
-            inkCanvas.updateSelectedStrokeWidthDeltaDp(+10f)
-            inkCanvas.requestFocus()
-        }
-
-        seekNorm?.max = 120
-        seekNorm?.progress = 24
-        txtNorm?.text = "24 dp"
-        seekNorm?.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
-                txtNorm?.text = "$value dp"
-                // absolute normalize
-                inkCanvas.updateSelectedStrokeWidthDp(value.toFloat())
-            }
-            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
-        })
 
         // --- Click listeners: change brush type, then apply ---
         val onBrushClick = View.OnClickListener { v ->
@@ -956,6 +917,49 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         })
+
+        // --- Selection width contextual UI (null-safe wiring; only shows if IDs exist AND selection exists) ---
+        run {
+            val selRow     = content.findViewById<View?>(R.id.selWidthRow)
+            val bN10       = content.findViewById<Button?>(R.id.btnDeltaN10)
+            val bN1        = content.findViewById<Button?>(R.id.btnDeltaN1)
+            val bP1        = content.findViewById<Button?>(R.id.btnDeltaP1)
+            val bP10       = content.findViewById<Button?>(R.id.btnDeltaP10)
+            val seekNorm   = content.findViewById<SeekBar?>(R.id.seekSelNormalize)
+            val txtNorm    = content.findViewById<TextView?>(R.id.selNormalizeValue)
+            val bScaleM10  = content.findViewById<Button?>(R.id.btnScaleM10)   // optional if you add to XML
+            val bScaleM5   = content.findViewById<Button?>(R.id.btnScaleM5)    // optional
+            val bScaleP5   = content.findViewById<Button?>(R.id.btnScaleP5)    // optional
+            val bScaleP10  = content.findViewById<Button?>(R.id.btnScaleP10)   // optional
+
+            val hasSel = inkCanvas.hasSelection()
+            selRow?.visibility = if (hasSel) View.VISIBLE else View.GONE
+
+            if (hasSel) {
+                bN10?.setOnClickListener { inkCanvas.updateSelectedStrokeWidthDeltaDp(-10f); inkCanvas.requestFocus() }
+                bN1 ?.setOnClickListener { inkCanvas.updateSelectedStrokeWidthDeltaDp(-1f ); inkCanvas.requestFocus() }
+                bP1 ?.setOnClickListener { inkCanvas.updateSelectedStrokeWidthDeltaDp(+1f ); inkCanvas.requestFocus() }
+                bP10?.setOnClickListener { inkCanvas.updateSelectedStrokeWidthDeltaDp(+10f); inkCanvas.requestFocus() }
+
+                // Optional percent controls (if present in XML)
+                bScaleM10?.setOnClickListener { inkCanvas.updateSelectedStrokeWidthScale(0.90f); inkCanvas.requestFocus() }
+                bScaleM5 ?.setOnClickListener { inkCanvas.updateSelectedStrokeWidthScale(0.95f); inkCanvas.requestFocus() }
+                bScaleP5 ?.setOnClickListener { inkCanvas.updateSelectedStrokeWidthScale(1.05f); inkCanvas.requestFocus() }
+                bScaleP10?.setOnClickListener { inkCanvas.updateSelectedStrokeWidthScale(1.10f); inkCanvas.requestFocus() }
+
+                // Absolute normalize (existing). If seek/label exist, wire them.
+                seekNorm?.max = 120
+                // If you want to reflect a "mixed" state, you can leave progress as-is.
+                seekNorm?.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+                    override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
+                        txtNorm?.text = "$value dp"
+                        inkCanvas.updateSelectedStrokeWidthDp(value.toFloat())
+                    }
+                    override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+                    override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+                })
+            }
+        }
 
         // Return a focusable popup that dismisses on outside-tap and restores canvas focus
         return PopupWindow(

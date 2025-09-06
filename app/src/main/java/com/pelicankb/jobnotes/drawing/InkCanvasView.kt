@@ -389,6 +389,74 @@ class InkCanvasView @JvmOverloads constructor(
         for (s in selectedStrokes) s.baseWidth = px
         rebuildCommitted(); invalidate()
     }
+    /**
+     * Relative width change for the current selection.
+     * Adds/subtracts a fixed delta in DP to each selected stroke's width, preserving differences.
+     * Returns true if any stroke changed.
+     */
+    fun updateSelectedStrokeWidthDeltaDp(
+        deltaDp: Float,
+        minDp: Float = 0.5f,
+        maxDp: Float = 120f
+    ): Boolean {
+        if (selectedStrokes.isEmpty()) return false
+
+        val density = resources.displayMetrics.density
+        var changed = false
+
+        for (s in selectedStrokes) {
+            // Current width in dp (baseWidth is px)
+            val curDp = (s.baseWidth / density)
+            val newDp = (curDp + deltaDp).coerceIn(minDp, maxDp)
+            val newPx = newDp * density
+            if (newPx != s.baseWidth) {
+                s.baseWidth = newPx
+                changed = true
+            }
+        }
+
+        if (changed) {
+            rebuildCommitted()
+            invalidate()
+        }
+        return changed
+    }
+
+    /**
+     * Proportional (percent) width change for the current selection.
+     * Multiplies each selected stroke's width by [scale], preserving differences
+     * (e.g., 1.10f => +10%, 0.90f => -10%).
+     * Returns true if any stroke changed.
+     */
+    fun updateSelectedStrokeWidthScale(
+        scale: Float,
+        minDp: Float = 0.5f,
+        maxDp: Float = 120f
+    ): Boolean {
+        if (selectedStrokes.isEmpty()) return false
+        // Treat near-1.0 as no-op to avoid micro jitter
+        if (kotlin.math.abs(scale - 1f) < 0.0005f) return false
+
+        val density = resources.displayMetrics.density
+        var changed = false
+
+        for (s in selectedStrokes) {
+            val curDp = (s.baseWidth / density)
+            val newDp = (curDp * scale).coerceIn(minDp, maxDp)
+            val newPx = newDp * density
+            if (newPx != s.baseWidth) {
+                s.baseWidth = newPx
+                changed = true
+            }
+        }
+
+        if (changed) {
+            rebuildCommitted()
+            invalidate()
+        }
+        return changed
+    }
+
 
     fun updateSelectedStrokeColor(color: Int) {
         if (selectedStrokes.isEmpty()) return
