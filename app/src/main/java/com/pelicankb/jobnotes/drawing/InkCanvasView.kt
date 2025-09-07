@@ -399,12 +399,13 @@ class InkCanvasView @JvmOverloads constructor(
         if (try {
                 val f = this::class.java.getDeclaredField("selectedStrokes")
                 f.isAccessible = true
-                val set = f.get(this) as? MutableSet<Any>
+                val set = f.get(this) as? MutableSet<*>
+
                 if (!set.isNullOrEmpty()) {
                     for (s in set) {
-                        val w = s.javaClass.getDeclaredField("baseWidth")
-                        w.isAccessible = true
-                        w.setFloat(s, px)
+                        val w = s?.javaClass?.getDeclaredField("baseWidth")
+                        w?.isAccessible = true
+                        w?.setFloat(s, px)
                     }
                     true
                 } else false
@@ -415,12 +416,12 @@ class InkCanvasView @JvmOverloads constructor(
         if (try {
                 val f = this::class.java.getDeclaredField("selected")
                 f.isAccessible = true
-                val set = f.get(this) as? MutableSet<Any>
+                val set = f.get(this) as? MutableSet<*>
                 if (!set.isNullOrEmpty()) {
                     for (s in set) {
-                        val w = s.javaClass.getDeclaredField("baseWidth")
-                        w.isAccessible = true
-                        w.setFloat(s, px)
+                        val w = s?.javaClass?.getDeclaredField("baseWidth")
+                        w?.isAccessible = true
+                        w?.setFloat(s, px)
                     }
                     true
                 } else false
@@ -505,12 +506,12 @@ class InkCanvasView @JvmOverloads constructor(
         if (try {
                 val f = this::class.java.getDeclaredField("selectedStrokes")
                 f.isAccessible = true
-                val set = f.get(this) as? MutableSet<Any>
+                val set = f.get(this) as? MutableSet<*>
                 if (!set.isNullOrEmpty()) {
                     for (s in set) {
-                        val c = s.javaClass.getDeclaredField("color")
-                        c.isAccessible = true
-                        c.setInt(s, color)
+                        val c = s?.javaClass?.getDeclaredField("color")
+                        c?.isAccessible = true
+                        c?.setInt(s, color)
                     }
                     true
                 } else false
@@ -520,12 +521,12 @@ class InkCanvasView @JvmOverloads constructor(
         if (try {
                 val f = this::class.java.getDeclaredField("selected")
                 f.isAccessible = true
-                val set = f.get(this) as? MutableSet<Any>
+                val set = f.get(this) as? MutableSet<*>
                 if (!set.isNullOrEmpty()) {
                     for (s in set) {
-                        val c = s.javaClass.getDeclaredField("color")
-                        c.isAccessible = true
-                        c.setInt(s, color)
+                        val c = s?.javaClass?.getDeclaredField("color")
+                        c?.isAccessible = true
+                        c?.setInt(s, color)
                     }
                     true
                 } else false
@@ -542,13 +543,13 @@ class InkCanvasView @JvmOverloads constructor(
         if (try {
                 val f = this::class.java.getDeclaredField("selectedStrokes")
                 f.isAccessible = true
-                val set = f.get(this) as? MutableSet<Any>
+                val set = f.get(this) as? MutableSet<*>
                 if (!set.isNullOrEmpty()) {
                     for (s in set) {
                         runCatching {
-                            val fld = s.javaClass.getDeclaredField("shapeFillColor")
-                            fld.isAccessible = true
-                            fld.set(s, colorOrNull)
+                            val fld = s?.javaClass?.getDeclaredField("shapeFillColor")
+                            fld?.isAccessible = true
+                            fld?.set(s, colorOrNull)
                         }
                     }
                     true
@@ -559,13 +560,13 @@ class InkCanvasView @JvmOverloads constructor(
         if (try {
                 val f = this::class.java.getDeclaredField("selected")
                 f.isAccessible = true
-                val set = f.get(this) as? MutableSet<Any>
+                val set = f.get(this) as? MutableSet<*>
                 if (!set.isNullOrEmpty()) {
                     for (s in set) {
                         runCatching {
-                            val fld = s.javaClass.getDeclaredField("shapeFillColor")
-                            fld.isAccessible = true
-                            fld.set(s, colorOrNull)
+                            val fld = s?.javaClass?.getDeclaredField("shapeFillColor")
+                            fld?.isAccessible = true
+                            fld?.set(s, colorOrNull)
                         }
                     }
                     true
