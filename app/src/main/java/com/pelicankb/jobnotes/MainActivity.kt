@@ -287,7 +287,7 @@ class MainActivity : AppCompatActivity() {
             // Pen family
             penFamilyColor = prefs.getInt(PREF_PEN_COLOR, Color.BLACK)
             // Highlighter
-            highlighterColor = prefs.getInt(PREF_HL_COLOR, 0x66FFD54F.toInt()) // amber @ ~40% alpha
+            highlighterColor = prefs.getInt(PREF_HL_COLOR, 0x4DFFD54F.toInt()) // amber @ ~40% alpha
             highlighterSizeDp = prefs.getFloat(PREF_HL_SIZE_DP, 12f)
 
             // Apply restored defaults to canvas
@@ -1037,9 +1037,11 @@ class MainActivity : AppCompatActivity() {
         // Color chip → advanced picker
         chip.setOnClickListener {
             showAdvancedColorPicker(highlighterColor) { picked ->
+                // AFTER (use lighter default alpha ~30%)
                 highlighterColor = if ((picked ushr 24) == 0xFF) {
-                    (0x66 shl 24) or (picked and 0x00FFFFFF)
+                    (0x4D shl 24) or (picked and 0x00FFFFFF)
                 } else picked
+
                 chip.imageTintList = ColorStateList.valueOf(highlighterColor)
                 preview?.setColor(highlighterColor)
 

@@ -2360,6 +2360,21 @@ class InkCanvasView @JvmOverloads constructor(
             xfermode = null
         }
 
+    private fun applyHighlighterBlend(p: Paint) {
+        if (android.os.Build.VERSION.SDK_INT >= 29) {
+            p.blendMode = android.graphics.BlendMode.LIGHTEN
+        } else {
+            @Suppress("DEPRECATION")
+            p.xfermode = android.graphics.PorterDuffXfermode(
+                android.graphics.PorterDuff.Mode.LIGHTEN
+            )
+        }
+        p.isAntiAlias = true
+        p.style = Paint.Style.STROKE
+        p.strokeCap = Paint.Cap.SQUARE
+        p.strokeJoin = Paint.Join.ROUND
+    }
+
     private val clearPaint = Paint().apply {
         isAntiAlias = true
         xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
@@ -2740,7 +2755,8 @@ class InkCanvasView @JvmOverloads constructor(
                 BrushType.HIGHLIGHTER_FREEFORM -> {
                     val pts = op.points
                     if (pts.size < 2 || ch == null) continue
-                    val p = newStrokePaint(op.color, op.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
+                    val p = newStrokePaint(op.color, op.baseWidth)
+                    applyHighlighterBlend(p)
                     withSection(ch, op) { c ->
                         for (i in 1 until pts.size) {
                             val a = pts[i - 1]; val b = pts[i]
@@ -2751,7 +2767,8 @@ class InkCanvasView @JvmOverloads constructor(
                 BrushType.HIGHLIGHTER_STRAIGHT -> {
                     val pts = op.points
                     if (pts.size < 2 || ch == null) continue
-                    val p = newStrokePaint(op.color, op.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
+                    val p = newStrokePaint(op.color, op.baseWidth)
+                    applyHighlighterBlend(p)
                     withSection(ch, op) { c ->
                         c.drawLine(pts.first().x, pts.first().y, pts.last().x, pts.last().y, p)
                     }
@@ -2904,13 +2921,17 @@ class InkCanvasView @JvmOverloads constructor(
                 BrushType.HIGHLIGHTER_FREEFORM -> {
                     val pts = s.points
                     if (pts.size < 2) continue
-                    val p = newStrokePaint(s.color, s.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
+                    val p = newStrokePaint(s.color, s.baseWidth)
+                    applyHighlighterBlend(p)
+
                     for (i in 1 until pts.size) canvas.drawLine(pts[i-1].x, pts[i-1].y, pts[i].x, pts[i].y, p)
                 }
                 BrushType.HIGHLIGHTER_STRAIGHT -> {
                     val pts = s.points
                     if (pts.size < 2) continue
-                    val p = newStrokePaint(s.color, s.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
+                    val p = newStrokePaint(s.color, s.baseWidth)
+                    applyHighlighterBlend(p)
+
                     canvas.drawLine(pts.first().x, pts.first().y, pts.last().x, pts.last().y, p)
                 }
                 else -> {}
@@ -3591,12 +3612,14 @@ class InkCanvasView @JvmOverloads constructor(
 
         when (op.type) {
             BrushType.HIGHLIGHTER_FREEFORM -> {
-                val p = newStrokePaint(op.color, op.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
+                val p = newStrokePaint(op.color, op.baseWidth)
+                applyHighlighterBlend(p)
                 scratchHLScratchCanvas(op)?.let { withSection(it, op) { c -> c.drawLine(sx, sy, nx, ny, p) } }
             }
             BrushType.HIGHLIGHTER_STRAIGHT -> {
                 scratchHLBySection.getOrNull(op.sectionIndex)?.eraseColor(Color.TRANSPARENT)
-                val p = newStrokePaint(op.color, op.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
+                val p = newStrokePaint(op.color, op.baseWidth)
+                applyHighlighterBlend(p)
                 val a = op.points.first()
                 scratchHLScratchCanvas(op)?.let { withSection(it, op) { c -> c.drawLine(a.x, a.y, nx, ny, p) } }
             }
@@ -4225,9 +4248,10 @@ class InkCanvasView @JvmOverloads constructor(
         val sec = op.sectionIndex
         val paint = newStrokePaint(op.color, op.baseWidth).apply {
             if (op.type == BrushType.HIGHLIGHTER_FREEFORM || op.type == BrushType.HIGHLIGHTER_STRAIGHT) {
-                strokeCap = Paint.Cap.SQUARE
+                applyHighlighterBlend(this)
             }
         }
+
         if (op.type == BrushType.HIGHLIGHTER_FREEFORM || op.type == BrushType.HIGHLIGHTER_STRAIGHT) {
             scratchHLBySection.getOrNull(sec)?.eraseColor(Color.TRANSPARENT)
             scratchHLScratchCanvas(op)?.let { withSection(it, op) { c -> draw(c, paint) } }
@@ -4260,7 +4284,8 @@ class InkCanvasView @JvmOverloads constructor(
         if (pts.size < 2) return
         if (op.type == BrushType.HIGHLIGHTER_FREEFORM || op.type == BrushType.HIGHLIGHTER_STRAIGHT) {
             val ch = scratchHLScratchCanvas(op) ?: return
-            val p = newStrokePaint(op.color, op.baseWidth).apply { strokeCap = Paint.Cap.SQUARE }
+            val p = newStrokePaint(op.color, op.baseWidth).apply { applyHighlighterBlend(this) }
+
             withSection(ch, op) { c ->
                 for (i in 1 until pts.size) {
                     val a = pts[i - 1]; val b = pts[i]
