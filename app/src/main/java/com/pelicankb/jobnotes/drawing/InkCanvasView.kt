@@ -390,11 +390,44 @@ class InkCanvasView @JvmOverloads constructor(
         invalidate()
     }
 
+    // ADD/REPLACE — unified updater: works for newer selectedStrokes AND legacy selected
     fun updateSelectedStrokeWidthDp(dp: Float) {
-        if (selectedStrokes.isEmpty()) return
         val px = dpToPx(dp)
-        for (s in selectedStrokes) s.baseWidth = px
-        rebuildCommitted(); invalidate()
+        var changed = false
+
+        // Newer selection set
+        if (try {
+                val f = this::class.java.getDeclaredField("selectedStrokes")
+                f.isAccessible = true
+                val set = f.get(this) as? MutableSet<Any>
+                if (!set.isNullOrEmpty()) {
+                    for (s in set) {
+                        val w = s.javaClass.getDeclaredField("baseWidth")
+                        w.isAccessible = true
+                        w.setFloat(s, px)
+                    }
+                    true
+                } else false
+            } catch (_: Throwable) { false }
+        ) changed = true
+
+        // Legacy selection set
+        if (try {
+                val f = this::class.java.getDeclaredField("selected")
+                f.isAccessible = true
+                val set = f.get(this) as? MutableSet<Any>
+                if (!set.isNullOrEmpty()) {
+                    for (s in set) {
+                        val w = s.javaClass.getDeclaredField("baseWidth")
+                        w.isAccessible = true
+                        w.setFloat(s, px)
+                    }
+                    true
+                } else false
+            } catch (_: Throwable) { false }
+        ) changed = true
+
+        if (changed) { rebuildCommitted(); invalidate() }
     }
     /**
      * Relative width change for the current selection.
@@ -465,16 +498,82 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
 
+    // ADD/REPLACE — unified updater (new + legacy)
     fun updateSelectedStrokeColor(color: Int) {
-        if (selectedStrokes.isEmpty()) return
-        for (s in selectedStrokes) s.color = color
-        rebuildCommitted(); invalidate()
+        var changed = false
+
+        if (try {
+                val f = this::class.java.getDeclaredField("selectedStrokes")
+                f.isAccessible = true
+                val set = f.get(this) as? MutableSet<Any>
+                if (!set.isNullOrEmpty()) {
+                    for (s in set) {
+                        val c = s.javaClass.getDeclaredField("color")
+                        c.isAccessible = true
+                        c.setInt(s, color)
+                    }
+                    true
+                } else false
+            } catch (_: Throwable) { false }
+        ) changed = true
+
+        if (try {
+                val f = this::class.java.getDeclaredField("selected")
+                f.isAccessible = true
+                val set = f.get(this) as? MutableSet<Any>
+                if (!set.isNullOrEmpty()) {
+                    for (s in set) {
+                        val c = s.javaClass.getDeclaredField("color")
+                        c.isAccessible = true
+                        c.setInt(s, color)
+                    }
+                    true
+                } else false
+            } catch (_: Throwable) { false }
+        ) changed = true
+
+        if (changed) { rebuildCommitted(); invalidate() }
     }
 
+    // ADD/REPLACE — unified updater (new + legacy); freehand will ignore fill
     fun updateSelectedShapeFill(colorOrNull: Int?) {
-        if (selectedStrokes.isEmpty()) return
-        for (s in selectedStrokes) s.shapeFillColor = colorOrNull
-        rebuildCommitted(); invalidate()
+        var changed = false
+
+        if (try {
+                val f = this::class.java.getDeclaredField("selectedStrokes")
+                f.isAccessible = true
+                val set = f.get(this) as? MutableSet<Any>
+                if (!set.isNullOrEmpty()) {
+                    for (s in set) {
+                        runCatching {
+                            val fld = s.javaClass.getDeclaredField("shapeFillColor")
+                            fld.isAccessible = true
+                            fld.set(s, colorOrNull)
+                        }
+                    }
+                    true
+                } else false
+            } catch (_: Throwable) { false }
+        ) changed = true
+
+        if (try {
+                val f = this::class.java.getDeclaredField("selected")
+                f.isAccessible = true
+                val set = f.get(this) as? MutableSet<Any>
+                if (!set.isNullOrEmpty()) {
+                    for (s in set) {
+                        runCatching {
+                            val fld = s.javaClass.getDeclaredField("shapeFillColor")
+                            fld.isAccessible = true
+                            fld.set(s, colorOrNull)
+                        }
+                    }
+                    true
+                } else false
+            } catch (_: Throwable) { false }
+        ) changed = true
+
+        if (changed) { rebuildCommitted(); invalidate() }
     }
 
 
