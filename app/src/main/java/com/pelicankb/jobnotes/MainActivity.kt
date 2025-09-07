@@ -331,7 +331,7 @@ class MainActivity : AppCompatActivity() {
         // Make sure the pencil (edit title) button is a hard, live target.
         btnTitleEdit.isEnabled = true
         btnTitleEdit.isClickable = true
-        btnTitleEdit.isClickable = true
+
         btnTitleEdit.isFocusable = true
         btnTitleEdit.isFocusableInTouchMode = false
         btnTitleEdit.setOnClickListener { enterTitleEditMode() }
