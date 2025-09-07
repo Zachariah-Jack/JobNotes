@@ -39,6 +39,9 @@ import kotlin.math.*
 import kotlin.random.Random
 import kotlin.math.max
 import kotlin.math.roundToInt
+import kotlin.math.hypot
+import kotlin.math.max
+
 
 
 /**
@@ -2118,7 +2121,7 @@ class InkCanvasView @JvmOverloads constructor(
         for (s in strokes) {
             if (s.hidden) continue
             if (s.sectionIndex != selectionPage) continue  // PAGE-LOCAL selection rule
-            if (s.type == BrushType.ERASER_AREA || s.type == BrushType.ERASER_STROKE) continue
+
 
             val b = strokeBounds(s) ?: continue
             if (!RectF(selBox).intersect(b)) continue
@@ -2262,6 +2265,8 @@ class InkCanvasView @JvmOverloads constructor(
 
         // bring moved selection to the top so past erasers don’t punch through
         moveSelectionToTop()
+        normalizeAreaErasersToEnd()
+
 
         // unhide strokes and drop overlay
         for (s in selectedStrokes) s.hidden = false
@@ -2360,6 +2365,12 @@ class InkCanvasView @JvmOverloads constructor(
             xfermode = null
         }
 
+    // Small helper used by rebuildCommitted() to clear a circular area
+    private fun clearDisc(canvas: Canvas?, cx: Float, cy: Float, radius: Float) {
+        if (canvas == null) return
+        canvas.drawCircle(cx, cy, radius, clearPaint)
+    }
+
     private fun applyHighlighterBlend(p: Paint) {
         if (android.os.Build.VERSION.SDK_INT >= 29) {
             p.blendMode = android.graphics.BlendMode.LIGHTEN
@@ -2379,6 +2390,8 @@ class InkCanvasView @JvmOverloads constructor(
         isAntiAlias = true
         xfermode = PorterDuffXfermode(PorterDuff.Mode.CLEAR)
     }
+
+
 
     // ===== Simple segment renderers =====
 
@@ -2818,28 +2831,36 @@ class InkCanvasView @JvmOverloads constructor(
                         }
                     }
                 }
+                // ADD inside rebuildCommitted()'s when(op.type)
                 BrushType.ERASER_AREA -> {
+                    // Mirror the incremental logic from extendStroke(): clear circles along the path
                     val pts = op.points
                     if (pts.size < 2) continue
+
                     val half = op.baseWidth * 0.5f
-                    val clearInk = !op.eraseHLOnly
-                    val ci0 = committedInkCanvas(op)
-                    val ch0 = committedHLCanvas(op)
-                    if (ci0 == null && ch0 == null) continue
+                    val clearInk = !op.eraseHLOnly  // same semantic as your live path
+
+                    val ci0 = committedInkCanvas(op)      // ink layer for this section
+                    val ch0 = committedHLCanvas(op)       // highlighter layer for this section
+
                     for (i in 1 until pts.size) {
                         val a = pts[i - 1]; val b = pts[i]
                         val dx = b.x - a.x; val dy = b.y - a.y
                         val dist = hypot(dx.toDouble(), dy.toDouble()).toFloat()
                         val steps = max(1, (dist / max(1f, half)).toInt())
+
                         for (k in 0..steps) {
                             val t = k / steps.toFloat()
                             val px = a.x + dx * t
                             val py = a.y + dy * t
-                            ci0?.let { withSection(it, op) { c -> if (clearInk) c.drawCircle(px, py, half, clearPaint) } }
-                            ch0?.let { withSection(it, op) { c -> c.drawCircle(px, py, half, clearPaint) } }
+
+                            if (clearInk) withSection(ci0, op) { c -> c.drawCircle(px, py, half, clearPaint) }
+                            withSection(ch0, op) { c -> c.drawCircle(px, py, half, clearPaint) }
+
                         }
                     }
                 }
+
                 BrushType.ERASER_STROKE -> { /* no-op on rebuild; already applied by removing strokes */ }
             }
         }
@@ -3103,7 +3124,7 @@ class InkCanvasView @JvmOverloads constructor(
         // collect strokes whose bounds intersect the expanded seed bounds
         for (s in strokes) {
             if (s === seed || !s.hidden) {
-                if (s.type == BrushType.ERASER_AREA || s.type == BrushType.ERASER_STROKE) continue
+
                 val b = strokeBounds(s) ?: continue
                 if (RectF.intersects(expanded, b)) selectedStrokes.add(s)
             }
@@ -3192,8 +3213,14 @@ class InkCanvasView @JvmOverloads constructor(
                 if (pts.size < 2) return null
                 buildPolylineArea(pts, s.baseWidth * 0.5f)
             }
-            BrushType.ERASER_AREA,
+            BrushType.ERASER_AREA -> {
+                val pts = s.points
+                if (pts.size < 2) return null
+                // treat eraser area like a thick polyline so selection region can include it
+                buildPolylineArea(pts, s.baseWidth * 0.5f)
+            }
             BrushType.ERASER_STROKE -> null
+
         }
     }
 
@@ -3819,17 +3846,50 @@ class InkCanvasView @JvmOverloads constructor(
         s.fountainPath = null
     }
 
+    // *** NEW: after moving/resizing, keep selection together and ensure erasers render last within the group ***
     private fun moveSelectionToTop() {
         if (selectedStrokes.isEmpty()) return
-        val ordered = strokes.filter { selectedStrokes.contains(it) }
-        if (ordered.isEmpty()) return
-        val set = selectedStrokes
+
+        // 1) Extract the selected ops in their current relative order
+        val group = ArrayList<StrokeOp>(selectedStrokes.size)
         val it = strokes.iterator()
         while (it.hasNext()) {
-            if (set.contains(it.next())) it.remove()
+            val s = it.next()
+            if (selectedStrokes.contains(s)) {
+                group.add(s)
+                it.remove()
+            }
         }
-        strokes.addAll(ordered)
+
+        if (group.isEmpty()) return
+
+        // 2) Stable-partition within the selection: non-erasers first, ERASER_AREA last
+        val nonErasers = ArrayList<StrokeOp>(group.size)
+        val erasers = ArrayList<StrokeOp>()
+        for (s in group) {
+            if (s.type == BrushType.ERASER_AREA) erasers.add(s) else nonErasers.add(s)
+        }
+
+        // 3) Append back in order so erasers render after sibling strokes
+        strokes.addAll(nonErasers)
+        strokes.addAll(erasers)
     }
+    // Keep all ERASER_AREA ops at the end so rebuildCommitted() will always
+// draw strokes first and then apply area clears. This preserves erasures
+// even if selections are reordered to the top.
+    private fun normalizeAreaErasersToEnd() {
+        if (strokes.isEmpty()) return
+        val keep = ArrayList<StrokeOp>(strokes.size)
+        val area = ArrayList<StrokeOp>()
+        for (s in strokes) {
+            if (s.type == BrushType.ERASER_AREA) area.add(s) else keep.add(s)
+        }
+        if (area.isEmpty()) return
+        strokes.clear()
+        strokes.addAll(keep)   // original order for non-erasers preserved
+        strokes.addAll(area)   // original order among erasers preserved
+    }
+
 
     // ===== Pan/zoom helpers =====
 
