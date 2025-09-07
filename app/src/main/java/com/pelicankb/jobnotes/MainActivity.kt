@@ -454,16 +454,27 @@ class MainActivity : AppCompatActivity() {
 
 
 
-        // Toolbar: Highlighter (open/close only; DO NOT switch family here)
+
+
+        // Toolbar: Highlighter — switch family + apply HL state, then open popup
         btnHighlighter.setOnClickListener { v ->
             findViewById<ImageButton?>(R.id.btnHandPen)?.isSelected = false
             findViewById<ImageButton?>(R.id.btnHandKbd)?.isSelected = false
             inkCanvas.setPanMode(false)
 
-            toggleHighlighterPopup(v)
-            updateToolbarActiveStates()
-        }
+            // Real tool switch (end any selection; arm HL)
+            if (toolFamily != ToolFamily.HIGHLIGHTER) {
+                inkCanvas.setSelectionToolNone(keepSelection = false)
+                selectionArmed = false
+                selectPopup?.dismiss()
 
+                toolFamily = ToolFamily.HIGHLIGHTER
+                applyHighlighterBrush()   // << sets HL brush + size + color (already defined below)
+                updateToolbarActiveStates()
+            }
+
+            toggleHighlighterPopup(v)
+        }
 
 
         // Toolbar: Eraser (open/close only; DO NOT switch family here)
@@ -1031,13 +1042,14 @@ class MainActivity : AppCompatActivity() {
                 } else picked
                 chip.imageTintList = ColorStateList.valueOf(highlighterColor)
                 preview?.setColor(highlighterColor)
-                if (toolFamily == ToolFamily.HIGHLIGHTER) {
-                    inkCanvas.setColor(highlighterColor)
-                }
-                // Persist HL color
+
+                // Always live-apply
+                inkCanvas.setColor(highlighterColor)
+
                 prefs.edit().putInt(PREF_HL_COLOR, highlighterColor).apply()
             }
         }
+
 
         // Size slider (live update + persist on release)
         slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
@@ -1046,10 +1058,11 @@ class MainActivity : AppCompatActivity() {
                 sizeTxt.text = "$v dp"
                 highlighterSizeDp = v.toFloat()
                 preview?.setStrokeWidthDp(highlighterSizeDp)
-                if (toolFamily == ToolFamily.HIGHLIGHTER) {
-                    inkCanvas.setStrokeWidthDp(highlighterSizeDp)
-                }
+
+                // Always live-apply
+                inkCanvas.setStrokeWidthDp(highlighterSizeDp)
             }
+
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {
                 prefs.edit().putFloat(PREF_HL_SIZE_DP, highlighterSizeDp).apply()
