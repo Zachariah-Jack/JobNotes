@@ -9,6 +9,7 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.LinearGradient
 import android.graphics.Shader
+import android.graphics.Color
 import android.os.SystemClock
 import android.graphics.drawable.Drawable
 
@@ -24,6 +25,7 @@ import android.view.ViewConfiguration
 import android.view.animation.PathInterpolator
 import android.widget.OverScroller
 import androidx.core.graphics.withSave
+import androidx.core.graphics.drawable.DrawableCompat
 import androidx.core.content.ContextCompat
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -1763,6 +1765,19 @@ class InkCanvasView @JvmOverloads constructor(
         seek.isFocusable = true
         seek.isFocusableInTouchMode = true
 
+        // Tint the SeekBar so it's clearly visible regardless of theme
+        try {
+            val pd = DrawableCompat.wrap(seek.progressDrawable)
+            DrawableCompat.setTint(pd, Color.BLACK)
+            seek.progressDrawable = pd
+
+            val th = DrawableCompat.wrap(seek.thumb)
+            DrawableCompat.setTint(th, Color.BLACK)
+            seek.thumb = th
+        } catch (_: Throwable) {
+            // best-effort; ignore if drawables not tintable
+        }
+
         // Initialize from selection: average DP
         val density = resources.displayMetrics.density
         val avgPx = selectedStrokes.map { it.baseWidth }.average().toFloat().coerceAtLeast(0.5f)
@@ -1772,14 +1787,14 @@ class InkCanvasView @JvmOverloads constructor(
         value.text = "${startDp.toInt()} dp"
 
         // Preview line drawable
-        preview.background = object : android.graphics.drawable.ColorDrawable(android.graphics.Color.TRANSPARENT) {
+        preview.background = object : android.graphics.drawable.ColorDrawable(Color.TRANSPARENT) {
             override fun draw(canvas: android.graphics.Canvas) {
                 super.draw(canvas)
                 val cy = bounds.centerY().toFloat()
                 val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
                     style = android.graphics.Paint.Style.STROKE
                     strokeCap = android.graphics.Paint.Cap.ROUND
-                    color = android.graphics.Color.BLACK
+                    color = Color.BLACK
                     strokeWidth = seek.progress * density
                 }
                 val pad = (12 * density)
@@ -1808,11 +1823,11 @@ class InkCanvasView @JvmOverloads constructor(
         ).apply {
             isOutsideTouchable = true
             isTouchable = true
-            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.WHITE))
+            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.WHITE))
             elevation = 12f
             inputMethodMode = android.widget.PopupWindow.INPUT_METHOD_NEEDED
             softInputMode = android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
-            setOnDismissListener { selWidthPopup = null }
+            setOnDismissListener { selWidthPopup = null; selWidthPopupRectScreen = null }
             // Allow over-screen edges if needed
             isClippingEnabled = false
         }
@@ -1823,6 +1838,7 @@ class InkCanvasView @JvmOverloads constructor(
         val screenX = (loc[0] + anchorRectView.right).toInt()
         val screenY = (loc[1] + anchorRectView.bottom).toInt()
 
+        // Measure popup size
         content.measure(
             android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED),
             android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED)
@@ -1835,14 +1851,13 @@ class InkCanvasView @JvmOverloads constructor(
 
         var x = screenX + dpToPx(6f).toInt()
         var y = screenY + dpToPx(6f).toInt()
-
         if (x + pw > displayRect.right) x = (screenX - pw - dpToPx(6f)).toInt()
         if (y + ph > displayRect.bottom) y = (screenY - ph - dpToPx(6f)).toInt()
 
-        selWidthPopup?.showAtLocation(this, android.view.Gravity.START or android.view.Gravity.TOP, x, y)
-        // Save the popup's screen rect so we can ignore canvas touches inside it
+        // Save rect to consume touches inside popup (so canvas won't deselect/draw)
         selWidthPopupRectScreen = android.graphics.Rect(x, y, x + pw, y + ph)
 
+        selWidthPopup?.showAtLocation(this, android.view.Gravity.START or android.view.Gravity.TOP, x, y)
     }
 
     // ===== Zoom helpers =====
