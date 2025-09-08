@@ -5,13 +5,14 @@ import android.animation.ValueAnimator
 import android.content.Context
 
 import android.graphics.*
-import android.graphics.Bitmap
-import android.graphics.Canvas
+import android.graphics.drawable.Drawable
+
+
 import android.graphics.LinearGradient
 import android.graphics.Shader
-import android.graphics.Color
+
 import android.os.SystemClock
-import android.graphics.drawable.Drawable
+
 
 
 import android.util.AttributeSet
@@ -37,10 +38,10 @@ import java.io.OutputStream
 
 import kotlin.math.*
 import kotlin.random.Random
-import kotlin.math.max
+
 import kotlin.math.roundToInt
 import kotlin.math.hypot
-import kotlin.math.max
+
 
 
 
@@ -61,7 +62,6 @@ class InkCanvasView @JvmOverloads constructor(
 ) : View(context, attrs, defStyle) {
     // ---- Shape Snap (Samsung Notes-style) ----
     private var shapeSnapEnabled: Boolean = true
-    private var shapeSnapForPenFamilyOnly: Boolean = true   // only Pen/Pencil/Marker; not Highlighter/Eraser
 
     // Hold detection at stroke end
     private val SNAP_HOLD_MS = 350L
@@ -244,19 +244,6 @@ class InkCanvasView @JvmOverloads constructor(
         }
     }
 
-    fun clearAll() {
-        strokes.clear()
-        redoStack.clear()
-        current = null
-        for (i in sections.indices) {
-            committedInkBySection.getOrNull(i)?.eraseColor(Color.TRANSPARENT)
-            committedHLBySection.getOrNull(i)?.eraseColor(Color.TRANSPARENT)
-            scratchInkBySection.getOrNull(i)?.eraseColor(Color.TRANSPARENT)
-            scratchHLBySection.getOrNull(i)?.eraseColor(Color.TRANSPARENT)
-        }
-        clearSelection()
-        invalidate()
-    }
 
 
     // ---- Selection API exposed to Activity ----
@@ -292,7 +279,7 @@ class InkCanvasView @JvmOverloads constructor(
 
     fun clearSelection() {
         cancelTransform()
-        hideSelectionWidthPopup()
+
 
         // make absolutely sure nothing stays hidden
         for (s in selectedStrokes) s.hidden = false
@@ -345,40 +332,6 @@ class InkCanvasView @JvmOverloads constructor(
         return ok
     }
 
-    /** Old behavior (kept for compatibility): immediate paste with a small offset. */
-    fun pasteClipboard(): Boolean {
-        if (clipboard.isEmpty()) return false
-        cancelTransform()
-        selectedStrokes.clear()
-
-        val dx = dpToPx(24f)
-        val dy = dpToPx(16f)
-
-        // Source bbox of what’s on the clipboard (doc-space)
-        val baseBox = clipboardBounds ?: RectF(0f, 0f, 0f, 0f)
-
-        // 1) Make translated copies (do not set sectionIndex here)
-        val copies = clipboard.map { copy ->
-            val c = deepCopy(copy)
-            translateStroke(c, dx, dy)
-            c
-        }
-
-        // 2) Add + select + compute selection bbox
-        strokes.addAll(copies)
-        selectedStrokes.addAll(copies)
-        selectedBounds = RectF(baseBox).apply { offset(dx, dy) }
-        selectionInteractive = true
-        overlayActive = true
-
-        // 3) Retag to the page(s) where they actually landed
-        rehomeSelectionToCorrectSections()
-
-        // 4) Paint
-        rebuildCommitted()
-        invalidate()
-        return true
-    }
 
 
     fun armPastePlacement(): Boolean {
@@ -482,10 +435,10 @@ class InkCanvasView @JvmOverloads constructor(
         if (try {
                 val f = this::class.java.getDeclaredField("selectedStrokes")
                 f.isAccessible = true
-                val set = f.get(this) as? MutableSet<Any>
+                val set = f.get(this) as? MutableSet<*>
                 if (!set.isNullOrEmpty()) {
                     for (s in set) {
-                        val w = s.javaClass.getDeclaredField("baseWidth")
+                        val w = s!!.javaClass.getDeclaredField("baseWidth")
                         w.isAccessible = true
                         w.setFloat(s, px)
                     }
@@ -493,15 +446,16 @@ class InkCanvasView @JvmOverloads constructor(
                 } else false
             } catch (_: Throwable) { false }
         ) changed = true
+
 
         // Legacy selection set
         if (try {
                 val f = this::class.java.getDeclaredField("selected")
                 f.isAccessible = true
-                val set = f.get(this) as? MutableSet<Any>
+                val set = f.get(this) as? MutableSet<*>
                 if (!set.isNullOrEmpty()) {
                     for (s in set) {
-                        val w = s.javaClass.getDeclaredField("baseWidth")
+                        val w = s!!.javaClass.getDeclaredField("baseWidth")
                         w.isAccessible = true
                         w.setFloat(s, px)
                     }
@@ -510,75 +464,10 @@ class InkCanvasView @JvmOverloads constructor(
             } catch (_: Throwable) { false }
         ) changed = true
 
+
         if (changed) { rebuildCommitted(); invalidate() }
     }
-    /**
-     * Relative width change for the current selection.
-     * Adds/subtracts a fixed delta in DP to each selected stroke's width, preserving differences.
-     * Returns true if any stroke changed.
-     */
-    fun updateSelectedStrokeWidthDeltaDp(
-        deltaDp: Float,
-        minDp: Float = 0.5f,
-        maxDp: Float = 120f
-    ): Boolean {
-        if (selectedStrokes.isEmpty()) return false
 
-        val density = resources.displayMetrics.density
-        var changed = false
-
-        for (s in selectedStrokes) {
-            // Current width in dp (baseWidth is px)
-            val curDp = (s.baseWidth / density)
-            val newDp = (curDp + deltaDp).coerceIn(minDp, maxDp)
-            val newPx = newDp * density
-            if (newPx != s.baseWidth) {
-                s.baseWidth = newPx
-                changed = true
-            }
-        }
-
-        if (changed) {
-            rebuildCommitted()
-            invalidate()
-        }
-        return changed
-    }
-
-    /**
-     * Proportional (percent) width change for the current selection.
-     * Multiplies each selected stroke's width by [scale], preserving differences
-     * (e.g., 1.10f => +10%, 0.90f => -10%).
-     * Returns true if any stroke changed.
-     */
-    fun updateSelectedStrokeWidthScale(
-        scale: Float,
-        minDp: Float = 0.5f,
-        maxDp: Float = 120f
-    ): Boolean {
-        if (selectedStrokes.isEmpty()) return false
-        // Treat near-1.0 as no-op to avoid micro jitter
-        if (kotlin.math.abs(scale - 1f) < 0.0005f) return false
-
-        val density = resources.displayMetrics.density
-        var changed = false
-
-        for (s in selectedStrokes) {
-            val curDp = (s.baseWidth / density)
-            val newDp = (curDp * scale).coerceIn(minDp, maxDp)
-            val newPx = newDp * density
-            if (newPx != s.baseWidth) {
-                s.baseWidth = newPx
-                changed = true
-            }
-        }
-
-        if (changed) {
-            rebuildCommitted()
-            invalidate()
-        }
-        return changed
-    }
 
 
     // ADD/REPLACE — unified updater (new + legacy)
@@ -588,10 +477,10 @@ class InkCanvasView @JvmOverloads constructor(
         if (try {
                 val f = this::class.java.getDeclaredField("selectedStrokes")
                 f.isAccessible = true
-                val set = f.get(this) as? MutableSet<Any>
+                val set = f.get(this) as? MutableSet<*>
                 if (!set.isNullOrEmpty()) {
                     for (s in set) {
-                        val c = s.javaClass.getDeclaredField("color")
+                        val c = s!!.javaClass.getDeclaredField("color")
                         c.isAccessible = true
                         c.setInt(s, color)
                     }
@@ -600,13 +489,14 @@ class InkCanvasView @JvmOverloads constructor(
             } catch (_: Throwable) { false }
         ) changed = true
 
+
         if (try {
                 val f = this::class.java.getDeclaredField("selected")
                 f.isAccessible = true
-                val set = f.get(this) as? MutableSet<Any>
+                val set = f.get(this) as? MutableSet<*>
                 if (!set.isNullOrEmpty()) {
                     for (s in set) {
-                        val c = s.javaClass.getDeclaredField("color")
+                        val c = s!!.javaClass.getDeclaredField("color")
                         c.isAccessible = true
                         c.setInt(s, color)
                     }
@@ -614,6 +504,7 @@ class InkCanvasView @JvmOverloads constructor(
                 } else false
             } catch (_: Throwable) { false }
         ) changed = true
+
 
         if (changed) { rebuildCommitted(); invalidate() }
     }
@@ -625,11 +516,11 @@ class InkCanvasView @JvmOverloads constructor(
         if (try {
                 val f = this::class.java.getDeclaredField("selectedStrokes")
                 f.isAccessible = true
-                val set = f.get(this) as? MutableSet<Any>
+                val set = f.get(this) as? MutableSet<*>
                 if (!set.isNullOrEmpty()) {
                     for (s in set) {
                         runCatching {
-                            val fld = s.javaClass.getDeclaredField("shapeFillColor")
+                            val fld = s!!.javaClass.getDeclaredField("shapeFillColor")
                             fld.isAccessible = true
                             fld.set(s, colorOrNull)
                         }
@@ -639,14 +530,15 @@ class InkCanvasView @JvmOverloads constructor(
             } catch (_: Throwable) { false }
         ) changed = true
 
+
         if (try {
                 val f = this::class.java.getDeclaredField("selected")
                 f.isAccessible = true
-                val set = f.get(this) as? MutableSet<Any>
+                val set = f.get(this) as? MutableSet<*>
                 if (!set.isNullOrEmpty()) {
                     for (s in set) {
                         runCatching {
-                            val fld = s.javaClass.getDeclaredField("shapeFillColor")
+                            val fld = s!!.javaClass.getDeclaredField("shapeFillColor")
                             fld.isAccessible = true
                             fld.set(s, colorOrNull)
                         }
@@ -655,6 +547,7 @@ class InkCanvasView @JvmOverloads constructor(
                 } else false
             } catch (_: Throwable) { false }
         ) changed = true
+
 
         if (changed) { rebuildCommitted(); invalidate() }
     }
@@ -844,27 +737,7 @@ class InkCanvasView @JvmOverloads constructor(
     private val scratchCanvasInkBySection = ArrayList<Canvas?>()
     private val scratchHLBySection      = ArrayList<Bitmap?>()
     private val scratchCanvasHLBySection  = ArrayList<Canvas?>()
-    // ------------------------------------------------------------------------
-// Back-compat shims for legacy single-page code paths (SECTION 0 ONLY).
-// These let older code continue to compile while we migrate calls to per-page arrays.
-// Once all call sites are updated, delete this block.
-// ------------------------------------------------------------------------
-    private val committedInk: Bitmap?
-        get() = committedInkBySection.getOrNull(0)
-    private val canvasInk: Canvas?
-        get() = canvasInkBySection.getOrNull(0)
-    private val committedHL: Bitmap?
-        get() = committedHLBySection.getOrNull(0)
-    private val canvasHL: Canvas?
-        get() = canvasHLBySection.getOrNull(0)
-    private val scratchInk: Bitmap?
-        get() = scratchInkBySection.getOrNull(0)
-    private val scratchCanvasInk: Canvas?
-        get() = scratchCanvasInkBySection.getOrNull(0)
-    private val scratchHL: Bitmap?
-        get() = scratchHLBySection.getOrNull(0)
-    private val scratchCanvasHL: Canvas?
-        get() = scratchCanvasHLBySection.getOrNull(0)
+
 
 
     // Canvas getters for the active stroke's section
@@ -1022,12 +895,7 @@ class InkCanvasView @JvmOverloads constructor(
         color = Color.WHITE
         strokeWidth = dpToPx(1.5f)
     }
-    // ---- Selection HUD (width button + popup) ----
-// Slightly larger button; we’ll also offset past the handle touch-pad so clicks never collide.
-    private var selHudBtnRadiusDp = 16f
-    private var selHudBtnRectView: RectF? = null
-    private var selWidthPopup: android.widget.PopupWindow? = null
-    private var selWidthPopupRectScreen: android.graphics.Rect? = null
+
 
     private val rotateIcon: Drawable? by lazy { ContextCompat.getDrawable(context, com.pelicankb.jobnotes.R.drawable.ic_rotate) }
 
@@ -1063,10 +931,7 @@ class InkCanvasView @JvmOverloads constructor(
     private val handleSizeDp = 14f
     private val handleTouchPadDp = 18f
     // Bottom "pull to add" affordance
-    private var pullDragActive = false
-    private var pullDragStartY = 0f
-    private var pullDragDistance = 0f
-    private val pullThresholdPx get() = dpToPx(96f)
+
     // Viewport-relative thresholds (ratios of screen height)
     private val pullStartRatio = 0.20f   // HUD begins at 20% pulled up
     private val pullCommitRatio = 0.40f  // Page commits at 40% pulled up
@@ -1335,8 +1200,7 @@ class InkCanvasView @JvmOverloads constructor(
         }
 
 
-        // Selection width HUD button disabled: no drawing, no hit target
-        selHudBtnRectView = null
+
 
         canvas.restore()
 
@@ -1429,15 +1293,7 @@ class InkCanvasView @JvmOverloads constructor(
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
-                // If the selection width popup is open and the tap lands inside it,
-// consume the event so the canvas does not draw/deselect beneath it.
-                selWidthPopupRectScreen?.let { r ->
-                    val rx = event.rawX.toInt()
-                    val ry = event.rawY.toInt()
-                    if (selWidthPopup?.isShowing == true && r.contains(rx, ry)) {
-                        return true
-                    }
-                }
+
 
                 // (removed) old bottom-line tap gate; new flow is viewport-relative while panning
 
@@ -1494,14 +1350,6 @@ class InkCanvasView @JvmOverloads constructor(
                     // If a selection existed and finger tapped on blank area, clear selection now
                     run {
                         if (selectedStrokes.isNotEmpty()) {
-                            // Ignore taps inside the width popup
-                            selWidthPopupRectScreen?.let { r ->
-                                if (selWidthPopup?.isShowing == true) {
-                                    val rx = event.rawX.toInt()
-                                    val ry = event.rawY.toInt()
-                                    if (r.contains(rx, ry)) return@run
-                                }
-                            }
                             val (cx, cy) = toContent(lastPanFocusX, lastPanFocusY)
                             val anyHit = hitAnyStrokeAt(cx, cy, dpToPx(10f)) != null
                             val insideSel = selectedBounds?.contains(cx, cy) == true
@@ -1511,6 +1359,7 @@ class InkCanvasView @JvmOverloads constructor(
                             }
                         }
                     }
+
 
 
                     return true
@@ -1581,19 +1430,7 @@ class InkCanvasView @JvmOverloads constructor(
                         }
                     }
 
-                    // HUD button disabled — no selection HUD handling
 
-                    // If popup is open and user taps inside selection, close it
-                    run {
-                        if (selWidthPopup?.isShowing == true && selectedStrokes.isNotEmpty()) {
-                            val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
-                            val insideSel = selectedBounds?.contains(cx, cy) == true
-                            if (insideSel) {
-                                hideSelectionWidthPopup()
-                                return true
-                            }
-                        }
-                    }
 
 
                     // If a selection exists and the stylus taps outside it (and not on a handle), clear the selection
@@ -1900,125 +1737,7 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
 
-    private fun hideSelectionWidthPopup() {
-        selWidthPopup?.dismiss()
-        selWidthPopup = null
-        selWidthPopupRectScreen = null
-    }
 
-    private fun showSelectionWidthPopupAt(anchorRectView: RectF) {
-        hideSelectionWidthPopup()
-
-        val content = android.view.LayoutInflater.from(context)
-            .inflate(com.pelicankb.jobnotes.R.layout.popup_selection_width, null, false)
-
-        val preview = content.findViewById<View>(com.pelicankb.jobnotes.R.id.previewLine)
-        val seek = content.findViewById<android.widget.SeekBar>(com.pelicankb.jobnotes.R.id.seekSelStroke)
-        val value = content.findViewById<android.widget.TextView>(com.pelicankb.jobnotes.R.id.valueDp)
-
-        // Ensure these views can receive touch/focus
-        content.isClickable = true
-        content.isFocusable = true
-        content.isFocusableInTouchMode = true
-        seek.isEnabled = true
-        seek.isClickable = true
-        seek.isFocusable = true
-        seek.isFocusableInTouchMode = true
-
-        // Tint the SeekBar so it's clearly visible regardless of theme
-        try {
-            val pd = DrawableCompat.wrap(seek.progressDrawable)
-            DrawableCompat.setTint(pd, Color.BLACK)
-            seek.progressDrawable = pd
-
-            val th = DrawableCompat.wrap(seek.thumb)
-            DrawableCompat.setTint(th, Color.BLACK)
-            seek.thumb = th
-        } catch (_: Throwable) {
-            // best-effort; ignore if drawables not tintable
-        }
-
-        // Initialize from selection: average DP
-        val density = resources.displayMetrics.density
-        val avgPx = selectedStrokes.map { it.baseWidth }.average().toFloat().coerceAtLeast(0.5f)
-        val startDp = (avgPx / density).coerceIn(1f, 120f)
-        seek.max = 120
-        seek.progress = startDp.toInt()
-        value.text = "${startDp.toInt()} dp"
-
-        // Preview line drawable
-        preview.background = object : android.graphics.drawable.ColorDrawable(Color.TRANSPARENT) {
-            override fun draw(canvas: android.graphics.Canvas) {
-                super.draw(canvas)
-                val cy = bounds.centerY().toFloat()
-                val p = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                    style = android.graphics.Paint.Style.STROKE
-                    strokeCap = android.graphics.Paint.Cap.ROUND
-                    color = Color.BLACK
-                    strokeWidth = seek.progress * density
-                }
-                val pad = (12 * density)
-                canvas.drawLine(bounds.left + pad, cy, bounds.right - pad, cy, p)
-            }
-        }
-
-        seek.setOnSeekBarChangeListener(object : android.widget.SeekBar.OnSeekBarChangeListener {
-            override fun onProgressChanged(sb: android.widget.SeekBar?, v: Int, fromUser: Boolean) {
-                val dp = v.coerceAtLeast(1)
-                value.text = "$dp dp"
-                // Absolute normalize on current selection
-                updateSelectedStrokeWidthDp(dp.toFloat())
-                // Refresh preview
-                preview.invalidate()
-            }
-            override fun onStartTrackingTouch(seekBar: android.widget.SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: android.widget.SeekBar?) {}
-        })
-
-        selWidthPopup = android.widget.PopupWindow(
-            content,
-            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-            android.view.ViewGroup.LayoutParams.WRAP_CONTENT,
-            true /* focusable: true so SeekBar gets key/touch focus */
-        ).apply {
-            isOutsideTouchable = true
-            isTouchable = true
-            setBackgroundDrawable(android.graphics.drawable.ColorDrawable(Color.WHITE))
-            elevation = 12f
-            inputMethodMode = android.widget.PopupWindow.INPUT_METHOD_NEEDED
-            softInputMode = android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
-            setOnDismissListener { selWidthPopup = null; selWidthPopupRectScreen = null }
-            // Allow over-screen edges if needed
-            isClippingEnabled = false
-        }
-
-        // Compute screen pos down-right from corner; flip if near edges.
-        val loc = IntArray(2)
-        getLocationOnScreen(loc)
-        val screenX = (loc[0] + anchorRectView.right).toInt()
-        val screenY = (loc[1] + anchorRectView.bottom).toInt()
-
-        // Measure popup size
-        content.measure(
-            android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED),
-            android.view.View.MeasureSpec.makeMeasureSpec(0, android.view.View.MeasureSpec.UNSPECIFIED)
-        )
-        val pw = content.measuredWidth
-        val ph = content.measuredHeight
-
-        val displayRect = android.graphics.Rect()
-        getWindowVisibleDisplayFrame(displayRect)
-
-        var x = screenX + dpToPx(6f).toInt()
-        var y = screenY + dpToPx(6f).toInt()
-        if (x + pw > displayRect.right) x = (screenX - pw - dpToPx(6f)).toInt()
-        if (y + ph > displayRect.bottom) y = (screenY - ph - dpToPx(6f)).toInt()
-
-        // Save rect to consume touches inside popup (so canvas won't deselect/draw)
-        selWidthPopupRectScreen = android.graphics.Rect(x, y, x + pw, y + ph)
-
-        selWidthPopup?.showAtLocation(this, android.view.Gravity.START or android.view.Gravity.TOP, x, y)
-    }
 
     // ===== Zoom helpers =====
 
@@ -2197,7 +1916,7 @@ class InkCanvasView @JvmOverloads constructor(
     // ===== Transform (drag/scale) =====
 
     private fun beginTransform(handle: Handle, cx: Float, cy: Float) {
-        hideSelectionWidthPopup()
+
 
         val r = selectedBounds ?: return
         downX = cx
@@ -2507,30 +2226,7 @@ class InkCanvasView @JvmOverloads constructor(
         invalidate()
     }
 
-    private fun applyTranslate(dx: Float, dy: Float) {
-        for ((s, pts0) in savedPoints) {
-            s.points.clear()
-            pts0.forEach { s.points.add(Point(it.x + dx, it.y + dy)) }
-            s.calligPath = null
-            s.fountainPath = null
-        }
-    }
 
-    private fun applyScale(sx: Float, sy: Float, ax: Float, ay: Float) {
-        val avgScale = ((abs(sx) + abs(sy)) * 0.5f).coerceAtLeast(0.1f)
-        for ((s, pts0) in savedPoints) {
-            s.points.clear()
-            for (p in pts0) {
-                val nx = ax + (p.x - ax) * sx
-                val ny = ay + (p.y - ay) * sy
-                s.points.add(Point(nx, ny))
-            }
-            // Non-cumulative width scaling from snapshot
-            savedBaseWidth[s]?.let { orig -> s.baseWidth = (orig * avgScale).coerceAtLeast(0.2f) }
-            s.calligPath = null
-            s.fountainPath = null
-        }
-    }
 
     // ===== Paint helpers =====
 
@@ -2555,11 +2251,6 @@ class InkCanvasView @JvmOverloads constructor(
             xfermode = null
         }
 
-    // Small helper used by rebuildCommitted() to clear a circular area
-    private fun clearDisc(canvas: Canvas?, cx: Float, cy: Float, radius: Float) {
-        if (canvas == null) return
-        canvas.drawCircle(cx, cy, radius, clearPaint)
-    }
 
     private fun applyHighlighterBlend(p: Paint) {
         if (android.os.Build.VERSION.SDK_INT >= 29) {
@@ -4300,11 +3991,7 @@ class InkCanvasView @JvmOverloads constructor(
     private data class Quad(val a: Int, val b: Int, val c: Int, val d: Int)
 
     // ---- Pan clamp & overscroll helpers ----
-    private fun viewContentWidthPx(): Float = width.toFloat() * scaleFactor
-    private fun viewContentHeightPx(): Float = height.toFloat() * scaleFactor
-
     private fun vOverscrollPx(): Float = min(height * 0.12f, dpToPx(96f)) // allow some softness vertically
-    private fun hOverscrollPx(): Float = 0f                                // reserved (unused, keeping for parity)
 
     private fun animateBackIntoBoundsIfNeeded() {
         // Only snap-top when zoomed in or at exactly 1x; never snap anything at <1x.
@@ -4363,47 +4050,7 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
 
-    private fun isPenFamilyBrush(): Boolean {
-        return when (baseBrush) {
-            BrushType.PEN, BrushType.PENCIL, BrushType.MARKER, BrushType.FOUNTAIN, BrushType.CALLIGRAPHY -> true
-            else -> false
-        }
-    }
 
-// --- Classification ---
-
-    private fun classifyShape(pts: List<PointF>): SnapKind {
-        val start = pts.first()
-        val end = pts.last()
-        val basicClosed = dist(start, end) <= CLOSE_EPS
-
-        // If not strictly closed, apply “closure forgiveness”
-        // Case A: endpoint within 3× CLOSE_EPS of start
-        // Case B: the stroke crosses near the start point
-        // Case C: endpoint lies inside the overall bbox (common when you cross the first edge)
-        var closedPts: List<PointF>? = null
-        if (!basicClosed) {
-            val nearByDist = dist(start, end) <= (CLOSE_EPS * 3f)
-            val nearByCross = crossesNearStart(pts, start, CLOSE_EPS * 2f)
-            val endInsideBBox = bbox(pts).contains(end.x, end.y)
-
-            if (nearByDist || nearByCross || endInsideBBox) {
-                // Force closure for rectangle detection by appending the start point
-                closedPts = pts.toMutableList().apply { add(PointF(start.x, start.y)) }
-            }
-        }
-
-        // Prefer rectangles over circles when we have any form of closure.
-        val candidateClosed = closedPts ?: (if (basicClosed) pts else null)
-        if (candidateClosed != null) {
-            if (looksRect(candidateClosed)) return SnapKind.RECT
-            if (looksCircle(candidateClosed)) return SnapKind.CIRCLE
-        }
-
-        if (looksLine(pts)) return SnapKind.LINE
-        if (looksArc(pts))  return SnapKind.ARC
-        return SnapKind.NONE
-    }
 
 
     private fun looksLine(pts: List<PointF>): Boolean {
@@ -4548,22 +4195,6 @@ class InkCanvasView @JvmOverloads constructor(
         drawSnapped(op) { c, paint -> c.drawLine(a.x, a.y, b.x, b.y, paint) }
     }
 
-    private fun snapPreviewArc(op: StrokeOp, pts: List<PointF>) {
-        val a = pts.first(); val m = pts[pts.size / 2]; val b = pts.last()
-        val circle = circleFrom3(a, m, b) ?: return
-        val (cx, cy, r) = circle
-        val startAng = atan2(a.y - cy, a.x - cx)
-        val endAng   = atan2(b.y - cy, b.x - cx)
-        val midAng   = atan2(m.y - cy, m.x - cx)
-        val sweep    = normalizedSweep(startAng, midAng, endAng)
-        drawSnapped(op) { c, paint ->
-            val rect = RectF(cx - r, cy - r, cx + r, cy + r)
-            c.drawArc(rect,
-                Math.toDegrees(startAng.toDouble()).toFloat(),
-                Math.toDegrees(sweep.toDouble()).toFloat(),
-                false, paint)
-        }
-    }
 
     private fun snapPreviewCircle(op: StrokeOp, pts: List<PointF>) {
         val circle = circleLeastSquares(pts) ?: return
@@ -4647,47 +4278,8 @@ class InkCanvasView @JvmOverloads constructor(
     private fun sampleLinePoints(a: PointF, b: PointF): List<PointF> =
         listOf(a, b)
 
-    private fun sampleArcPoints(pts: List<PointF>): List<PointF> {
-        val a = pts.first(); val m = pts[pts.size / 2]; val b = pts.last()
-        val circle = circleFrom3(a, m, b) ?: return emptyList()
-        val (cx, cy, r) = circle
-        val sa = atan2(a.y - cy, a.x - cx)
-        val ea = atan2(b.y - cy, b.x - cx)
-        val ma = atan2(m.y - cy, m.x - cx)
-        val sweep = normalizedSweep(sa, ma, ea)
-        val steps = max(16, (abs(sweep) * r / 6f).roundToInt().coerceAtMost(256))
-        val out = ArrayList<PointF>(steps + 1)
-        for (i in 0..steps) {
-            val t = i / steps.toFloat()
-            val ang = sa + sweep * t
-            out.add(PointF(cx + r * cos(ang), cy + r * sin(ang)))
-        }
-        return out
-    }
 
-    private fun sampleCirclePoints(pts: List<PointF>): List<PointF> {
-        val c = circleLeastSquares(pts) ?: return emptyList()
-        val (cx, cy, r) = c
-        val steps = 64
-        val out = ArrayList<PointF>(steps + 1)
-        for (i in 0..steps) {
-            val ang = (2f * Math.PI * i / steps).toFloat()
-            out.add(PointF(cx + r * cos(ang), cy + r * sin(ang)))
-        }
-        return out
-    }
 
-    private fun sampleRectPoints(pts: List<PointF>): List<PointF> {
-        // Always snap to the bounding box of the entire stroke (more stable & forgiving)
-        val bb = bbox(pts)
-        return listOf(
-            PointF(bb.left,  bb.top),
-            PointF(bb.right, bb.top),
-            PointF(bb.right, bb.bottom),
-            PointF(bb.left,  bb.bottom),
-            PointF(bb.left,  bb.top) // close
-        )
-    }
 
 
 // --- Utilities for PointF ---
@@ -4964,9 +4556,7 @@ class InkCanvasView @JvmOverloads constructor(
         } finally {
             try { doc.close() } catch (_: Throwable) {}
         }
-        // Back-compat helpers (aliases) — safe to leave in place
-        @Suppress("FunctionName")
-        fun setStrokeWidthDP(sizeDp: Float) { setStrokeWidthDp(sizeDp) }
+
 
     }
 
