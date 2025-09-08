@@ -110,7 +110,7 @@ class CameraCaptureActivity : AppCompatActivity() {
                         outFile
                     )
                     setResult(
-                        Activity.RESULT_OK,
+                        RESULT_OK,
                         Intent().apply {
                             data = uri
                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)

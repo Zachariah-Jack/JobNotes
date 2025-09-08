@@ -1204,7 +1204,7 @@ class InkCanvasView @JvmOverloads constructor(
         canvas.restore()
 
         // 3) Page edge fades at 1× (view space)
-        if (kotlin.math.abs(scaleFactor - 1f) < 1e-3f) {
+        if (abs(scaleFactor - 1f) < 1e-3f) {
             val w = width.toFloat()
             val h = height.toFloat()
             canvas.drawRect(0f, 0f, fadeW, h, leftEdgePaint)
@@ -1864,7 +1864,7 @@ class InkCanvasView @JvmOverloads constructor(
     private fun finishSelection() {
         // Constrain selection to the page where the selection started
         // (compute from the marquee start Y).
-        val selectionPage = sectionIndexForContentY(marqueeStartY)
+        sectionIndexForContentY(marqueeStartY)
 
         if (!selectingGesture) return
         selectingGesture = false
@@ -1887,7 +1887,7 @@ class InkCanvasView @JvmOverloads constructor(
     private fun applySelection(selPath: Path) {
         val clip = Region(0, 0, width, height)
         val selRegion = Region().apply { setPath(selPath, clip) }
-        val selBox = android.graphics.Rect().also { selRegion.getBounds(it) }
+        val selBox = Rect().also { selRegion.getBounds(it) }
 
         // Determine the page for the selection by using the marquee center Y
         val selCenterY = (selBox.top + selBox.bottom) * 0.5f
@@ -2253,11 +2253,11 @@ class InkCanvasView @JvmOverloads constructor(
 
     private fun applyHighlighterBlend(p: Paint) {
         if (android.os.Build.VERSION.SDK_INT >= 29) {
-            p.blendMode = android.graphics.BlendMode.LIGHTEN
+            p.blendMode = BlendMode.LIGHTEN
         } else {
             @Suppress("DEPRECATION")
-            p.xfermode = android.graphics.PorterDuffXfermode(
-                android.graphics.PorterDuff.Mode.LIGHTEN
+            p.xfermode = PorterDuffXfermode(
+                PorterDuff.Mode.LIGHTEN
             )
         }
         p.isAntiAlias = true
@@ -3871,7 +3871,7 @@ class InkCanvasView @JvmOverloads constructor(
             translationX = (w - s * w) * 0.5f  // center horizontally
         } else {
             val rawMinX = w - s * w
-            val minX = kotlin.math.min(0f, rawMinX)  // ensure minX ≤ 0
+            val minX = min(0f, rawMinX)  // ensure minX ≤ 0
             val maxX = 0f
             translationX = translationX.coerceIn(minX, maxX)
         }
@@ -3880,13 +3880,13 @@ class InkCanvasView @JvmOverloads constructor(
         // Keep the "top-lock" behavior: only allow scrolling within [minY, 0].
         // Force a valid clamp range by ensuring minY ≤ 0 at all times.
         val rawMinY = h - (s * docH)
-        val minY = kotlin.math.min(0f, rawMinY)
+        val minY = min(0f, rawMinY)
         val maxY = 0f
         translationY = translationY.coerceIn(minY, maxY)
 
         if (DEBUG_INPUT) {
             val rawMinXDbg = w - s * w
-            val minXDbg = if (s < 1f - 1e-3f) (w - s * w) * 0.5f else kotlin.math.min(0f, rawMinXDbg)
+            val minXDbg = if (s < 1f - 1e-3f) (w - s * w) * 0.5f else min(0f, rawMinXDbg)
             Log.d(
                 TAG,
                 "clampPan: s=$s w=$w h=$h docH=$docH " +
@@ -3916,7 +3916,7 @@ class InkCanvasView @JvmOverloads constructor(
         // Ensure vertical bounds are ALWAYS a valid range, even when zoomed out (<1×)
         fun safeMinY(): Int {
             val raw = (h - s * docH).toInt()
-            return kotlin.math.min(0, raw) // ==> minY <= 0, so [minY, 0] is valid
+            return min(0, raw) // ==> minY <= 0, so [minY, 0] is valid
         }
 
         val (minX, maxX, minY, maxY) = when {
@@ -3927,7 +3927,7 @@ class InkCanvasView @JvmOverloads constructor(
                 Quad(minx, maxx, safeMinY(), 0)
             }
             // Exactly 1×: lock X, fling within [minY, 0]
-            kotlin.math.abs(s - 1f) < 1e-3f -> {
+            abs(s - 1f) < 1e-3f -> {
                 Quad(0, 0, safeMinY(), 0)
             }
             // Zoomed in: clamp to scaled content
@@ -3938,7 +3938,7 @@ class InkCanvasView @JvmOverloads constructor(
             }
         }
 
-        val adjVx = if (kotlin.math.abs(s - 1f) < 1e-3f) 0 else vx // horizontal lock at 1×
+        val adjVx = if (abs(s - 1f) < 1e-3f) 0 else vx // horizontal lock at 1×
         scroller.fling(
             startX, startY,
             adjVx.toInt().coerceIn(-maxFlingVelocity, maxFlingVelocity),
@@ -4001,7 +4001,7 @@ class InkCanvasView @JvmOverloads constructor(
 
         val startY = translationY
         val endY = 0f
-        if (kotlin.math.abs(startY - endY) < 1e-3f) return
+        if (abs(startY - endY) < 1e-3f) return
 
         val anim = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 180

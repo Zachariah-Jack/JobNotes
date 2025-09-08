@@ -53,7 +53,7 @@ import java.io.File
 
 class MainActivity : AppCompatActivity() {
     // ───────── Per-tool color memory (persistent) ─────────
-    private val prefs by lazy { getSharedPreferences("jobnotes_prefs", Context.MODE_PRIVATE) }
+    private val prefs by lazy { getSharedPreferences("jobnotes_prefs", MODE_PRIVATE) }
 
     private companion object {
         private const val PREF_PEN_COLOR   = "pen_color"

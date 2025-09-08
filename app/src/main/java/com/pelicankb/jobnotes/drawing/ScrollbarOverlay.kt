@@ -184,7 +184,7 @@ class ScrollbarOverlay {
 
                 val trackTop = top + arrowH
                 val trackBottom = bottom - arrowH
-                val trackH = trackBottom - trackTop
+                trackBottom - trackTop
                 val thumbH = max(minThumbH, thumbRect.height())
                 val minTop = trackTop
                 val maxTop = trackBottom - thumbH
