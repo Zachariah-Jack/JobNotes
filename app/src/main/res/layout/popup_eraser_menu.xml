@@ -43,11 +43,12 @@
         android:gravity="center_vertical"
         android:layout_marginBottom="6dp">
 
-        <Switch
+        <androidx.appcompat.widget.SwitchCompat
             android:id="@+id/switchHLOnly"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/erase_highlighter_only" />
+
     </LinearLayout>
 
     <!-- Size slider + value -->
