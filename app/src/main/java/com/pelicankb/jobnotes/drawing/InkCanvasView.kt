@@ -99,7 +99,7 @@ class InkCanvasView @JvmOverloads constructor(
 
     // Debug toggles (safe to ship; disabled by default)
     private val TAG = "InkCanvasView"
-    private val DEBUG_INPUT = true
+    private val DEBUG_INPUT = false
 
     // Pretty-print MotionEvent actions for logs
     private fun actionToString(action: Int): String = when (action) {
@@ -958,6 +958,12 @@ class InkCanvasView @JvmOverloads constructor(
     private var overlayRotateAngleRad: Float = 0f
     private var overlayRotateActive: Boolean = false
     private var overlayStartBounds = RectF()
+    // Transform overlay snapshot (bitmap) and matrix
+    private var overlayBmp: Bitmap? = null
+    private var overlayBmpCanvas: Canvas? = null
+    private var overlayMatrix = Matrix()
+    private var overlayStartTopLeft = PointF() // selection bbox top-left at drag start
+
 
 
     private val handleSizeDp = 14f
@@ -1186,8 +1192,25 @@ class InkCanvasView @JvmOverloads constructor(
             drawClipboardGhost(canvas, pastePreviewCx, pastePreviewCy)
         }
         if (overlayActive && selectedStrokes.isNotEmpty()) {
-            drawSelectionOverlay(canvas)
+            if (overlayBmp != null) {
+                canvas.save()
+                canvas.concat(overlayMatrix)
+                // draw the cached selection bitmap at its original top-left
+                canvas.drawBitmap(overlayBmp!!, overlayStartTopLeft.x, overlayStartTopLeft.y, null)
+                canvas.restore()
+                // draw current selection box & handles using selectedBounds
+                selectedBounds?.let { r ->
+                    // drawSelectionHighlights(canvas) // (disabled for perf during live transform)
+                    canvas.drawRect(r, selectionOutline)
+                    if (selectionInteractive) drawHandles(canvas, r)
+                }
+
+            } else {
+                // fallback (shouldn't happen during an active transform)
+                drawSelectionOverlay(canvas)
+            }
         }
+
         marqueePath?.let { path ->
             canvas.drawPath(path, marqueeFill)
             canvas.drawPath(path, marqueeOutline)
@@ -1218,44 +1241,8 @@ class InkCanvasView @JvmOverloads constructor(
         }
 
 
-        // Draw selection width HUD button at bottom-right (outside bbox)
-// Offset by the handle touch pad + extra, so we never overlap the resize handle.
-        if (selectedStrokes.isNotEmpty() && selectedBounds != null) {
-            val r = selectedBounds!!
-            // Convert bottom-right corner (content) to view coords
-            val brXv = contentToViewX(r.right)
-            val brYv = contentToViewY(r.bottom)
-            val gap = dpToPx(handleTouchPadDp + 16f) // push past handle pad + extra room
-            val cx = brXv + gap
-            val cy = brYv + gap
-
-
-            val radius = dpToPx(selHudBtnRadiusDp)
-            selHudBtnRectView = RectF(cx - radius, cy - radius, cx + radius, cy + radius)
-
-            // Draw opaque circle
-            val paintFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFFFAFAFA.toInt() }
-            val paintStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE
-                strokeWidth = dpToPx(1.5f)
-                color = 0xFF9E9E9E.toInt()
-            }
-            canvas.drawCircle(cx, cy, radius, paintFill)
-            canvas.drawCircle(cx, cy, radius, paintStroke)
-
-            // Draw a simple line-weight glyph
-            val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE
-                strokeCap = Paint.Cap.ROUND
-                color = 0xFF424242.toInt()
-            }
-            val y1 = cy - dpToPx(3f)
-            val y2 = cy
-            val y3 = cy + dpToPx(3f)
-            linePaint.strokeWidth = dpToPx(1f); canvas.drawLine(cx - dpToPx(6f), y1, cx + dpToPx(6f), y1, linePaint)
-            linePaint.strokeWidth = dpToPx(2f); canvas.drawLine(cx - dpToPx(6f), y2, cx + dpToPx(6f), y2, linePaint)
-            linePaint.strokeWidth = dpToPx(3f); canvas.drawLine(cx - dpToPx(6f), y3, cx + dpToPx(6f), y3, linePaint)
-        }
+        // Selection width HUD button disabled: no drawing, no hit target
+        selHudBtnRectView = null
 
         canvas.restore()
 
@@ -1379,20 +1366,8 @@ class InkCanvasView @JvmOverloads constructor(
                 if (!isStylus(event, idx) && event.pointerCount == 1 && !scalingInProgress) {
                     val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
 
-                    // HUD button tap has priority over handle hit-testing (finger)
-                    run {
-                        if (selectedStrokes.isNotEmpty()) {
-                            val rect = selHudBtnRectView
-                            if (rect != null) {
-                                val vx = event.getX(idx)
-                                val vy = event.getY(idx)
-                                if (rect.contains(vx, vy)) {
-                                    showSelectionWidthPopupAt(rect)
-                                    return true
-                                }
-                            }
-                        }
-                    }
+                    // HUD button disabled — no priority tap handling
+
 
                     // Finger can transform selection: handles first, then inside box
                     if (selectedStrokes.isNotEmpty() && selectionInteractive) {
@@ -1487,21 +1462,8 @@ class InkCanvasView @JvmOverloads constructor(
                         return true
                     }
 
-                    // HUD button tap has priority over handle hit-testing
-                    run {
-                        if (selectedStrokes.isNotEmpty()) {
-                            val rect = selHudBtnRectView
-                            if (rect != null) {
-                                // event coords are in VIEW space
-                                val vx = event.getX(idx)
-                                val vy = event.getY(idx)
-                                if (rect.contains(vx, vy)) {
-                                    showSelectionWidthPopupAt(rect)
-                                    return true
-                                }
-                            }
-                        }
-                    }
+                    // HUD button disabled — no priority tap handling
+
 
                     // Transform selection (handles first, then inside; otherwise maybe clear)
                     if (selectedStrokes.isNotEmpty() && selectionInteractive) {
@@ -1525,24 +1487,8 @@ class InkCanvasView @JvmOverloads constructor(
                         }
                     }
 
-                    // If something is selected and the tap is on blank canvas (no stroke hit), deselect,
-// except when the tap is on the width popup.
+                    // HUD button disabled — no selection HUD handling
 
-                    // Selection HUD button tap?
-                    run {
-                        if (selectedStrokes.isNotEmpty()) {
-                            val rect = selHudBtnRectView
-                            if (rect != null) {
-                                // event.x / event.y are VIEW coords
-                                val vx = event.getX(idx)
-                                val vy = event.getY(idx)
-                                if (rect.contains(vx, vy)) {
-                                    showSelectionWidthPopupAt(rect)
-                                    return true
-                                }
-                            }
-                        }
-                    }
                     // If popup is open and user taps inside selection, close it
                     run {
                         if (selWidthPopup?.isShowing == true && selectedStrokes.isNotEmpty()) {
@@ -1646,7 +1592,8 @@ class InkCanvasView @JvmOverloads constructor(
                                 pullHudProgress = 0f
                             }
 
-                            invalidate()
+                            postInvalidateOnAnimation()
+
                         }
                     }
 
@@ -1686,7 +1633,8 @@ class InkCanvasView @JvmOverloads constructor(
                                 pullHudProgress = 0f
                             }
 
-                            invalidate()
+                            postInvalidateOnAnimation()
+
                         }
                     }
 
@@ -1738,8 +1686,7 @@ class InkCanvasView @JvmOverloads constructor(
 // normal stroke rendering
                             extendStroke(cx, cy)
 // Per framework deprecation notes, the dirty rect is ignored on modern HW rendering;
-// calling plain invalidate() is the recommended path (API 21+).
-                            invalidate()
+
 
 
                         }
@@ -1752,7 +1699,8 @@ class InkCanvasView @JvmOverloads constructor(
                         if (i != -1) {
                             val (cx, cy) = toContent(event.getX(i), event.getY(i))
                             extendSelection(cx, cy)
-                            invalidate()
+                            postInvalidateOnAnimation()
+
                         }
                     }
 
@@ -1762,7 +1710,8 @@ class InkCanvasView @JvmOverloads constructor(
                         if (i != -1) {
                             val (cx, cy) = toContent(event.getX(i), event.getY(i))
                             updateTransform(cx, cy)
-                            invalidate()
+                            postInvalidateOnAnimation()
+
                         }
                     }
 
@@ -2195,6 +2144,82 @@ class InkCanvasView @JvmOverloads constructor(
         overlayActive = true
         setLayerType(LAYER_TYPE_HARDWARE, null) // lightweight perf boost while transforming
 
+        // Build a cached bitmap of the selected strokes (content-space)
+        val sb = selectedBounds ?: return
+        val bw = ceil(max(1f, sb.width())).toInt()
+        val bh = ceil(max(1f, sb.height())).toInt()
+        if (bw > 0 && bh > 0) {
+            overlayBmp?.recycle()
+            overlayBmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
+            overlayBmpCanvas = Canvas(overlayBmp!!)
+            overlayStartTopLeft.set(sb.left, sb.top)
+
+            // Draw the selected strokes into overlayBmp at (0,0) by offsetting -sb.left/-sb.top
+            overlayBmpCanvas?.save()
+            overlayBmpCanvas?.translate(-sb.left, -sb.top)
+
+            // Reuse your committed-draw logic per stroke type (HL first, then ink), but ONLY for selectedStrokes:
+            for (s in selectedStrokes) {
+                when (s.type) {
+                    BrushType.HIGHLIGHTER_FREEFORM, BrushType.HIGHLIGHTER_STRAIGHT -> {
+                        val pts = s.points
+                        if (pts.size >= 2) {
+                            val p = newStrokePaint(s.color, s.baseWidth)
+                            applyHighlighterBlend(p)
+                            for (i in 1 until pts.size) {
+                                val a = pts[i - 1]; val b = pts[i]
+                                overlayBmpCanvas?.drawLine(a.x, a.y, b.x, b.y, p)
+                            }
+                        }
+                    }
+                    BrushType.CALLIGRAPHY -> {
+                        val path = s.calligPath ?: Path(buildCalligraphyPath(s)).also { s.calligPath = it }
+                        overlayBmpCanvas?.drawPath(path, fillPaint(s.color))
+                    }
+                    BrushType.FOUNTAIN -> {
+                        val path = s.fountainPath ?: Path(buildFountainPath(s)).also { s.fountainPath = it }
+                        overlayBmpCanvas?.drawPath(path, fillPaint(s.color))
+                    }
+                    BrushType.PEN -> {
+                        val pts = s.points
+                        if (pts.size >= 2) {
+                            val p = newStrokePaint(s.color, s.baseWidth)
+                            for (i in 1 until pts.size) {
+                                val a = pts[i - 1]; val b = pts[i]
+                                overlayBmpCanvas?.drawLine(a.x, a.y, b.x, b.y, p)
+                            }
+                        }
+                    }
+                    BrushType.MARKER -> {
+                        val pts = s.points
+                        if (pts.size >= 2) {
+                            markerPaint.color = s.color
+                            markerPaint.strokeWidth = s.baseWidth * 1.30f
+                            markerPaint.maskFilter = BlurMaskFilter(s.baseWidth * 0.22f, BlurMaskFilter.Blur.NORMAL)
+                            for (i in 1 until pts.size) {
+                                val a = pts[i - 1]; val b = pts[i]
+                                overlayBmpCanvas?.drawLine(a.x, a.y, b.x, b.y, markerPaint)
+                            }
+                        }
+                    }
+                    BrushType.PENCIL -> {
+                        // Light preview (optional): or skip for speed; pencil is heavy.
+                        val pts = s.points
+                        if (pts.size >= 2) {
+                            val p = newStrokePaint(s.color, s.baseWidth).apply { alpha = 160 }
+                            for (i in 1 until pts.size) {
+                                val a = pts[i - 1]; val b = pts[i]
+                                overlayBmpCanvas?.drawLine(a.x, a.y, b.x, b.y, p)
+                            }
+                        }
+                    }
+                    BrushType.ERASER_AREA, BrushType.ERASER_STROKE -> { /* omit in preview; erases will be applied at drop */ }
+                }
+            }
+            overlayBmpCanvas?.restore()
+        }
+        overlayMatrix.reset()
+
         // Build base ONCE (with all erasers applied) for correct background during drag
         rebuildCommitted()
         invalidate()
@@ -2209,22 +2234,29 @@ class InkCanvasView @JvmOverloads constructor(
             TransformKind.TRANSLATE -> {
                 val dx = cx - downX
                 val dy = cy - downY
-                applyTranslate(dx, dy)
+                overlayMatrix.reset()
+                overlayMatrix.postTranslate(dx, dy)
                 selectedBounds = RectF(r).apply { offset(dx, dy) }
             }
 
             TransformKind.SCALE_X -> {
                 val startW = max(1e-3f, r.width())
                 val sx = max(minScale, abs(cx - transformAnchorX) / startW)
-                applyScale(sx, 1f, transformAnchorX, transformAnchorY)
-                selectedBounds = computeSelectionBounds()
+                overlayMatrix.reset()
+                overlayMatrix.postTranslate(-transformAnchorX, -transformAnchorY)
+                overlayMatrix.postScale(sx, 1f)
+                overlayMatrix.postTranslate(transformAnchorX, transformAnchorY)
+                selectedBounds = computeTransformedAABB(r, overlayMatrix)
             }
 
             TransformKind.SCALE_Y -> {
                 val startH = max(1e-3f, r.height())
                 val sy = max(minScale, abs(cy - transformAnchorY) / startH)
-                applyScale(1f, sy, transformAnchorX, transformAnchorY)
-                selectedBounds = computeSelectionBounds()
+                overlayMatrix.reset()
+                overlayMatrix.postTranslate(-transformAnchorX, -transformAnchorY)
+                overlayMatrix.postScale(1f, sy)
+                overlayMatrix.postTranslate(transformAnchorX, transformAnchorY)
+                selectedBounds = computeTransformedAABB(r, overlayMatrix)
             }
 
             TransformKind.SCALE_UNIFORM -> {
@@ -2233,45 +2265,53 @@ class InkCanvasView @JvmOverloads constructor(
                 val nx = abs(cx - transformAnchorX) / startW
                 val ny = abs(cy - transformAnchorY) / startH
                 val s = max(minScale, max(nx, ny))
-                applyScale(s, s, transformAnchorX, transformAnchorY)
-                selectedBounds = computeSelectionBounds()
+                overlayMatrix.reset()
+                overlayMatrix.postTranslate(-transformAnchorX, -transformAnchorY)
+                overlayMatrix.postScale(s, s)
+                overlayMatrix.postTranslate(transformAnchorX, transformAnchorY)
+                selectedBounds = computeTransformedAABB(r, overlayMatrix)
             }
 
             TransformKind.ROTATE -> {
                 val start = rotateStartAngleRad ?: return
                 val cur = atan2(cy - rotateCenterY, cx - rotateCenterX)
-                val delta = cur - start
-
-                val deltaDeg = Math.toDegrees(delta.toDouble()).toFloat()
-                val snapped = (deltaDeg / rotateSnapDeg).roundToInt() * rotateSnapDeg
-                val useDeg = if (abs(deltaDeg - snapped) <= rotateSnapTolDeg) snapped else deltaDeg
-                val deltaRad = Math.toRadians(useDeg.toDouble()).toFloat()
+                val deltaDegRaw = Math.toDegrees((cur - start).toDouble()).toFloat()
+                val snapped = (deltaDegRaw / rotateSnapDeg).roundToInt() * rotateSnapDeg
+                val useDeg = if (abs(deltaDegRaw - snapped) <= rotateSnapTolDeg) snapped else deltaDegRaw
                 overlayRotateAngleRad = Math.toRadians(useDeg.toDouble()).toFloat()
 
-
-
-                for ((s, pts0) in savedPoints) {
-                    s.points.clear()
-                    for (p in pts0) {
-                        val dx = p.x - rotateCenterX
-                        val dy = p.y - rotateCenterY
-                        val rx = rotateCenterX + (dx * cos(deltaRad) - dy * sin(deltaRad))
-                        val ry = rotateCenterY + (dx * sin(deltaRad) + dy * cos(deltaRad))
-                        s.points.add(Point(rx, ry))
-                    }
-                    s.calligPath = null
-                    s.fountainPath = null
-                }
-
-                selectedBounds = computeSelectionBounds()
+                overlayMatrix.reset()
+                overlayMatrix.postRotate(useDeg, rotateCenterX, rotateCenterY)
+                selectedBounds = computeTransformedAABB(r, overlayMatrix)
             }
         }
-        invalidate()
+        // Frame-sync repaint is smoother than invalidate()
+        postInvalidateOnAnimation()
     }
 
     private fun finishTransform() {
         overlayRotateActive = false
         overlayRotateAngleRad = 0f
+
+        // If we have a live overlay transform, bake it into the points once
+        if (overlayBmp != null) {
+            val pts = FloatArray(2)
+            for (s in selectedStrokes) {
+                for (i in s.points.indices) {
+                    val p = s.points[i]
+                    pts[0] = p.x
+                    pts[1] = p.y
+                    overlayMatrix.mapPoints(pts)  // apply final transform
+                    s.points[i] = Point(pts[0], pts[1])
+                }
+                s.calligPath = null
+                s.fountainPath = null
+            }
+            overlayBmp?.recycle()
+            overlayBmp = null
+            overlayBmpCanvas = null
+            overlayMatrix.reset()
+        }
 
         transforming = false
         transformKind = null
@@ -2280,23 +2320,22 @@ class InkCanvasView @JvmOverloads constructor(
 
         // bring moved selection to the top so past erasers don’t punch through
         moveSelectionToTop()
-        rehomeSelectionToCorrectSections()   // << NEW: retag strokes to the page they landed on
+        rehomeSelectionToCorrectSections()
         normalizeAreaErasersToEnd()
-
 
         // unhide strokes and drop overlay
         for (s in selectedStrokes) s.hidden = false
         overlayActive = false
         setLayerType(LAYER_TYPE_NONE, null)
 
-        // Clamp selection within document bounds (CONTENT space), not the view height
+        // Clamp selection within document bounds (CONTENT space)
         selectedBounds?.let { r ->
             val docH = contentHeightPx()
             var dx = 0f; var dy = 0f
             if (r.left < 0f) dx = -r.left
-            if (r.right > width) dx = min(dx, width - r.right)   // content width == view width
+            if (r.right > width) dx = min(dx, width - r.right)
             if (r.top < 0f) dy = -r.top
-            if (r.bottom > docH) dy = min(dy, docH - r.bottom)   // << key change
+            if (r.bottom > docH) dy = min(dy, docH - r.bottom)
             if (dx != 0f || dy != 0f) {
                 for (s in selectedStrokes) {
                     for (i in s.points.indices) {
@@ -2309,7 +2348,6 @@ class InkCanvasView @JvmOverloads constructor(
                 selectedBounds?.offset(dx, dy)
             }
         }
-
 
         rebuildCommitted()
         invalidate()
@@ -3070,6 +3108,26 @@ class InkCanvasView @JvmOverloads constructor(
         }
     }
 
+    // Axis-aligned bbox for a rect after applying a matrix (content-space)
+    private fun computeTransformedAABB(src: RectF, m: Matrix): RectF {
+        val pts = floatArrayOf(
+            src.left,  src.top,
+            src.right, src.top,
+            src.right, src.bottom,
+            src.left,  src.bottom
+        )
+        m.mapPoints(pts)
+        var minX = pts[0]; var minY = pts[1]; var maxX = pts[0]; var maxY = pts[1]
+        for (i in 2 until pts.size step 2) {
+            val x = pts[i]; val y = pts[i+1]
+            if (x < minX) minX = x
+            if (y < minY) minY = y
+            if (x > maxX) maxX = x
+            if (y > maxY) maxY = y
+        }
+        return RectF(minX, minY, maxX, maxY)
+    }
+
     // ===== Selection visuals & helpers =====
 
     private fun drawSelectionHighlights(canvas: Canvas) {
@@ -3806,6 +3864,8 @@ class InkCanvasView @JvmOverloads constructor(
         lastDirtyViewRect = strokeDirtyViewRect(sx, sy, nx, ny, op.baseWidth)
         lastX = nx
         lastY = ny
+        // Smooth, frame-synced repaint
+        postInvalidateOnAnimation()
     }
 
 
