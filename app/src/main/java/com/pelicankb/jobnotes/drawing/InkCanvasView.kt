@@ -25,8 +25,7 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.view.animation.PathInterpolator
 import android.widget.OverScroller
-import androidx.core.graphics.withSave
-import androidx.core.graphics.drawable.DrawableCompat
+
 import androidx.core.content.ContextCompat
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
