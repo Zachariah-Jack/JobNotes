@@ -279,22 +279,28 @@ class InkCanvasView @JvmOverloads constructor(
 
         val dx = dpToPx(24f)
         val dy = dpToPx(16f)
-        // Pick a sensible target Y to classify section:
-        val baseBox = clipboardBounds ?: RectF(0f, 0f, 0f, 0f)
-        val destCy = baseBox.centerY() + dy
-        val pasteSec = sectionIndexForContentY(destCy)
 
+        // Source bbox of what’s on the clipboard (doc-space)
+        val baseBox = clipboardBounds ?: RectF(0f, 0f, 0f, 0f)
+
+        // 1) Make translated copies (do not set sectionIndex here)
         val copies = clipboard.map { copy ->
             val c = deepCopy(copy)
-            c.sectionIndex = pasteSec
             translateStroke(c, dx, dy)
             c
         }
-        strokes.addAll(copies)               // appended at top -> above old erasers
+
+        // 2) Add + select + compute selection bbox
+        strokes.addAll(copies)
         selectedStrokes.addAll(copies)
         selectedBounds = RectF(baseBox).apply { offset(dx, dy) }
         selectionInteractive = true
+        overlayActive = true
 
+        // 3) Retag to the page(s) where they actually landed
+        rehomeSelectionToCorrectSections()
+
+        // 4) Paint
         rebuildCommitted()
         invalidate()
         return true
@@ -1550,6 +1556,15 @@ class InkCanvasView @JvmOverloads constructor(
                     }
 
 
+                    // If a selection exists and the stylus taps outside it (and not on a handle), clear the selection
+                    if (selectedStrokes.isNotEmpty() && selectionInteractive) {
+                        val inside = selectedBounds?.contains(cx, cy) == true
+                        val onHandle = detectHandle(cx, cy) != Handle.NONE
+                        if (!inside && !onHandle) {
+                            clearSelection()
+                        }
+                    }
+
                     // Either start selection marquee or a stroke
                     if (selectionTool != SelTool.NONE) {
                         cancelStylusHoldToPan()
@@ -2265,6 +2280,7 @@ class InkCanvasView @JvmOverloads constructor(
 
         // bring moved selection to the top so past erasers don’t punch through
         moveSelectionToTop()
+        rehomeSelectionToCorrectSections()   // << NEW: retag strokes to the page they landed on
         normalizeAreaErasersToEnd()
 
 
@@ -2273,13 +2289,14 @@ class InkCanvasView @JvmOverloads constructor(
         overlayActive = false
         setLayerType(LAYER_TYPE_NONE, null)
 
-        // Clamp selection within the visible canvas bounds
+        // Clamp selection within document bounds (CONTENT space), not the view height
         selectedBounds?.let { r ->
+            val docH = contentHeightPx()
             var dx = 0f; var dy = 0f
             if (r.left < 0f) dx = -r.left
-            if (r.right > width) dx = min(dx, width - r.right)
+            if (r.right > width) dx = min(dx, width - r.right)   // content width == view width
             if (r.top < 0f) dy = -r.top
-            if (r.bottom > height) dy = min(dy, height - r.bottom)
+            if (r.bottom > docH) dy = min(dy, docH - r.bottom)   // << key change
             if (dx != 0f || dy != 0f) {
                 for (s in selectedStrokes) {
                     for (i in s.points.indices) {
@@ -2292,6 +2309,7 @@ class InkCanvasView @JvmOverloads constructor(
                 selectedBounds?.offset(dx, dy)
             }
         }
+
 
         rebuildCommitted()
         invalidate()
@@ -2716,6 +2734,60 @@ class InkCanvasView @JvmOverloads constructor(
     /** Section top offset (CONTENT px) for a stroke; 0 if missing. */
     private fun sectionOffsetY(op: StrokeOp): Float =
         sections.getOrNull(op.sectionIndex)?.yOffsetPx ?: 0f
+    // Return the section index that fully contains the given doc-space rect, or -1 if none
+    private fun sectionIndexContainingRect(docRect: RectF): Int {
+        for (i in sections.indices) {
+            val off = sections[i].yOffsetPx
+            val h   = sections[i].heightPx
+            val top = off
+            val bot = off + h
+            if (docRect.top >= top && docRect.bottom <= bot) return i
+        }
+        return -1
+    }
+
+    // Return the section index that contains a doc-space Y, or -1 if none
+    private fun sectionIndexAtDocY(docY: Float): Int {
+        for (i in sections.indices) {
+            val off = sections[i].yOffsetPx
+            val h   = sections[i].heightPx
+            if (docY >= off && docY <= off + h) return i
+        }
+        return -1
+    }
+
+    // Re-home all selected strokes' sectionIndex based on where they ended up.
+// Prefer a single target section if the selection as a whole fits in one section;
+// otherwise assign per-stroke based on the stroke's own bounds.
+    private fun rehomeSelectionToCorrectSections() {
+        if (selectedStrokes.isEmpty()) return
+
+        // Try group-level rehome first (fewer writes, keeps group together)
+        val sb = selectedBounds ?: run { return }  // doc-space bounds of selection
+        val groupTarget = sectionIndexContainingRect(sb)
+
+        if (groupTarget >= 0) {
+            for (s in selectedStrokes) s.sectionIndex = groupTarget
+            return
+        }
+
+        // Fallback: assign per-stroke (handles tall selections grazing a boundary)
+        // Fallback: assign per-stroke (handles tall selections grazing a boundary)
+        for (s in selectedStrokes) {
+            val b = strokeBounds(s) ?: continue   // skip if bounds is null
+            val target = sectionIndexContainingRect(b)
+            if (target >= 0) {
+                s.sectionIndex = target
+            } else {
+                // As a last resort, pick by centerY; this keeps content visible
+                val centerY = (b.top + b.bottom) * 0.5f
+                val byCenter = sectionIndexAtDocY(centerY)
+                if (byCenter >= 0) s.sectionIndex = byCenter
+            }
+        }
+
+    }
+
 
     /** Translate canvas up by the section offset while drawing this stroke, then restore. */
     private inline fun withSection(canvas: Canvas?, op: StrokeOp, draw: (Canvas) -> Unit) {
@@ -3793,35 +3865,39 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
 
-    // ===== Paste placement =====
+    // Paste centered at (cx, cy) in doc-space, then immediately enter translate
+    private fun performPasteAt(cx: Float, cy: Float) {
+        val src = clipboardBounds ?: return
+        cancelTransform()
+        selectedStrokes.clear()
 
-        private fun performPasteAt(cx: Float, cy: Float) {
-            val src = clipboardBounds ?: return
-            cancelTransform()
-            selectedStrokes.clear()
+        val dx = cx - src.centerX()
+        val dy = cy - src.centerY()
 
-            val dx = cx - src.centerX()
-            val dy = cy - src.centerY()
-            val pasteSec = sectionIndexForContentY(cy)   // <— NEW
-
-            val copies = clipboard.map { copy ->
-                val c = deepCopy(copy)
-                c.sectionIndex = pasteSec                 // <— NEW
-                translateStroke(c, dx, dy)
-                c
-            }
-            strokes.addAll(copies) // pasted to top
-            selectedStrokes.addAll(copies)
-            selectedBounds = RectF(src).apply { offset(dx, dy) }
-            selectionInteractive = true
-
-            pastePreviewVisible = false
-            rebuildCommitted()
-            invalidate()
+        // 1) Make translated copies (do not set sectionIndex here)
+        val copies = clipboard.map { copy ->
+            val c = deepCopy(copy)
+            translateStroke(c, dx, dy)
+            c
         }
 
+        // 2) Add + select + compute selection bbox
+        strokes.addAll(copies)
+        selectedStrokes.addAll(copies)
+        selectedBounds = RectF(src).apply { offset(dx, dy) }
+        selectionInteractive = true
+        overlayActive = true
 
-        // ===== Helpers: deep copy, translation & z-order for clipboard/selection =====
+        // 3) Retag to the page(s) where they actually landed
+        rehomeSelectionToCorrectSections()
+
+        pastePreviewVisible = false
+        rebuildCommitted()
+        invalidate()
+    }
+
+
+    // ===== Helpers: deep copy, translation & z-order for clipboard/selection =====
 
     private fun deepCopy(s: StrokeOp): StrokeOp {
         return StrokeOp(
