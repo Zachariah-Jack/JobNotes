@@ -138,6 +138,43 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     fun undo() {
+        // Nothing to undo?
+        if (actionUndoStack.isEmpty() && strokes.isEmpty()) return
+
+        if (actionUndoStack.isNotEmpty()) {
+            val last = actionUndoStack.removeAt(actionUndoStack.lastIndex)
+            when (last) {
+                ActionKind.TRANSFORM_OP -> {
+                    // Pop transform history and revert to BEFORE
+                    if (transformUndoStack.isEmpty()) return
+                    val hist = transformUndoStack.removeAt(transformUndoStack.lastIndex)
+
+                    for (s in hist.strokes) {
+                        hist.beforePts[s]?.let { pts ->
+                            s.points.clear()
+                            s.points.addAll(pts.map { Point(it.x, it.y) })
+                        }
+                        hist.beforeWidth[s]?.let { w -> s.baseWidth = w }
+                        hist.beforeSection[s]?.let { sec -> s.sectionIndex = sec }
+                        s.calligPath = null
+                        s.fountainPath = null
+                    }
+
+                    // Push to redo stacks
+                    transformRedoStack.add(hist)
+                    actionRedoStack.add(ActionKind.TRANSFORM_OP)
+
+                    rebuildCommitted()
+                    postInvalidateOnAnimation()
+                    return
+                }
+                ActionKind.DRAW_OP -> {
+                    // fall through to stroke-based undo below
+                }
+            }
+        }
+
+        // Default: undo last drawing op
         if (strokes.isEmpty()) return
         val last = strokes.removeAt(strokes.lastIndex)
         when (last.type) {
@@ -148,26 +185,63 @@ class InkCanvasView @JvmOverloads constructor(
                         else strokes.add(e.stroke)
                     }
                 }
-                redoStack.add(last)
             }
-            else -> redoStack.add(last)
+            else -> { /* no-op */ }
         }
+// push the removed op so redo() can reapply it
+        redoStack.add(last)
+// mark we undid a DRAW_OP
+        actionRedoStack.add(ActionKind.DRAW_OP)
+
         rebuildCommitted()
-        invalidate()
+        postInvalidateOnAnimation()
+
     }
 
     fun redo() {
-        if (redoStack.isEmpty()) return
-        val op = redoStack.removeAt(redoStack.lastIndex)
-        when (op.type) {
-            BrushType.ERASER_STROKE -> {
-                op.erased?.forEach { e -> strokes.remove(e.stroke) }
-                strokes.add(op)
+        if (actionRedoStack.isEmpty()) return
+        val next = actionRedoStack.removeAt(actionRedoStack.lastIndex)
+        when (next) {
+            ActionKind.TRANSFORM_OP -> {
+                if (transformRedoStack.isEmpty()) return
+                val hist = transformRedoStack.removeAt(transformRedoStack.lastIndex)
+
+                // Apply AFTER state
+                for (s in hist.strokes) {
+                    hist.afterPts[s]?.let { pts ->
+                        s.points.clear()
+                        s.points.addAll(pts.map { Point(it.x, it.y) })
+                    }
+                    hist.afterWidth[s]?.let { w -> s.baseWidth = w }
+                    hist.afterSection[s]?.let { sec -> s.sectionIndex = sec }
+                    s.calligPath = null
+                    s.fountainPath = null
+                }
+
+                // Push back to undo stacks
+                transformUndoStack.add(hist)
+                actionUndoStack.add(ActionKind.TRANSFORM_OP)
+
+                rebuildCommitted()
+                postInvalidateOnAnimation()
             }
-            else -> strokes.add(op)
+            ActionKind.DRAW_OP -> {
+                // Redo last drawing op using your existing redoStack
+                if (redoStack.isEmpty()) return
+                val op = redoStack.removeAt(redoStack.lastIndex)
+                when (op.type) {
+                    BrushType.ERASER_STROKE -> {
+                        op.erased?.forEach { e -> strokes.remove(e.stroke) }
+                        strokes.add(op)
+                    }
+                    else -> strokes.add(op)
+                }
+                actionUndoStack.add(ActionKind.DRAW_OP)
+
+                rebuildCommitted()
+                postInvalidateOnAnimation()
+            }
         }
-        rebuildCommitted()
-        invalidate()
     }
 
     fun clearAll() {
@@ -730,6 +804,24 @@ class InkCanvasView @JvmOverloads constructor(
 
     private val strokes = mutableListOf<StrokeOp>()
     private val redoStack = mutableListOf<StrokeOp>()
+    // ===== Undo/Redo for transforms =====
+    private enum class ActionKind { DRAW_OP, TRANSFORM_OP }
+    private val actionUndoStack = mutableListOf<ActionKind>()
+    private val actionRedoStack = mutableListOf<ActionKind>()
+
+    private data class TransformHistory(
+        val strokes: List<StrokeOp>,                          // the affected stroke objects (by identity)
+        val beforePts: Map<StrokeOp, List<Point>>,            // deep copy of points before transform
+        val beforeWidth: Map<StrokeOp, Float>,                // baseWidth before transform
+        val beforeSection: Map<StrokeOp, Int>,                // sectionIndex before transform
+        val afterPts: Map<StrokeOp, List<Point>>,             // deep copy of points after transform
+        val afterWidth: Map<StrokeOp, Float>,                 // baseWidth after transform
+        val afterSection: Map<StrokeOp, Int>                  // sectionIndex after transform
+    )
+
+    private val transformUndoStack = mutableListOf<TransformHistory>()
+    private val transformRedoStack = mutableListOf<TransformHistory>()
+
     private var current: StrokeOp? = null
 
     // ===== “Next stroke” configuration =====
@@ -954,6 +1046,8 @@ class InkCanvasView @JvmOverloads constructor(
     private var startBounds = RectF()
     private val savedPoints: MutableMap<StrokeOp, List<Point>> = HashMap()
     private val savedBaseWidth: MutableMap<StrokeOp, Float> = HashMap()
+    private val savedSectionIndex: MutableMap<StrokeOp, Int> = HashMap()
+
     // Rotation overlay state (rotate selection box during rotation gesture)
     private var overlayRotateAngleRad: Float = 0f
     private var overlayRotateActive: Boolean = false
@@ -2114,6 +2208,7 @@ class InkCanvasView @JvmOverloads constructor(
         for (s in selectedStrokes) {
             savedPoints[s] = s.points.map { Point(it.x, it.y) }
             savedBaseWidth[s] = s.baseWidth
+            savedSectionIndex[s] = s.sectionIndex
             s.hidden = true           // hide from base while dragging
         }
 
@@ -2315,13 +2410,52 @@ class InkCanvasView @JvmOverloads constructor(
 
         transforming = false
         transformKind = null
-        savedPoints.clear()
-        savedBaseWidth.clear()
+
 
         // bring moved selection to the top so past erasers don’t punch through
         moveSelectionToTop()
         rehomeSelectionToCorrectSections()
         normalizeAreaErasersToEnd()
+        // --- NEW: record a TransformHistory for undo/redo ---
+        run {
+            // BEFORE = what we saved at beginTransform()
+            val beforePts = HashMap<StrokeOp, List<Point>>(savedPoints.size)
+            val beforeWidth = HashMap<StrokeOp, Float>(savedBaseWidth.size)
+            val beforeSection = HashMap<StrokeOp, Int>(savedSectionIndex.size)
+            for ((s, pts) in savedPoints)      beforePts[s] = pts.map { Point(it.x, it.y) }
+            for ((s, w) in savedBaseWidth)     beforeWidth[s] = w
+            for ((s, sec) in savedSectionIndex) beforeSection[s] = sec
+
+            // AFTER = the just-baked state
+            val afterPts = HashMap<StrokeOp, List<Point>>(selectedStrokes.size)
+            val afterWidth = HashMap<StrokeOp, Float>(selectedStrokes.size)
+            val afterSection = HashMap<StrokeOp, Int>(selectedStrokes.size)
+            for (s in selectedStrokes) {
+                afterPts[s] = s.points.map { Point(it.x, it.y) }
+                afterWidth[s] = s.baseWidth
+                afterSection[s] = s.sectionIndex
+            }
+
+            val hist = TransformHistory(
+                strokes = selectedStrokes.toList(),
+                beforePts = beforePts,
+                beforeWidth = beforeWidth,
+                beforeSection = beforeSection,
+                afterPts = afterPts,
+                afterWidth = afterWidth,
+                afterSection = afterSection
+            )
+            transformUndoStack.add(hist)
+            actionUndoStack.add(ActionKind.TRANSFORM_OP)
+            // any future redo chain is invalidated by a new transform
+            actionRedoStack.clear()
+            transformRedoStack.clear()
+        }
+        savedPoints.clear()
+        savedBaseWidth.clear()
+        savedSectionIndex.clear()
+
+
 
         // unhide strokes and drop overlay
         for (s in selectedStrokes) s.hidden = false
@@ -3919,9 +4053,14 @@ class InkCanvasView @JvmOverloads constructor(
         activePointerId = -1
         setLayerType(LAYER_TYPE_NONE, null)
 
+        // --- NEW: record that the last action was a DRAW_OP, clear redo for transforms ---
+        actionUndoStack.add(ActionKind.DRAW_OP)
+        actionRedoStack.clear()
+        transformRedoStack.clear()
+
         rebuildCommitted()
         lastDirtyViewRect = null
-        invalidate()
+        postInvalidateOnAnimation()
     }
 
 
