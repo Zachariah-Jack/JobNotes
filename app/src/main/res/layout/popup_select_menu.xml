@@ -8,39 +8,33 @@
     android:paddingStart="12dp"
     android:paddingEnd="12dp"
     android:paddingTop="10dp"
-    android:paddingBottom="10dp"
-    android:background="@android:color/white">
+    android:paddingBottom="10dp">
 
     <LinearLayout
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:orientation="vertical">
+        android:orientation="horizontal">
 
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal">
+        <ImageButton
+            android:id="@+id/iconSelectLasso"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="@drawable/bg_tool_toggle"
+            android:padding="8dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_tool_select_lasso" />
 
-            <ImageButton
-                android:id="@+id/iconSelectLasso"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:background="@drawable/bg_tool_toggle"
-                android:padding="8dp"
-                android:contentDescription="@null"
-                android:src="@drawable/ic_tool_select_lasso" />
-
-            <ImageButton
-                android:id="@+id/iconSelectRect"
-                android:layout_width="40dp"
-                android:layout_height="40dp"
-                android:layout_marginStart="6dp"
-                android:background="@drawable/bg_tool_toggle"
-                android:padding="8dp"
-                android:contentDescription="@null"
-                android:src="@drawable/ic_tool_select_rect" />
-        </LinearLayout>
+        <ImageButton
+            android:id="@+id/iconSelectRect"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:layout_marginStart="6dp"
+            android:background="@drawable/bg_tool_toggle"
+            android:padding="8dp"
+            android:contentDescription="@null"
+            android:src="@drawable/ic_tool_select_rect" />
     </LinearLayout>
+
 
     <LinearLayout
         android:layout_width="wrap_content"
