@@ -13,25 +13,25 @@
             android:id="@+id/btnPaletteCollapse"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="▼" />
+            android:text="@string/down_arrow" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnPenQuick"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Pen" />
+            android:text="@string/pen" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnHighQuick"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="High" />
+            android:text="@string/high" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnEraserQuick"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Erase" />
+            android:text="@string/erase" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnSelectQuick"
@@ -43,54 +43,54 @@
             android:id="@+id/btnShapesQuick"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Shapes" />
+            android:text="@string/shapes" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnImageQuick"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Image" />
+            android:text="@string/image" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnUndoQuick"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Undo" />
+            android:text="@string/undo" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnRedoQuick"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Redo" />
+            android:text="@string/redo" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnFitQuick"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Fit" />
+            android:text="@string/fit" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnCutQuick"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Cut" />
+            android:text="@string/cut" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnCopyQuick"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Copy" />
+            android:text="@string/copy" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnPasteQuick"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Paste" />
+            android:text="@string/paste" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnOpenBrushes"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Brushes" />
+            android:text="@string/brushes" />
     </LinearLayout>
 </HorizontalScrollView>

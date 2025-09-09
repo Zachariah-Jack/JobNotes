@@ -4,53 +4,58 @@
 
     <item
         android:id="@+id/action_stylus"
-        android:title="Pen"
+        android:title="@string/menu_pen"
         android:icon="@android:drawable/ic_menu_edit"
-        app:showAsAction="always" />
+        app:showAsAction="ifRoom"
+        />
 
     <item
         android:id="@+id/action_highlighter"
-        android:title="Highlighter"
+        android:title="@string/menu_highlighter"
         android:icon="@android:drawable/ic_menu_edit"
-        app:showAsAction="always" />
+        app:showAsAction="ifRoom"
+        />
 
     <item
         android:id="@+id/action_eraser"
-        android:title="Eraser"
+        android:title="@string/menu_eraser"
         android:icon="@android:drawable/ic_menu_delete"
-        app:showAsAction="always" />
+        app:showAsAction="ifRoom"
+        />
 
     <item
         android:id="@+id/action_select"
-        android:title="Select"
+        android:title="@string/menu_select"
         android:icon="@android:drawable/ic_menu_crop"
-        app:showAsAction="always" />
+        app:showAsAction="ifRoom"
+        />
 
     <item
         android:id="@+id/action_undo"
-        android:title="Undo"
+        android:title="@string/menu_undo"
         android:icon="@android:drawable/ic_menu_revert"
         app:showAsAction="ifRoom" />
 
     <item
         android:id="@+id/action_redo"
-        android:title="Redo"
+        android:title="@string/menu_redo"
         android:icon="@android:drawable/ic_menu_rotate"
         app:showAsAction="ifRoom" />
 
     <item
         android:id="@+id/action_clear"
-        android:title="Clear page"
+        android:title="@string/menu_clear"
         android:icon="@android:drawable/ic_menu_delete"
         app:showAsAction="never" />
+
     <item
         android:id="@+id/action_export_pdf"
-        android:title="Export as PDF"
-        android:showAsAction="never" />
+        android:title="@string/menu_export_pdf"
+        app:showAsAction="never" />
 
     <item
         android:id="@+id/action_export_png"
-        android:title="Export as PNG"
-        android:showAsAction="never" />
+        android:title="@string/menu_export_png"
+        app:showAsAction="never" />
 
 </menu>

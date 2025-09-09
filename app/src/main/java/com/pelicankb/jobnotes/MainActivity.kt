@@ -368,10 +368,11 @@ class MainActivity : AppCompatActivity() {
         chip3 = findViewById(R.id.chipColor3)
 
         btnHandPen = findViewById(R.id.btnHandPen)
+        btnHandKbd = findViewById(R.id.btnHandKbd)
         btnCameraPen = findViewById(R.id.btnCameraPen)
         btnGalleryPen = findViewById(R.id.btnGalleryPen)
         btnOverflowPen = findViewById(R.id.btnOverflowPen)
-        btnHandKbd = findViewById(R.id.btnHandKbd)
+
         btnCameraKbd = findViewById(R.id.btnCameraKbd)
         btnGalleryKbd = findViewById(R.id.btnGalleryKbd)
         btnOverflowKbd = findViewById(R.id.btnOverflowKbd)
@@ -436,7 +437,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         if (savedInstanceState == null && titleDisplay.text.isNullOrBlank()) {
-            titleDisplay.text = "Untitled"
+            titleDisplay.text = getString(R.string.untitled)
         }
 
         // Default chip colors
@@ -457,9 +458,7 @@ class MainActivity : AppCompatActivity() {
 
         // Toolbar: Stylus (open/close only; DO NOT switch family here)
         btnStylus.setOnClickListener { v ->
-            findViewById<ImageButton?>(R.id.btnHandPen)?.isSelected = false
-            findViewById<ImageButton?>(R.id.btnHandKbd)?.isSelected = false
-            inkCanvas.setPanMode(false)
+            resetPan()
 
             // Never touch selection or toolFamily on toolbar open
             toggleStylusPopup(v)
@@ -472,9 +471,7 @@ class MainActivity : AppCompatActivity() {
 
         // Toolbar: Highlighter — switch family + apply HL state, then open popup
         btnHighlighter.setOnClickListener { v ->
-            findViewById<ImageButton?>(R.id.btnHandPen)?.isSelected = false
-            findViewById<ImageButton?>(R.id.btnHandKbd)?.isSelected = false
-            inkCanvas.setPanMode(false)
+            resetPan()
 
             // Real tool switch (end any selection; arm HL)
             if (toolFamily != ToolFamily.HIGHLIGHTER) {
@@ -493,9 +490,7 @@ class MainActivity : AppCompatActivity() {
 
         // Toolbar: Eraser (open/close only; DO NOT switch family here)
         btnEraser.setOnClickListener { v ->
-            findViewById<ImageButton?>(R.id.btnHandPen)?.isSelected = false
-            findViewById<ImageButton?>(R.id.btnHandKbd)?.isSelected = false
-            inkCanvas.setPanMode(false)
+            resetPan()
 
             toggleEraserPopup(v)
             updateToolbarActiveStates()
@@ -873,7 +868,8 @@ class MainActivity : AppCompatActivity() {
 
         fun applySizeToUiAndCanvas(dp: Float, live: Boolean) {
             val clamped = dp.coerceIn(1f, 60f)
-            sizeValue.text = clamped.toInt().toString() + " dp"
+            sizeValue.text = getString(R.string.size_dp, clamped.toInt())
+
             preview?.setColor(penFamilyColor)
             preview?.setStrokeWidthDp(clamped)
             brushSizeDp = clamped
@@ -951,6 +947,12 @@ class MainActivity : AppCompatActivity() {
             setOnDismissListener { stylusPopup = null; inkCanvas.requestFocus() }
         }
     }
+    private fun resetPan() {
+        // use your cached fields; no extra findViewById
+        btnHandPen.isSelected = false
+        btnHandKbd.isSelected = false
+        inkCanvas.setPanMode(false)
+    }
 
 
     private fun applyPenFamilyBrush() {
@@ -1012,7 +1014,7 @@ class MainActivity : AppCompatActivity() {
         chip.imageTintList = ColorStateList.valueOf(highlighterColor)
         slider.max = 60
         slider.progress = highlighterSizeDp.toInt().coerceIn(1, slider.max)
-        sizeTxt.text = "${slider.progress} dp"
+        sizeTxt.text = getString(R.string.size_dp, slider.progress)
         preview?.setColor(highlighterColor)
         preview?.setStrokeWidthDp(slider.progress.toFloat())
 
@@ -1066,7 +1068,7 @@ class MainActivity : AppCompatActivity() {
         slider.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
                 val v = value.coerceAtLeast(1)
-                sizeTxt.text = "$v dp"
+                sizeTxt.text = getString(R.string.size_dp, v)
                 highlighterSizeDp = v.toFloat()
                 preview?.setStrokeWidthDp(highlighterSizeDp)
 
@@ -1170,13 +1172,13 @@ class MainActivity : AppCompatActivity() {
 
         sizeBar.max = 100
         sizeBar.progress = eraserSizeDp.toInt().coerceIn(1, 100)
-        sizeTxt.text = "${sizeBar.progress} dp"
+        sizeTxt.text = getString(R.string.size_dp, sizeBar.progress)
         preview.setDiameterPx(sizeBar.progress.dp().toFloat())
 
         sizeBar.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(seekBar: SeekBar?, value: Int, fromUser: Boolean) {
                 val v = value.coerceIn(1, 100)
-                sizeTxt.text = "$v dp"
+                sizeTxt.text = getString(R.string.size_dp, v)
                 preview.setDiameterPx(v.dp().toFloat())
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}

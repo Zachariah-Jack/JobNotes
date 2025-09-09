@@ -18,13 +18,14 @@
         android:layout_height="wrap_content"
         android:layout_weight="1"
         android:orientation="vertical"
-        android:paddingStart="16dp">
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp">
 
         <TextView
             android:id="@+id/txtFontSizeValue"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="12 pt"
+            android:text="@string/_12_pt"
             android:textSize="18sp"
             android:paddingBottom="8dp"/>
 
@@ -32,7 +33,7 @@
             android:id="@+id/txtPreview"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Aa  The quick brown fox…"
+            android:text="@string/aa_the_quick_brown_fox"
             android:textSize="12sp"/>
     </LinearLayout>
 </LinearLayout>

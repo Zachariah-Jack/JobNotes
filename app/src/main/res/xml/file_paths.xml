@@ -1,7 +1,19 @@
 <?xml version="1.0" encoding="utf-8"?>
 <paths>
-    <!-- App-specific Pictures directory (no storage permission needed) -->
-    <external-files-path name="images" path="Pictures/" />
-    <!-- Also allow using cache if needed -->
+        <!-- Also allow using cache if needed -->
     <cache-path name="cache" path="." />
+    <!-- /data/data/<pkg>/files/exports/...  -->
+    <files-path
+        name="exports"
+        path="exports/" />
+
+    <!-- /data/data/<pkg>/cache/share/... -->
+    <cache-path
+        name="cache_share"
+        path="share/" />
+
+    <!-- /storage/emulated/0/Android/data/<pkg>/files/Pictures/... -->
+    <external-files-path
+        name="pictures"
+        path="Pictures/" />
 </paths>

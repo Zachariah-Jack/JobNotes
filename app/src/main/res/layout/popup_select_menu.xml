@@ -53,7 +53,7 @@
             android:id="@+id/labelStrokeMode"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Stroke"
+            android:text="@string/stroke"
             android:textColor="@android:color/black"
             android:layout_marginEnd="8dp"/>
 

@@ -24,7 +24,7 @@
             android:id="@+id/btnSwitch"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Flip" />
+            android:text="@string/flip" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnCapture"
@@ -32,6 +32,6 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:layout_marginStart="12dp"
-            android:text="Capture" />
+            android:text="@string/capture" />
     </LinearLayout>
 </FrameLayout>

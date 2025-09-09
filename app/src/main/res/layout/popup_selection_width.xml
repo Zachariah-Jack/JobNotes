@@ -15,7 +15,7 @@
         android:id="@+id/labelStroke"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:text="Stroke"
+        android:text="@string/stroke"
         android:textStyle="bold"
         android:textColor="@android:color/black"
         android:paddingBottom="10dp" />
@@ -52,7 +52,7 @@
             android:id="@+id/valueDp"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="24 dp"
+            android:text="@string/_24_dp"
             android:textColor="@android:color/black"
             android:layout_marginStart="12dp" />
     </LinearLayout>

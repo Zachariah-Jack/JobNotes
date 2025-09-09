@@ -22,13 +22,13 @@
                 android:id="@+id/btnBrushPen"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Pen" />
+                android:text="@string/pen" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnBrushHigh"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Highlighter" />
+                android:text="@string/highlighter" />
         </com.google.android.material.button.MaterialButtonToggleGroup>
 
         <!-- Size presets -->
@@ -42,31 +42,31 @@
                 android:id="@+id/btnSz1"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="2" />
+                android:text="@string/_2" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnSz2"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="4" />
+                android:text="@string/_4" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnSz3"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="6" />
+                android:text="@string/_6" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnSz4"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="8" />
+                android:text="@string/_8" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnSz5"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="12" />
+                android:text="@string/_12" />
         </LinearLayout>
 
         <!-- Ink slider -->
@@ -97,61 +97,61 @@
                 android:id="@+id/btnColor1"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text=" " />
+                android:text="@string/blank" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnColor2"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text=" " />
+                android:text="@string/blank" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnColor3"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text=" " />
+                android:text="@string/blank" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnColor4"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text=" " />
+                android:text="@string/blank" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnColor5"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text=" " />
+                android:text="@string/blank" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnColor6"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text=" " />
+                android:text="@string/blank" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnColor7"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text=" " />
+                android:text="@string/blank" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/btnColorMore"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="More" />
+                android:text="@string/more" />
         </LinearLayout>
 
         <com.google.android.material.materialswitch.MaterialSwitch
             android:id="@+id/switchEraseByStroke"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Erase by stroke" />
+            android:text="@string/erase_by_stroke" />
 
         <com.google.android.material.materialswitch.MaterialSwitch
             android:id="@+id/switchStylusOnly"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Stylus only" />
+            android:text="@string/stylus_only" />
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

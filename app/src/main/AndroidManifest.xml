@@ -3,6 +3,11 @@
 
     <!-- Camera permission -->
     <uses-permission android:name="android.permission.CAMERA" />
+    <!-- App can use any camera if present, but does not require one -->
+    <uses-feature android:name="android.hardware.camera.any" android:required="false" />
+    <!-- If you benefit from autofocus but don't require it -->
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+
 
     <application
         android:allowBackup="true"
@@ -17,7 +22,7 @@
             android:name=".CameraCaptureActivity"
             android:exported="false" />
 
-        <!-- FileProvider to return a content:// Uri for saved photo -->
+        <!-- File sharing provider: single authority for the whole app -->
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"
@@ -27,6 +32,7 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+
 
         <!-- Launcher -->
         <activity
@@ -40,16 +46,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Share files safely with other apps -->
-        <provider
-            android:name="androidx.core.content.FileProvider"
-            android:authorities="${applicationId}.fileprovider"
-            android:exported="false"
-            android:grantUriPermissions="true">
-            <meta-data
-                android:name="android.support.FILE_PROVIDER_PATHS"
-                android:resource="@xml/file_paths_share" />
-        </provider>
 
     </application>
 </manifest>

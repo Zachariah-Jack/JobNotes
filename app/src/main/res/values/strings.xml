@@ -85,5 +85,54 @@
     <string name="no_fill">No fill</string>
     <string name="stroke">Stroke</string>
 
+    <!-- Menu items -->
+    <string name="menu_pen">Pen</string>
+    <string name="menu_highlighter">Highlighter</string>
+    <string name="menu_eraser">Eraser</string>
+    <string name="menu_select">Select</string>
+    <string name="menu_undo">Undo</string>
+    <string name="menu_redo">Redo</string>
+    <string name="menu_clear">Clear page</string>
+    <string name="menu_export_pdf">Export as PDF</string>
+    <string name="menu_export_png">Export as PNG</string>
+    <string name="flip">Flip</string>
+    <string name="capture">Capture</string>
+    <string name="_12_pt">12 pt</string>
+    <string name="aa_the_quick_brown_fox">Aa The quick brown fox…</string>
+    <string name="_24_dp">24 dp</string>
+    <string name="pen">Pen</string>
+    <string name="highlighter">Highlighter</string>
+    <string name="eraser">Eraser</string>
+    <string name="undo">Undo</string>
+    <string name="redo">Redo</string>
+    <string name="clear">Clear</string>
+    <string name="fit">Fit</string>
+    <string name="save">Save</string>
+    <string name="load">Load</string>
+    <string name="_2">2</string>
+    <string name="_4">4</string>
+    <string name="_6">6</string>
+    <string name="_8">8</string>
+
+    <string name="blank" translatable="false"/>
+
+
+    <string name="_12">12</string>
+    <string name="more">More</string>
+    <string name="erase_by_stroke">Erase by stroke</string>
+    <string name="stylus_only">Stylus only</string>
+    <string name="down_arrow">▼</string>
+    <string name="high">High</string>
+    <string name="erase">Erase</string>
+    <string name="shapes">Shapes</string>
+    <string name="image">Image</string>
+    <string name="cut">Cut</string>
+    <string name="copy">Copy</string>
+    <string name="paste">Paste</string>
+    <string name="brushes">Brushes</string>
+    <string name="size_dp">%1$d dp</string>
+
+
+
 
 </resources>
