@@ -57,10 +57,11 @@
             android:textColor="@android:color/black"
             android:layout_marginEnd="8dp"/>
 
-        <Switch
+        <androidx.appcompat.widget.SwitchCompat
             android:id="@+id/switchStrokeSelect"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content" />
+
     </LinearLayout>
 
 </LinearLayout>

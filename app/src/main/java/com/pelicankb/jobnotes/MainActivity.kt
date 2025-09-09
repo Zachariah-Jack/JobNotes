@@ -27,8 +27,12 @@ import android.widget.Button
 
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.widget.SwitchCompat
+import androidx.annotation.LayoutRes
+
 import android.content.Intent
 import android.net.Uri
+
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 
@@ -72,6 +76,11 @@ class MainActivity : AppCompatActivity() {
     }
 
 
+
+    private fun inflateForPopup(@LayoutRes layoutId: Int, anchor: View): View {
+        val parent = (anchor.rootView as? ViewGroup) ?: window.decorView as ViewGroup
+        return layoutInflater.inflate(layoutId, parent, /* attachToRoot = */ false)
+    }
 
     // ===== Export launchers =====
     private val exportPdfLauncher = registerForActivityResult(
@@ -206,6 +215,8 @@ class MainActivity : AppCompatActivity() {
         if (selectPopup != null && selectPopup != except) { selectPopup?.dismiss(); selectPopup = null }
         if (shapesPopup != null && shapesPopup != except) { shapesPopup?.dismiss(); shapesPopup = null } // <— add this line
     }
+
+
 
 
     // ───────── Palette presets ─────────
@@ -367,6 +378,21 @@ class MainActivity : AppCompatActivity() {
         // Ensure the overflow buttons use the proper "more" icon (not the up-arrow)
         btnOverflowPen.setImageResource(R.drawable.ic_more_vert)
         btnOverflowKbd.setImageResource(R.drawable.ic_more_vert)
+        // One toggle listener for both "hand" buttons; uses the cached fields (no extra findViewById)
+        val handToggle = View.OnClickListener { v ->
+            val btn = v as ImageButton
+            btn.isSelected = !btn.isSelected
+            inkCanvas.setPanMode(btn.isSelected)
+            Toast.makeText(
+                this,
+                if (btn.isSelected) "Hand (pan) tool ON" else "Hand tool OFF",
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+
+        btnHandPen.setOnClickListener(handToggle)
+        btnHandKbd.setOnClickListener(handToggle)
+
 
 
         // Canvas defaults
@@ -384,19 +410,7 @@ class MainActivity : AppCompatActivity() {
         // Right-side actions
         wireEditActions()
 
-        findViewById<ImageButton?>(R.id.btnHandPen)?.setOnClickListener { v ->
-            val btn = v as ImageButton
-            btn.isSelected = !btn.isSelected
-            inkCanvas.setPanMode(btn.isSelected)
-            Toast.makeText(this, if (btn.isSelected) "Hand (pan) tool ON" else "Hand tool OFF", Toast.LENGTH_SHORT).show()
-        }
 
-        findViewById<ImageButton?>(R.id.btnHandKbd)?.setOnClickListener { v ->
-            val btn = v as ImageButton
-            btn.isSelected = !btn.isSelected
-            inkCanvas.setPanMode(btn.isSelected)
-            Toast.makeText(this, if (btn.isSelected) "Hand (pan) tool ON" else "Hand tool OFF", Toast.LENGTH_SHORT).show()
-        }
 
         findViewById<ImageButton>(R.id.btnShapes).setOnClickListener { v ->
             dismissAllPopups()
@@ -493,13 +507,7 @@ class MainActivity : AppCompatActivity() {
         // Selection popup (lasso/rect + mode)
         btnSelectRect.setOnClickListener { v -> toggleSelectPopup(v) }
 
-        // Hand/pan tool
-        val enablePan = View.OnClickListener {
-            inkCanvas.setPanMode(true)
-            Toast.makeText(this, "Pan mode: drag with stylus to scroll", Toast.LENGTH_SHORT).show()
-        }
-        btnHandPen.setOnClickListener(enablePan)
-        btnHandKbd.setOnClickListener(enablePan)
+
 
         // Camera/Gallery placeholders (wire real flows in Phase 2)
         val camToast = View.OnClickListener { Toast.makeText(this, "Camera (coming soon)", Toast.LENGTH_SHORT).show() }
@@ -826,7 +834,7 @@ class MainActivity : AppCompatActivity() {
     private fun toggleStylusPopup(anchor: View) {
         stylusPopup?.let { if (it.isShowing) { it.dismiss(); stylusPopup = null; return } }
         dismissAllPopups() // close any other open submenu
-        stylusPopup = createStylusMenuPopup().also { popup ->
+        stylusPopup = createStylusMenuPopup(anchor).also { popup ->
             popup.isOutsideTouchable = true
             popup.isFocusable = true
             // PopupWindow requires a non-null background for outside touches to work:
@@ -836,9 +844,8 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    // REPLACE THIS ENTIRE FUNCTION
-    private fun createStylusMenuPopup(): PopupWindow {
-        val content = layoutInflater.inflate(R.layout.popup_stylus_menu, null, false)
+    private fun createStylusMenuPopup(anchor: View): PopupWindow {
+        val content = inflateForPopup(R.layout.popup_stylus_menu, anchor)
 
         // --- Views from popup_stylus_menu.xml ---
         val btnFountain   = content.findViewById<ImageButton>(R.id.iconFountain)
@@ -972,7 +979,7 @@ class MainActivity : AppCompatActivity() {
             if (it.isShowing) { it.dismiss(); highlighterPopup = null; return }
         }
         dismissAllPopups()
-        highlighterPopup = createHighlighterPopup().also { popup ->
+        highlighterPopup = createHighlighterPopup(anchor).also { popup ->
             popup.isOutsideTouchable = true
             popup.isFocusable = true
             showPopupAnchoredWithinScreen(popup, anchor)
@@ -982,8 +989,10 @@ class MainActivity : AppCompatActivity() {
 
 
 
-    private fun createHighlighterPopup(): PopupWindow {
-        val content = layoutInflater.inflate(R.layout.popup_highlighter_menu, null, false)
+    private fun createHighlighterPopup(anchor: View): PopupWindow {
+        val content = inflateForPopup(R.layout.popup_highlighter_menu, anchor)
+
+
 
         // Views
         val iconFree = content.findViewById<ImageButton>(R.id.iconHLFreeform)
@@ -1109,7 +1118,7 @@ class MainActivity : AppCompatActivity() {
     private fun toggleEraserPopup(anchor: View) {
         eraserPopup?.let { if (it.isShowing) { it.dismiss(); eraserPopup = null; return } }
         dismissAllPopups()
-        eraserPopup = createEraserPopup().also { p ->
+        eraserPopup = createEraserPopup(anchor).also { p ->
             p.isOutsideTouchable = true
             p.isFocusable = true
 
@@ -1118,15 +1127,18 @@ class MainActivity : AppCompatActivity() {
     }
 
 
-    private fun createEraserPopup(): PopupWindow {
-        val content = layoutInflater.inflate(R.layout.popup_eraser_menu, null, false)
+    private fun createEraserPopup(anchor: View): PopupWindow {
+        val content = inflateForPopup(R.layout.popup_eraser_menu, anchor)
+
+
 
         val btnStroke = content.findViewById<ImageButton>(R.id.iconEraseStroke)
         val btnArea   = content.findViewById<ImageButton>(R.id.iconEraseArea)
         val sizeBar   = content.findViewById<SeekBar>(R.id.sizeSliderEraser)
         val sizeTxt   = content.findViewById<TextView>(R.id.sizeValueEraser)
         val preview   = content.findViewById<EraserPreviewView>(R.id.previewEraser)
-        val hlOnlySw  = content.findViewById<Switch>(R.id.switchHLOnly)
+        val hlOnlySw  = content.findViewById<SwitchCompat>(R.id.switchHLOnly)
+
 
         fun updateModeUI() {
             btnStroke.isSelected = (eraserMode == EraserMode.STROKE)
@@ -1202,7 +1214,7 @@ class MainActivity : AppCompatActivity() {
     private fun toggleSelectPopup(anchor: View) {
         selectPopup?.let { if (it.isShowing) { it.dismiss(); selectPopup = null; return } }
         dismissAllPopups()
-        selectPopup = createSelectPopup().also { p ->
+        selectPopup = createSelectPopup(anchor).also { p ->
             p.isOutsideTouchable = true
             p.isFocusable = true
 
@@ -1213,12 +1225,15 @@ class MainActivity : AppCompatActivity() {
 
 
 
-    private fun createSelectPopup(): PopupWindow {
-        val content = layoutInflater.inflate(R.layout.popup_select_menu, null, false)
+    private fun createSelectPopup(anchor: View): PopupWindow {
+        val content = inflateForPopup(R.layout.popup_select_menu, anchor)
+
+
 
         val iconLasso = content.findViewById<ImageButton>(R.id.iconSelectLasso)
         val iconRect  = content.findViewById<ImageButton>(R.id.iconSelectRect)
-        val modeSw    = content.findViewById<Switch>(R.id.switchStrokeSelect)
+        val modeSw    = content.findViewById<SwitchCompat>(R.id.switchStrokeSelect)
+
 
         fun setToolUI(which: String) {
             iconLasso.isSelected = which == "lasso"
@@ -1280,15 +1295,17 @@ class MainActivity : AppCompatActivity() {
             }
         }
         dismissAllPopups()
-        shapesPopup = createShapesPopup().also { popup ->
+        shapesPopup = createShapesPopup(anchor).also { popup ->
             popup.isOutsideTouchable = true
             popup.isFocusable = true
             showPopupAnchoredWithinScreen(popup, anchor)
         }
     }
 
-    private fun createShapesPopup(): PopupWindow {
-        val content = layoutInflater.inflate(R.layout.popup_shapes_menu, null, false)
+    private fun createShapesPopup(anchor: View): PopupWindow {
+        val content = inflateForPopup(R.layout.popup_shapes_menu, anchor)
+
+
 
         // Icon buttons
         content.findViewById<ImageButton>(R.id.btnShapeRect).setOnClickListener {
