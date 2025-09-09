@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools"
+    tools:ignore="UnusedResources">
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
     <color name="tool_icon_active">#2962FF</color>
     <color name="tool_icon_inactive">#000000</color>
-    <color name="tool_divider">#1F000000</color> <!-- subtle 12% black -->
+    <color name="tool_divider">#1F000000</color>
 </resources>
