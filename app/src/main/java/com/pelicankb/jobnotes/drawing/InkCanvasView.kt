@@ -740,9 +740,11 @@ class InkCanvasView @JvmOverloads constructor(
     private val scratchHLBySection      = ArrayList<Bitmap?>()
     private val scratchCanvasHLBySection  = ArrayList<Canvas?>()
     // ───────── Inserted images (from Camera/Gallery) ─────────
+// Keep original bitmap; draw size is controlled by 'scale'
     private data class ImageNode(
-        var bitmap: Bitmap,
-        var center: PointF
+        val bitmap: Bitmap,
+        var center: PointF,
+        var scale: Float = 1f
     )
 
     private val imageNodes = mutableListOf<ImageNode>()
@@ -843,6 +845,8 @@ class InkCanvasView @JvmOverloads constructor(
     private var drawing = false              // ink/eraser stroke
     private var selectingGesture = false     // currently dragging marquee
     private var transforming = false         // moving/resizing existing selection
+    private var movingImage = false
+
     private var activePointerId = -1
     private var lastX = 0f
     private var lastY = 0f
@@ -1118,14 +1122,23 @@ class InkCanvasView @JvmOverloads constructor(
     /**
      * Insert a bitmap into the canvas, centered in the current view.
      */
+    /**
+     * Insert a bitmap into the canvas (CONTENT coordinates), centered on the current viewport,
+     * as a smaller thumbnail (keeps full-resolution for later resize).
+     */
     fun insertBitmapAtCenter(bmp: Bitmap, select: Boolean = true) {
-        val cx = width * 0.5f
-        val cy = height * 0.5f
-        val node = ImageNode(bmp, PointF(cx, cy))
+        // View center -> content coords
+        val (cx, cy) = toContent(width * 0.5f, height * 0.5f)
+
+        // Pick an initial on-page thumbnail size in CONTENT px (e.g., ~240dp box)
+        val thumbBox = dpToPx(240f)                       // desired max edge (content px)
+        val sx = thumbBox / bmp.width.toFloat()
+        val sy = thumbBox / bmp.height.toFloat()
+        val initialScale = min(1f, min(sx, sy))           // never upscale initially
+
+        val node = ImageNode(bmp, PointF(cx, cy), scale = initialScale)
         imageNodes.add(node)
-        if (select) {
-            selectedImage = node
-        }
+        if (select) selectedImage = node
         invalidate()
     }
 
@@ -1170,14 +1183,24 @@ class InkCanvasView @JvmOverloads constructor(
             canvas.restore()
         }
         canvas.restore()
-
-        // Draw inserted images beneath ink/highlighter layers
-        for (node in imageNodes) {
-            val bmp = node.bitmap
-            val left = node.center.x - bmp.width * 0.5f
-            val top  = node.center.y - bmp.height * 0.5f
-            canvas.drawBitmap(bmp, left, top, null)
+        // Selected image box (dashed) in CONTENT space
+        selectedImage?.let { node ->
+            val w = node.bitmap.width * node.scale
+            val h = node.bitmap.height * node.scale
+            val left = node.center.x - w * 0.5f
+            val top  = node.center.y - h * 0.5f
+            val r = RectF(left, top, left + w, top + h)
+            val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.STROKE
+                color = 0xFF2196F3.toInt()
+                strokeWidth = dpToPx(2f)
+                pathEffect = DashPathEffect(floatArrayOf(12f, 10f), 0f)
+            }
+            canvas.drawRect(r, boxPaint)
         }
+
+
+
         // If an image is selected, draw selection box and handles
         selectedImage?.let { node ->
             val bmp = node.bitmap
@@ -1209,6 +1232,19 @@ class InkCanvasView @JvmOverloads constructor(
         canvas.save()
         canvas.translate(translationX, translationY)
         canvas.scale(scaleFactor, scaleFactor)
+        // --- Draw images in CONTENT space so they pan/zoom with the canvas ---
+        run {
+            for (node in imageNodes) {
+                val bmp = node.bitmap
+                val w = bmp.width * node.scale
+                val h = bmp.height * node.scale
+                val left = node.center.x - w * 0.5f
+                val top  = node.center.y - h * 0.5f
+                val dst = RectF(left, top, left + w, top + h)
+                canvas.drawBitmap(bmp, null, dst, null)
+            }
+        }
+
 
         if (pasteArmed && pastePreviewVisible && clipboard.isNotEmpty()) {
             drawClipboardGhost(canvas, pastePreviewCx, pastePreviewCy)
@@ -1375,28 +1411,18 @@ class InkCanvasView @JvmOverloads constructor(
                 // idx already defined earlier in ACTION_DOWN
 
 
-                // First check if tap hit an image
-                val tapped = imageNodes.lastOrNull { node ->
-                    val bmp = node.bitmap
-                    val left = node.center.x - bmp.width * 0.5f
-                    val top  = node.center.y - bmp.height * 0.5f
-                    val right = left + bmp.width
-                    val bottom = top + bmp.height
-                    event.x in left..right && event.y in top..bottom
-                }
-                if (tapped != null) {
-                    selectedImage = tapped
-                    invalidate()
-                    return true
-                } else {
-                    selectedImage = null
-                }
+
 
                 // Single-finger (not stylus): pan or move selection; never draw
                 if (!isStylus(event, idx) && event.pointerCount == 1 && !scalingInProgress) {
                     val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
 
-                    // HUD button disabled — no priority tap handling
+                    // If an image is already selected and we pressed inside it, start moving it
+                    if (selectedImage != null && isInsideSelectedImage(cx, cy)) {
+                        movingImage = true
+                        activePointerId = event.getPointerId(idx)
+                        return true
+                    }
 
 
                     // Finger can transform selection: handles first, then inside box
@@ -1576,6 +1602,20 @@ class InkCanvasView @JvmOverloads constructor(
 
 
                 velocityTracker?.addMovement(event)
+                // Move a selected image only if movingImage is armed
+                if (movingImage && activePointerId != -1) {
+                    val i = event.findPointerIndex(activePointerId)
+                    if (i != -1) {
+                        val (cxM, cyM) = toContent(event.getX(i), event.getY(i))
+                        selectedImage?.let { node ->
+                            node.center.x = cxM
+                            node.center.y = cyM
+                            postInvalidateOnAnimation()
+                        }
+                    }
+                    return true
+                }
+
                 when {
                     // 1-finger finger pan
                     fingerPanning && activePointerId != -1 -> {
@@ -1782,6 +1822,8 @@ class InkCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                movingImage = false
+
                 animateBackIntoBoundsIfNeeded()
             // Reset HUD state (commit, if any, already occurred during MOVE)
             pullHudVisible = false
@@ -3250,6 +3292,29 @@ class InkCanvasView @JvmOverloads constructor(
         return if (r.contains(x, y)) Handle.INSIDE else Handle.NONE
     }
 
+    private fun hitImageAtContent(cx: Float, cy: Float): ImageNode? {
+        for (i in imageNodes.size - 1 downTo 0) {
+            val node = imageNodes[i]
+            val w = node.bitmap.width * node.scale
+            val h = node.bitmap.height * node.scale
+            val left = node.center.x - w * 0.5f
+            val top  = node.center.y - h * 0.5f
+            if (cx >= left && cx <= left + w && cy >= top && cy <= top + h) {
+                return node
+            }
+        }
+        return null
+    }
+
+    private fun isInsideSelectedImage(cx: Float, cy: Float): Boolean {
+        val node = selectedImage ?: return false
+        val w = node.bitmap.width * node.scale
+        val h = node.bitmap.height * node.scale
+        val left = node.center.x - w * 0.5f
+        val top  = node.center.y - h * 0.5f
+        return (cx >= left && cx <= left + w && cy >= top && cy <= top + h)
+    }
+
     // ===== Hit testing / selection predicates =====
     // Hit a single stroke at (x,y) within tolerance, topmost first (view-space tol converted to content)
     private fun hitAnyStrokeAt(cx: Float, cy: Float, tolPx: Float = dpToPx(10f)): StrokeOp? {
@@ -3674,6 +3739,17 @@ class InkCanvasView @JvmOverloads constructor(
         }
         override fun onLongPress(e: MotionEvent) {
             val (cx, cy) = toContent(e.x, e.y)
+// Prefer images on long-press; if one is hit, select it and bail.
+            hitImageAtContent(cx, cy)?.let { node ->
+                selectedImage = node
+                // (Optional) make image selection "interactive" consistent with strokes
+                selectionInteractive = true
+                overlayActive = false
+                invalidate()
+                return
+            }
+
+
             // Prefer handles/inside handling elsewhere; here, long-press selects stroke + connected group.
             val hit = hitAnyStrokeAt(cx, cy, dpToPx(10f))
             if (hit != null) {
