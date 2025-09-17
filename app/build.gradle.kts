@@ -43,6 +43,8 @@ android {
 }
 
 dependencies {
+    implementation("androidx.exifinterface:exifinterface:1.3.7")
+
     // AndroidX core + appcompat + material (via version catalog)
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.appcompat)

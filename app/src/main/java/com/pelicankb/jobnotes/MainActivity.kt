@@ -4,10 +4,12 @@ package com.pelicankb.jobnotes
 
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Rect
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.text.InputType
 import android.view.*
@@ -179,6 +181,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var takePictureLauncher: androidx.activity.result.ActivityResultLauncher<Uri>
     private lateinit var pickImageLauncher: androidx.activity.result.ActivityResultLauncher<String>
     private var pendingCameraUri: Uri? = null
+    private lateinit var permissionLauncher: ActivityResultLauncher<Array<String>>
+
 
 
     // ───────── Top-level tool family ─────────
@@ -251,10 +255,12 @@ class MainActivity : AppCompatActivity() {
             pendingCameraUri = null
             if (success && uri != null) {
                 contentResolver.openInputStream(uri)?.use { inStream ->
-                    val bytes = inStream.readBytes()
-                    val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    val bmp = decodeBitmapSafelyFromUri(uri)
+
                     if (bmp != null) {
                         val v = findViewById<com.pelicankb.jobnotes.drawing.InkCanvasView>(R.id.inkCanvas)
+
+
 
                         v.insertBitmapAtCenter(bmp, select = true)
 
@@ -266,16 +272,41 @@ class MainActivity : AppCompatActivity() {
         pickImageLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
             if (uri != null) {
                 contentResolver.openInputStream(uri)?.use { inStream ->
-                    val bytes = inStream.readBytes()
-                    val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    val bmp = decodeBitmapSafelyFromUri(uri)
+
                     if (bmp != null) {
                         val v = findViewById<com.pelicankb.jobnotes.drawing.InkCanvasView>(R.id.inkCanvas)
+
 
                         v.insertBitmapAtCenter(bmp, select = true)
                     }
                 }
             }
         }
+        permissionLauncher = registerForActivityResult(
+            ActivityResultContracts.RequestMultiplePermissions()
+        ) { grants ->
+            // If camera was requested and granted, launch capture:
+            val needCamera = grants.keys.any { it == android.Manifest.permission.CAMERA }
+            val cameraOk = grants[android.Manifest.permission.CAMERA] == true
+            if (needCamera && cameraOk) {
+                val uri = pendingCameraUri
+                if (uri != null) {
+                    takePictureLauncher.launch(uri)
+                }
+                return@registerForActivityResult
+            }
+            // If gallery media was requested and granted, launch picker:
+            val mediaPerm =
+                if (Build.VERSION.SDK_INT >= 33) android.Manifest.permission.READ_MEDIA_IMAGES
+                else android.Manifest.permission.READ_EXTERNAL_STORAGE
+            val needMedia = grants.keys.any { it == mediaPerm }
+            val mediaOk = grants[mediaPerm] == true
+            if (needMedia && mediaOk) {
+                pickImageLauncher.launch("image/*")
+            }
+        }
+
 
 
 
@@ -544,17 +575,15 @@ class MainActivity : AppCompatActivity() {
 
 
 
-        // Camera/Gallery placeholders (wire real flows in Phase 2)
-        val camToast = View.OnClickListener { Toast.makeText(this, "Camera (coming soon)", Toast.LENGTH_SHORT).show() }
-        val galToast = View.OnClickListener { Toast.makeText(this, "Gallery (coming soon)", Toast.LENGTH_SHORT).show() }
-        btnCameraPen.setOnClickListener(camToast)
-        btnCameraKbd.setOnClickListener(camToast)
-        btnGalleryPen.setOnClickListener(galToast)
-        btnGalleryKbd.setOnClickListener(galToast)
+        btnCameraPen.setOnClickListener { launchCameraFlow() }
+        btnCameraKbd.setOnClickListener { launchCameraFlow() }
+        btnGalleryPen.setOnClickListener { launchGalleryFlow() }
+        btnGalleryKbd.setOnClickListener { launchGalleryFlow() }
 
 
 
-       // android.util.Log.d("LAYOUT", "root gravity=${rootLL.gravity}")
+
+        // android.util.Log.d("LAYOUT", "root gravity=${rootLL.gravity}")
 
 
 
@@ -1566,20 +1595,97 @@ class MainActivity : AppCompatActivity() {
         }
         return handled
     }
+    private fun hasPermissionCamera(): Boolean =
+        ContextCompat.checkSelfPermission(this, android.Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+
+    private fun hasPermissionMedia(): Boolean {
+        val p = if (Build.VERSION.SDK_INT >= 33)
+            android.Manifest.permission.READ_MEDIA_IMAGES
+        else
+            android.Manifest.permission.READ_EXTERNAL_STORAGE
+        return ContextCompat.checkSelfPermission(this, p) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun requestCameraPermissionThenLaunch() {
+        val perms = arrayListOf(android.Manifest.permission.CAMERA)
+        permissionLauncher.launch(perms.toTypedArray())
+    }
+
+    private fun requestMediaPermissionThenLaunch() {
+        val media = if (Build.VERSION.SDK_INT >= 33)
+            android.Manifest.permission.READ_MEDIA_IMAGES
+        else
+            android.Manifest.permission.READ_EXTERNAL_STORAGE
+        permissionLauncher.launch(arrayOf(media))
+    }
+    private fun launchCameraFlow() {
+        // Prepare temp URI every time (in case prior was cleared)
+        pendingCameraUri = createTempImageUri()
+        if (!hasPermissionCamera()) {
+            requestCameraPermissionThenLaunch()
+            return
+        }
+        val uri = pendingCameraUri ?: return
+        takePictureLauncher.launch(uri)
+
+    }
+
+    private fun launchGalleryFlow() {
+        if (!hasPermissionMedia()) {
+            requestMediaPermissionThenLaunch()
+            return
+        }
+        pickImageLauncher.launch("image/*")
+    }
+
+
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
         return when (item.itemId) {
             R.id.action_camera -> {
-                pendingCameraUri = createTempImageUri()
-                pendingCameraUri?.let { takePictureLauncher.launch(it) }
-
-                true
+                launchCameraFlow(); true
             }
             R.id.action_gallery -> {
-                pickImageLauncher.launch("image/*")
-                true
+                launchGalleryFlow(); true
             }
+
             else -> super.onOptionsItemSelected(item)
         }
+    }
+
+    private fun decodeBitmapSafelyFromUri(uri: Uri, maxEdgePx: Int = 3000): android.graphics.Bitmap? {
+        // 1) Bounds pass
+        val opts = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, opts) }
+        if (opts.outWidth <= 0 || opts.outHeight <= 0) return null
+
+        // 2) Compute inSampleSize
+        val longEdge = maxOf(opts.outWidth, opts.outHeight)
+        var sample = 1
+        while (longEdge / sample > maxEdgePx) sample *= 2
+
+        // 3) Decode with sample
+        val opts2 = android.graphics.BitmapFactory.Options().apply { inSampleSize = sample }
+        val raw = contentResolver.openInputStream(uri)?.use { android.graphics.BitmapFactory.decodeStream(it, null, opts2) }
+            ?: return null
+
+        // 4) EXIF orientation
+        return try {
+            contentResolver.openInputStream(uri)?.use { inS ->
+                val exif = androidx.exifinterface.media.ExifInterface(inS)
+                when (exif.getAttributeInt(androidx.exifinterface.media.ExifInterface.TAG_ORIENTATION,
+                    androidx.exifinterface.media.ExifInterface.ORIENTATION_NORMAL)) {
+                    androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_90 -> raw.rotate(90f)
+                    androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_180 -> raw.rotate(180f)
+                    androidx.exifinterface.media.ExifInterface.ORIENTATION_ROTATE_270 -> raw.rotate(270f)
+                    else -> raw
+                }
+            } ?: raw
+        } catch (_: Throwable) { raw }
+    }
+
+    private fun android.graphics.Bitmap.rotate(deg: Float): android.graphics.Bitmap {
+        val m = android.graphics.Matrix().apply { postRotate(deg) }
+        return android.graphics.Bitmap.createBitmap(this, 0, 0, width, height, m, true)
     }
 
     private fun createTempImageUri(): Uri {
