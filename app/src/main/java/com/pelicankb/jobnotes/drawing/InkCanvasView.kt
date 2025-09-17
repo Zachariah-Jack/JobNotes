@@ -739,13 +739,15 @@ class InkCanvasView @JvmOverloads constructor(
     private val scratchCanvasInkBySection = ArrayList<Canvas?>()
     private val scratchHLBySection      = ArrayList<Bitmap?>()
     private val scratchCanvasHLBySection  = ArrayList<Canvas?>()
-    // ───────── Inserted images (from Camera/Gallery) ─────────
-// Keep original bitmap; draw size is controlled by 'scale'
+    // Image is drawn from the original bitmap; size/orientation are controlled by scale + angle.
+// Z-order is the index in imageNodes: later = on top (but still below strokes/HL/text).
     private data class ImageNode(
         val bitmap: Bitmap,
         var center: PointF,
-        var scale: Float = 1f
+        var scale: Float = 1f,
+        var angleRad: Float = 0f
     )
+
 
     private val imageNodes = mutableListOf<ImageNode>()
     // ───────── Selection state for images ─────────
@@ -1120,27 +1122,35 @@ class InkCanvasView @JvmOverloads constructor(
 
 
     /**
-     * Insert a bitmap into the canvas, centered in the current view.
-     */
-    /**
-     * Insert a bitmap into the canvas (CONTENT coordinates), centered on the current viewport,
-     * as a smaller thumbnail (keeps full-resolution for later resize).
+     * Insert a bitmap centered on current viewport (CONTENT coords) as a thumbnail.
+     * Keeps full resolution for later resize; no bitmap reallocation.
      */
     fun insertBitmapAtCenter(bmp: Bitmap, select: Boolean = true) {
-        // View center -> content coords
         val (cx, cy) = toContent(width * 0.5f, height * 0.5f)
 
-        // Pick an initial on-page thumbnail size in CONTENT px (e.g., ~240dp box)
-        val thumbBox = dpToPx(240f)                       // desired max edge (content px)
-        val sx = thumbBox / bmp.width.toFloat()
-        val sy = thumbBox / bmp.height.toFloat()
-        val initialScale = min(1f, min(sx, sy))           // never upscale initially
+        // Fit within ~240dp longest edge, but never upscale initially
+        val targetEdge = dpToPx(240f)
+        val sX = targetEdge / bmp.width.toFloat()
+        val sY = targetEdge / bmp.height.toFloat()
+        val initialScale = min(1f, min(sX, sY)).coerceAtLeast(0.05f)
 
-        val node = ImageNode(bmp, PointF(cx, cy), scale = initialScale)
+        val node = ImageNode(bmp, PointF(cx, cy), scale = initialScale, angleRad = 0f)
         imageNodes.add(node)
-        if (select) selectedImage = node
+        if (select) {
+            selectedImage = node
+            bringImageToFront(node) // maintain "recent selection on top" among images
+        }
         invalidate()
     }
+    private fun bringImageToFront(node: ImageNode) {
+        val idx = imageNodes.indexOf(node)
+        if (idx >= 0 && idx != imageNodes.lastIndex) {
+            imageNodes.removeAt(idx)
+            imageNodes.add(node)
+        }
+    }
+
+
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -1173,6 +1183,59 @@ class InkCanvasView @JvmOverloads constructor(
 
             // White page background for this section
             canvas.drawRect(0f, 0f, width.toFloat(), s.heightPx, pagePaint)
+
+            // --- Draw images in CONTENT space for THIS section, so they pan/zoom with the canvas,
+// and stay BELOW ink/highlighter/text (since layers are drawn after this).
+            run {
+                val secTop = 0f
+                val secBot = s.heightPx
+                for (node in imageNodes) {
+                    val bmp = node.bitmap
+                    val w = bmp.width * node.scale
+                    val h = bmp.height * node.scale
+                    val left = node.center.x - w * 0.5f
+                    val top  = node.center.y - h * 0.5f
+                    val right = left + w
+                    val bottom = top + h
+
+                    // Image is in CONTENT coords for the whole document; we're currently
+                    // translated to this section's top. Draw only the portion intersecting this section.
+                    if (bottom < secTop || top > secBot) continue
+
+                    canvas.save()
+                    // Rotate around image center (CONTENT coords within this section)
+                    val cx = node.center.x
+                    val cy = node.center.y
+                    canvas.rotate(Math.toDegrees(node.angleRad.toDouble()).toFloat(), cx, cy)
+
+                    // Draw scaled into destination rect
+                    val dst = RectF(left, top, right, bottom)
+                    canvas.drawBitmap(bmp, null, dst, null)
+                    canvas.restore()
+                }
+            }
+            // Selected image box (dashed), drawn in CONTENT space
+            selectedImage?.let { n ->
+                val w = n.bitmap.width * n.scale
+                val h = n.bitmap.height * n.scale
+                val halfW = w * 0.5f
+                val halfH = h * 0.5f
+
+                // Draw the rectangle in the image's rotated space
+                canvas.save()
+                canvas.rotate(Math.toDegrees(n.angleRad.toDouble()).toFloat(), n.center.x, n.center.y)
+
+                val r = RectF(n.center.x - halfW, n.center.y - halfH, n.center.x + halfW, n.center.y + halfH)
+                val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    style = Paint.Style.STROKE
+                    color = 0xFF2196F3.toInt()
+                    strokeWidth = dpToPx(2f)
+                    pathEffect = DashPathEffect(floatArrayOf(12f, 10f), 0f)
+                }
+                canvas.drawRect(r, boxPaint)
+                canvas.restore()
+            }
+
 
             // This section's layers (committed first, then scratch)
             committedHLBySection.getOrNull(i)?.let  { canvas.drawBitmap(it, 0f, 0f, null) }
@@ -2049,24 +2112,16 @@ class InkCanvasView @JvmOverloads constructor(
     // ===== Transform (drag/scale) =====
 
     private fun beginTransform(handle: Handle, cx: Float, cy: Float) {
-        // Support transforms for images
-        selectedImage?.let { node ->
-            val bmp = node.bitmap
-            val left = node.center.x - bmp.width * 0.5f
-            val top  = node.center.y - bmp.height * 0.5f
-            val right = left + bmp.width
-            val bottom = top + bmp.height
-            startBounds.set(left, top, right, bottom)
-
+        // Images: prepare transform bookkeeping and pick transform kind
+        selectedImage?.let { n ->
             downX = cx
             downY = cy
             transformKind = when (handle) {
-                Handle.INSIDE -> { TransformKind.TRANSLATE }
-                Handle.N, Handle.S, Handle.E, Handle.W,
-                Handle.NE, Handle.NW, Handle.SE, Handle.SW -> TransformKind.SCALE_UNIFORM
+                Handle.INSIDE -> TransformKind.TRANSLATE
+                Handle.N, Handle.S, Handle.E, Handle.W, Handle.NE, Handle.NW, Handle.SE, Handle.SW -> TransformKind.SCALE_UNIFORM
                 Handle.ROTATE -> {
-                    rotateCenterX = node.center.x
-                    rotateCenterY = node.center.y
+                    rotateCenterX = n.center.x
+                    rotateCenterY = n.center.y
                     rotateStartAngleRad = atan2(cy - rotateCenterY, cx - rotateCenterX)
                     overlayRotateActive = true
                     overlayRotateAngleRad = 0f
@@ -2074,8 +2129,12 @@ class InkCanvasView @JvmOverloads constructor(
                 }
                 else -> null
             }
+            // Nothing to hide for image; we don’t snapshot pixels, we’ll apply continuous transform.
+            overlayActive = false
+            setLayerType(LAYER_TYPE_NONE, null)
             return
         }
+
 
 
 
@@ -2201,36 +2260,42 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     private fun updateTransform(cx: Float, cy: Float) {
-        // If an image is selected, update its transform
-        selectedImage?.let { node ->
+        selectedImage?.let { n ->
             when (transformKind) {
                 TransformKind.TRANSLATE -> {
-                    node.center.x += (cx - downX)
-                    node.center.y += (cy - downY)
+                    val dx = cx - downX
+                    val dy = cy - downY
+                    n.center.x += dx
+                    n.center.y += dy
                     downX = cx; downY = cy
                 }
                 TransformKind.SCALE_UNIFORM -> {
-                    val scale = 1f + (cy - downY) / 200f
-                    val bmp = node.bitmap
-                    // Simple resize: create scaled bitmap
-                    val newW = max(1, (bmp.width * scale).toInt())
-                    val newH = max(1, (bmp.height * scale).toInt())
-                    node.bitmap = Bitmap.createScaledBitmap(bmp, newW, newH, true)
-                    downY = cy
+                    // Uniform scale from the handle move (simple heuristic: delta to center)
+                    val startDx = downX - n.center.x
+                    val startDy = downY - n.center.y
+                    val curDx   = cx - n.center.x
+                    val curDy   = cy - n.center.y
+                    val startR = hypot(startDx.toDouble(), startDy.toDouble()).toFloat().coerceAtLeast(1e-3f)
+                    val curR   = hypot(curDx.toDouble(),   curDy.toDouble()).toFloat().coerceAtLeast(1e-3f)
+                    val s = (curR / startR).coerceIn(0.1f, 10f)
+                    n.scale = (n.scale * s).coerceIn(0.05f, 20f)
+                    downX = cx; downY = cy
                 }
                 TransformKind.ROTATE -> {
-                    val start = rotateStartAngleRad ?: return
+                    val start = rotateStartAngleRad ?: return@let
                     val cur = atan2(cy - rotateCenterY, cx - rotateCenterX)
                     val deltaDegRaw = Math.toDegrees((cur - start).toDouble()).toFloat()
                     val snapped = (deltaDegRaw / rotateSnapDeg).roundToInt() * rotateSnapDeg
                     val useDeg = if (abs(deltaDegRaw - snapped) <= rotateSnapTolDeg) snapped else deltaDegRaw
                     overlayRotateAngleRad = Math.toRadians(useDeg.toDouble()).toFloat()
+                    n.angleRad = overlayRotateAngleRad  // apply live
                 }
                 else -> {}
             }
-            invalidate()
+            postInvalidateOnAnimation()
             return
         }
+
 
         val kind = transformKind ?: return
         val r = startBounds
@@ -2297,14 +2362,16 @@ class InkCanvasView @JvmOverloads constructor(
 
     private fun finishTransform() {
         // Commit transforms for images
-        selectedImage?.let {
+        selectedImage?.let { n ->
             overlayRotateActive = false
             overlayRotateAngleRad = 0f
             transformKind = null
             transforming = false
+            bringImageToFront(n) // drop selected image to the top of image stack on finish
             invalidate()
             return
         }
+
 
         overlayRotateActive = false
         overlayRotateAngleRad = 0f
@@ -3230,39 +3297,42 @@ class InkCanvasView @JvmOverloads constructor(
 
 
     private fun detectHandle(x: Float, y: Float): Handle {
-        // If an image is selected, give it handles too
-        selectedImage?.let { node ->
-            val bmp = node.bitmap
-            val left = node.center.x - bmp.width * 0.5f
-            val top  = node.center.y - bmp.height * 0.5f
-            val right = left + bmp.width
-            val bottom = top + bmp.height
-            val r = RectF(left, top, right, bottom)
-
+        // Image selection: reuse handles if an image is selected
+        selectedImage?.let { n ->
+            val w = n.bitmap.width * n.scale
+            val h = n.bitmap.height * n.scale
+            // Build an axis-aligned bbox in image's rotated space (test in image-local coords)
+            val s = sin(-n.angleRad)
+            val c = cos(-n.angleRad)
+            val dx = x - n.center.x
+            val dy = y - n.center.y
+            val lx = dx * c - dy * s
+            val ly = dx * s + dy * c
+            val r = RectF(-w * 0.5f, -h * 0.5f, w * 0.5f, h * 0.5f)
             val pad = dpToPx(handleTouchPadDp)
 
-            // Rotation handle above top-middle
-            run {
-                val off = dpToPx(rotateHandleOffsetDp)
-                val rx = r.centerX()
-                val ry = r.top - off
-                val rotPad = dpToPx(handleTouchPadDp + 6f)
-                if (abs(x - rx) <= rotPad && abs(y - ry) <= rotPad) return Handle.ROTATE
-            }
+            // Rotate handle coordinates too (in local space handles are axis-aligned)
+            fun near(px: Float, py: Float) = (abs(px - lx) <= pad && abs(py - ly) <= pad)
 
-            fun near(px: Float, py: Float) = (abs(px - x) <= pad && abs(py - y) <= pad)
+            // Corners
             if (near(r.left, r.top)) return Handle.NW
             if (near(r.right, r.top)) return Handle.NE
             if (near(r.left, r.bottom)) return Handle.SW
             if (near(r.right, r.bottom)) return Handle.SE
+            // Edges
+            if (abs(ly - r.top) <= pad && lx >= r.left - pad && lx <= r.right + pad) return Handle.N
+            if (abs(ly - r.bottom) <= pad && lx >= r.left - pad && lx <= r.right + pad) return Handle.S
+            if (abs(lx - r.left) <= pad && ly >= r.top - pad && ly <= r.bottom + pad) return Handle.W
+            if (abs(lx - r.right) <= pad && ly >= r.top - pad && ly <= r.bottom + pad) return Handle.E
 
-            if (abs(y - r.top) <= pad && x >= r.left - pad && x <= r.right + pad) return Handle.N
-            if (abs(y - r.bottom) <= pad && x >= r.left - pad && x <= r.right + pad) return Handle.S
-            if (abs(x - r.left) <= pad && y >= r.top - pad && y <= r.bottom + pad) return Handle.W
-            if (abs(x - r.right) <= pad && y >= r.top - pad && y <= r.bottom + pad) return Handle.E
+            // Rotation handle: above top-middle, in local space
+            val off = dpToPx(rotateHandleOffsetDp)
+            if (abs(lx - 0f) <= pad && abs(ly - (r.top - off)) <= pad) return Handle.ROTATE
 
-            if (r.contains(x, y)) return Handle.INSIDE
+            // Inside (local)
+            if (r.contains(lx, ly)) return Handle.INSIDE
         }
+
 
         val r = selectedBounds ?: return Handle.NONE
         val pad = dpToPx(handleTouchPadDp)
@@ -3293,27 +3363,41 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     private fun hitImageAtContent(cx: Float, cy: Float): ImageNode? {
+        // topmost image first (reverse order)
         for (i in imageNodes.size - 1 downTo 0) {
-            val node = imageNodes[i]
-            val w = node.bitmap.width * node.scale
-            val h = node.bitmap.height * node.scale
-            val left = node.center.x - w * 0.5f
-            val top  = node.center.y - h * 0.5f
-            if (cx >= left && cx <= left + w && cy >= top && cy <= top + h) {
-                return node
-            }
+            val n = imageNodes[i]
+            val w = n.bitmap.width * n.scale
+            val h = n.bitmap.height * n.scale
+            val left = n.center.x - w * 0.5f
+            val top  = n.center.y - h * 0.5f
+
+            // Rotate the hit point into image's local space to test axis-aligned box
+            val s = sin(-n.angleRad)
+            val c = cos(-n.angleRad)
+            val dx = cx - n.center.x
+            val dy = cy - n.center.y
+            val lx = dx * c - dy * s
+            val ly = dx * s + dy * c
+            val halfW = w * 0.5f
+            val halfH = h * 0.5f
+            if (abs(lx) <= halfW && abs(ly) <= halfH) return n
         }
         return null
     }
 
     private fun isInsideSelectedImage(cx: Float, cy: Float): Boolean {
-        val node = selectedImage ?: return false
-        val w = node.bitmap.width * node.scale
-        val h = node.bitmap.height * node.scale
-        val left = node.center.x - w * 0.5f
-        val top  = node.center.y - h * 0.5f
-        return (cx >= left && cx <= left + w && cy >= top && cy <= top + h)
+        val n = selectedImage ?: return false
+        val w = n.bitmap.width * n.scale
+        val h = n.bitmap.height * n.scale
+        val s = sin(-n.angleRad)
+        val c = cos(-n.angleRad)
+        val dx = cx - n.center.x
+        val dy = cy - n.center.y
+        val lx = dx * c - dy * s
+        val ly = dx * s + dy * c
+        return (abs(lx) <= w * 0.5f && abs(ly) <= h * 0.5f)
     }
+
 
     // ===== Hit testing / selection predicates =====
     // Hit a single stroke at (x,y) within tolerance, topmost first (view-space tol converted to content)
@@ -3739,15 +3823,16 @@ class InkCanvasView @JvmOverloads constructor(
         }
         override fun onLongPress(e: MotionEvent) {
             val (cx, cy) = toContent(e.x, e.y)
-// Prefer images on long-press; if one is hit, select it and bail.
+// Prefer images: if hit, select and bring to front, then bail
             hitImageAtContent(cx, cy)?.let { node ->
                 selectedImage = node
-                // (Optional) make image selection "interactive" consistent with strokes
+                bringImageToFront(node)    // maintain frontmost among images
                 selectionInteractive = true
                 overlayActive = false
                 invalidate()
                 return
             }
+
 
 
             // Prefer handles/inside handling elsewhere; here, long-press selects stroke + connected group.
