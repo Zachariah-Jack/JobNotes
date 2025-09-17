@@ -3,47 +3,38 @@ package com.pelicankb.jobnotes
 
 
 import android.content.Context
+import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Rect
+import android.net.Uri
 import android.os.Bundle
 import android.text.InputType
-
 import android.view.*
 import android.view.inputmethod.EditorInfo
-
-
 import android.view.inputmethod.InputMethodManager
+import android.view.WindowManager
 import android.widget.*
-import android.widget.PopupMenu
-import android.widget.ImageButton
+import android.widget.Button
 import android.widget.CheckBox
+import android.widget.ImageButton
+import android.widget.PopupMenu
 import android.widget.PopupWindow
 import android.widget.SeekBar
 import android.widget.TextView
-import android.widget.Button
-
-
-
+import android.widget.Toast
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.annotation.LayoutRes
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.widget.SwitchCompat
-import androidx.annotation.LayoutRes
-
-import android.content.Intent
-import android.net.Uri
-
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.core.content.FileProvider
-
 import androidx.core.content.ContextCompat
-import androidx.core.view.WindowInsetsCompat
-import androidx.core.view.WindowInsetsControllerCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowCompat
-
-
-
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import com.pelicankb.jobnotes.drawing.BrushType
 import com.pelicankb.jobnotes.drawing.InkCanvasView
 import com.pelicankb.jobnotes.drawing.InkCanvasView.SelectionPolicy
@@ -51,8 +42,22 @@ import com.pelicankb.jobnotes.ui.BrushPreviewView
 import com.pelicankb.jobnotes.ui.EraserPreviewView
 import com.skydoves.colorpickerview.ColorPickerDialog
 import com.skydoves.colorpickerview.listeners.ColorEnvelopeListener
-
 import java.io.File
+import java.io.FileOutputStream
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 class MainActivity : AppCompatActivity() {
@@ -171,6 +176,10 @@ class MainActivity : AppCompatActivity() {
     private lateinit var btnCameraKbd: ImageButton
     private lateinit var btnGalleryKbd: ImageButton
     private lateinit var btnOverflowKbd: ImageButton
+    private lateinit var takePictureLauncher: androidx.activity.result.ActivityResultLauncher<Uri>
+    private lateinit var pickImageLauncher: androidx.activity.result.ActivityResultLauncher<String>
+    private var pendingCameraUri: Uri? = null
+
 
     // ───────── Top-level tool family ─────────
     private enum class ToolFamily { PEN_FAMILY, HIGHLIGHTER, ERASER }
@@ -237,6 +246,37 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        takePictureLauncher = registerForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+            val uri = pendingCameraUri
+            pendingCameraUri = null
+            if (success && uri != null) {
+                contentResolver.openInputStream(uri)?.use { inStream ->
+                    val bytes = inStream.readBytes()
+                    val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    if (bmp != null) {
+                        val v = findViewById<com.pelicankb.jobnotes.drawing.InkCanvasView>(R.id.inkCanvas)
+
+                        v.insertBitmapAtCenter(bmp, select = true)
+
+                    }
+                }
+            }
+        }
+
+        pickImageLauncher = registerForActivityResult(ActivityResultContracts.GetContent()) { uri: Uri? ->
+            if (uri != null) {
+                contentResolver.openInputStream(uri)?.use { inStream ->
+                    val bytes = inStream.readBytes()
+                    val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                    if (bmp != null) {
+                        val v = findViewById<com.pelicankb.jobnotes.drawing.InkCanvasView>(R.id.inkCanvas)
+
+                        v.insertBitmapAtCenter(bmp, select = true)
+                    }
+                }
+            }
+        }
+
 
 
 
@@ -1508,6 +1548,8 @@ class MainActivity : AppCompatActivity() {
         popup.showAsDropDown(anchor, xOff, yOffDp.dp())
     }
 
+
+
     private fun Int.dp(): Int = (this * resources.displayMetrics.density).toInt()
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -1524,6 +1566,32 @@ class MainActivity : AppCompatActivity() {
         }
         return handled
     }
+    override fun onOptionsItemSelected(item: MenuItem): Boolean {
+        return when (item.itemId) {
+            R.id.action_camera -> {
+                pendingCameraUri = createTempImageUri()
+                pendingCameraUri?.let { takePictureLauncher.launch(it) }
+
+                true
+            }
+            R.id.action_gallery -> {
+                pickImageLauncher.launch("image/*")
+                true
+            }
+            else -> super.onOptionsItemSelected(item)
+        }
+    }
+
+    private fun createTempImageUri(): Uri {
+        val imagesDir = File(cacheDir, "images").apply { if (!exists()) mkdirs() }
+        val tmp = File.createTempFile("capture_", ".jpg", imagesDir)
+        return FileProvider.getUriForFile(
+            this,
+            "${applicationContext.packageName}.fileprovider",
+            tmp
+        )
+    }
+
 }
 
 /** Expands a view's tap target by [extraDp] on all sides. */
@@ -1539,4 +1607,7 @@ private fun View.expandTouchTarget(extraDp: Int) {
         rect.bottom += extraPx
         parentView.touchDelegate = TouchDelegate(rect, this)
     }
+
+
 }
+

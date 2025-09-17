@@ -7,6 +7,16 @@
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <!-- If you benefit from autofocus but don't require it -->
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false" />
+    <!-- API 33+ (scoped media) -->
+    <uses-permission
+        android:name="android.permission.READ_MEDIA_IMAGES"
+        android:required="false" />
+
+    <!-- Legacy external read for API < 33 -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32"
+        android:required="false" />
 
 
     <application
@@ -47,6 +57,17 @@
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
         </activity>
+        <!-- ADD (directly after the last <activity> in <application>) -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
+
 
 
     </application>

@@ -3,6 +3,10 @@
 
     <!-- App -->
     <string name="app_name">Job Notes</string>
+    <!-- Camera / Gallery menu titles -->
+    <string name="menu_camera">Camera</string>
+    <string name="menu_gallery">Gallery</string>
+
 
     <!-- res/values/strings.xml -->
     <string name="cd_eraser">Eraser</string>

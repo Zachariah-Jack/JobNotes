@@ -5,6 +5,9 @@ import android.animation.ValueAnimator
 import android.content.Context
 
 import android.graphics.*
+import android.graphics.Bitmap
+import android.graphics.PointF
+
 import android.graphics.drawable.Drawable
 
 
@@ -736,6 +739,17 @@ class InkCanvasView @JvmOverloads constructor(
     private val scratchCanvasInkBySection = ArrayList<Canvas?>()
     private val scratchHLBySection      = ArrayList<Bitmap?>()
     private val scratchCanvasHLBySection  = ArrayList<Canvas?>()
+    // ───────── Inserted images (from Camera/Gallery) ─────────
+    private data class ImageNode(
+        var bitmap: Bitmap,
+        var center: PointF
+    )
+
+    private val imageNodes = mutableListOf<ImageNode>()
+    // ───────── Selection state for images ─────────
+    private var selectedImage: ImageNode? = null
+
+
 
 
 
@@ -1101,8 +1115,24 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
 
+    /**
+     * Insert a bitmap into the canvas, centered in the current view.
+     */
+    fun insertBitmapAtCenter(bmp: Bitmap, select: Boolean = true) {
+        val cx = width * 0.5f
+        val cy = height * 0.5f
+        val node = ImageNode(bmp, PointF(cx, cy))
+        imageNodes.add(node)
+        if (select) {
+            selectedImage = node
+        }
+        invalidate()
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
+
+
 
         // 1) CONTENT space: draw each section background + that section's committed/scratch layers
         canvas.save()
@@ -1140,6 +1170,40 @@ class InkCanvasView @JvmOverloads constructor(
             canvas.restore()
         }
         canvas.restore()
+
+        // Draw inserted images beneath ink/highlighter layers
+        for (node in imageNodes) {
+            val bmp = node.bitmap
+            val left = node.center.x - bmp.width * 0.5f
+            val top  = node.center.y - bmp.height * 0.5f
+            canvas.drawBitmap(bmp, left, top, null)
+        }
+        // If an image is selected, draw selection box and handles
+        selectedImage?.let { node ->
+            val bmp = node.bitmap
+            val left = node.center.x - bmp.width * 0.5f
+            val top  = node.center.y - bmp.height * 0.5f
+            val right = left + bmp.width
+            val bottom = top + bmp.height
+
+            // Dashed blue outline
+            val boxPaint = Paint().apply {
+                style = Paint.Style.STROKE
+                color = Color.BLUE
+                pathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
+                strokeWidth = 3f
+            }
+            canvas.drawRect(left, top, right, bottom, boxPaint)
+
+            // Handle: bottom-right square (resize)
+            val handleSize = 20f
+            val handlePaint = Paint().apply { style = Paint.Style.FILL; color = Color.BLUE }
+            canvas.drawRect(right - handleSize, bottom - handleSize, right, bottom, handlePaint)
+
+            // Handle: top-center circle (rotate)
+            canvas.drawCircle((left + right) * 0.5f, top - 40f, 12f, handlePaint)
+        }
+
 
         // 2) Overlays in section-0 content coords (marquee, selection, paste ghost)
         canvas.save()
@@ -1311,6 +1375,23 @@ class InkCanvasView @JvmOverloads constructor(
                 // idx already defined earlier in ACTION_DOWN
 
 
+                // First check if tap hit an image
+                val tapped = imageNodes.lastOrNull { node ->
+                    val bmp = node.bitmap
+                    val left = node.center.x - bmp.width * 0.5f
+                    val top  = node.center.y - bmp.height * 0.5f
+                    val right = left + bmp.width
+                    val bottom = top + bmp.height
+                    event.x in left..right && event.y in top..bottom
+                }
+                if (tapped != null) {
+                    selectedImage = tapped
+                    invalidate()
+                    return true
+                } else {
+                    selectedImage = null
+                }
+
                 // Single-finger (not stylus): pan or move selection; never draw
                 if (!isStylus(event, idx) && event.pointerCount == 1 && !scalingInProgress) {
                     val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
@@ -1478,6 +1559,17 @@ class InkCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_MOVE -> {
+                // Move selected image with the finger/stylus
+                selectedImage?.let { node ->
+                    node.center.x = event.x
+                    node.center.y = event.y
+                    invalidate()
+                    return true
+                }
+
+
+
+
                 // (removed) old drag-distance path; new HUD/progress derived from doc-bottom offset
 
 
@@ -1915,6 +2007,34 @@ class InkCanvasView @JvmOverloads constructor(
     // ===== Transform (drag/scale) =====
 
     private fun beginTransform(handle: Handle, cx: Float, cy: Float) {
+        // Support transforms for images
+        selectedImage?.let { node ->
+            val bmp = node.bitmap
+            val left = node.center.x - bmp.width * 0.5f
+            val top  = node.center.y - bmp.height * 0.5f
+            val right = left + bmp.width
+            val bottom = top + bmp.height
+            startBounds.set(left, top, right, bottom)
+
+            downX = cx
+            downY = cy
+            transformKind = when (handle) {
+                Handle.INSIDE -> { TransformKind.TRANSLATE }
+                Handle.N, Handle.S, Handle.E, Handle.W,
+                Handle.NE, Handle.NW, Handle.SE, Handle.SW -> TransformKind.SCALE_UNIFORM
+                Handle.ROTATE -> {
+                    rotateCenterX = node.center.x
+                    rotateCenterY = node.center.y
+                    rotateStartAngleRad = atan2(cy - rotateCenterY, cx - rotateCenterX)
+                    overlayRotateActive = true
+                    overlayRotateAngleRad = 0f
+                    TransformKind.ROTATE
+                }
+                else -> null
+            }
+            return
+        }
+
 
 
         val r = selectedBounds ?: return
@@ -2039,6 +2159,37 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     private fun updateTransform(cx: Float, cy: Float) {
+        // If an image is selected, update its transform
+        selectedImage?.let { node ->
+            when (transformKind) {
+                TransformKind.TRANSLATE -> {
+                    node.center.x += (cx - downX)
+                    node.center.y += (cy - downY)
+                    downX = cx; downY = cy
+                }
+                TransformKind.SCALE_UNIFORM -> {
+                    val scale = 1f + (cy - downY) / 200f
+                    val bmp = node.bitmap
+                    // Simple resize: create scaled bitmap
+                    val newW = max(1, (bmp.width * scale).toInt())
+                    val newH = max(1, (bmp.height * scale).toInt())
+                    node.bitmap = Bitmap.createScaledBitmap(bmp, newW, newH, true)
+                    downY = cy
+                }
+                TransformKind.ROTATE -> {
+                    val start = rotateStartAngleRad ?: return
+                    val cur = atan2(cy - rotateCenterY, cx - rotateCenterX)
+                    val deltaDegRaw = Math.toDegrees((cur - start).toDouble()).toFloat()
+                    val snapped = (deltaDegRaw / rotateSnapDeg).roundToInt() * rotateSnapDeg
+                    val useDeg = if (abs(deltaDegRaw - snapped) <= rotateSnapTolDeg) snapped else deltaDegRaw
+                    overlayRotateAngleRad = Math.toRadians(useDeg.toDouble()).toFloat()
+                }
+                else -> {}
+            }
+            invalidate()
+            return
+        }
+
         val kind = transformKind ?: return
         val r = startBounds
         val minScale = 0.1f
@@ -2103,6 +2254,16 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     private fun finishTransform() {
+        // Commit transforms for images
+        selectedImage?.let {
+            overlayRotateActive = false
+            overlayRotateAngleRad = 0f
+            transformKind = null
+            transforming = false
+            invalidate()
+            return
+        }
+
         overlayRotateActive = false
         overlayRotateAngleRad = 0f
 
@@ -3027,6 +3188,40 @@ class InkCanvasView @JvmOverloads constructor(
 
 
     private fun detectHandle(x: Float, y: Float): Handle {
+        // If an image is selected, give it handles too
+        selectedImage?.let { node ->
+            val bmp = node.bitmap
+            val left = node.center.x - bmp.width * 0.5f
+            val top  = node.center.y - bmp.height * 0.5f
+            val right = left + bmp.width
+            val bottom = top + bmp.height
+            val r = RectF(left, top, right, bottom)
+
+            val pad = dpToPx(handleTouchPadDp)
+
+            // Rotation handle above top-middle
+            run {
+                val off = dpToPx(rotateHandleOffsetDp)
+                val rx = r.centerX()
+                val ry = r.top - off
+                val rotPad = dpToPx(handleTouchPadDp + 6f)
+                if (abs(x - rx) <= rotPad && abs(y - ry) <= rotPad) return Handle.ROTATE
+            }
+
+            fun near(px: Float, py: Float) = (abs(px - x) <= pad && abs(py - y) <= pad)
+            if (near(r.left, r.top)) return Handle.NW
+            if (near(r.right, r.top)) return Handle.NE
+            if (near(r.left, r.bottom)) return Handle.SW
+            if (near(r.right, r.bottom)) return Handle.SE
+
+            if (abs(y - r.top) <= pad && x >= r.left - pad && x <= r.right + pad) return Handle.N
+            if (abs(y - r.bottom) <= pad && x >= r.left - pad && x <= r.right + pad) return Handle.S
+            if (abs(x - r.left) <= pad && y >= r.top - pad && y <= r.bottom + pad) return Handle.W
+            if (abs(x - r.right) <= pad && y >= r.top - pad && y <= r.bottom + pad) return Handle.E
+
+            if (r.contains(x, y)) return Handle.INSIDE
+        }
+
         val r = selectedBounds ?: return Handle.NONE
         val pad = dpToPx(handleTouchPadDp)
 

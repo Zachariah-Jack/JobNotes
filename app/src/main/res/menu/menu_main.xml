@@ -57,5 +57,19 @@
         android:id="@+id/action_export_png"
         android:title="@string/menu_export_png"
         app:showAsAction="never" />
+    <!-- Camera action -->
+    <item
+        android:id="@+id/action_camera"
+        android:title="@string/menu_camera"
+        android:icon="@drawable/ic_tool_camera"
+        app:showAsAction="always" />
+
+    <!-- Gallery action -->
+    <item
+        android:id="@+id/action_gallery"
+        android:title="@string/menu_gallery"
+        android:icon="@drawable/ic_tool_gallery"
+        app:showAsAction="always" />
+
 
 </menu>

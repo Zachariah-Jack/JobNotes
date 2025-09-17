@@ -16,4 +16,14 @@
     <external-files-path
         name="pictures"
         path="Pictures/" />
+
+    <!-- Match CameraCaptureActivity saving into getExternalFilesDir(Pictures) -->
+    <external-files-path
+        name="pictures"
+        path="Pictures/" />
+
+    <!-- Fallback: cache if Pictures unavailable -->
+    <cache-path
+        name="cache"
+        path="." />
 </paths>
