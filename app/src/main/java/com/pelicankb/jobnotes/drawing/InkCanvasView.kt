@@ -91,6 +91,18 @@ class InkCanvasView @JvmOverloads constructor(
     private var snapAborted = false          // user held longer to revert preview
     private var snapPts: MutableList<PointF>? = null  // vector points to commit on lift
 
+    // ===== Autosave Listener =====
+    interface OnAutosaveListener { fun onAutosaveRequested(payload: ByteArray) }
+    private var autosaveListener: OnAutosaveListener? = null
+    fun setAutosaveListener(l: OnAutosaveListener?) { autosaveListener = l }
+
+    private fun requestAutosave() {
+        try {
+            autosaveListener?.onAutosaveRequested(serialize())
+        } catch (_: Throwable) { /* ignore autosave failures */ }
+    }
+
+
     // Extra hold to REVERT the snap preview (return to freehand)
     private val SNAP_REVERT_EXTRA_MS = 500L
 
@@ -334,6 +346,8 @@ class InkCanvasView @JvmOverloads constructor(
         overlayActive = false
         rebuildCommitted()
         invalidate()
+        requestAutosave()
+
     }
 
     fun copySelection(): Boolean {
@@ -480,6 +494,8 @@ class InkCanvasView @JvmOverloads constructor(
 
         rebuildCommitted()
         invalidate()
+        requestAutosave()
+
     }
 
     // ADD/REPLACE — unified updater: works for newer selectedStrokes AND legacy selected
@@ -617,13 +633,12 @@ class InkCanvasView @JvmOverloads constructor(
         }
     }
 
-    // ---- Save/restore (for rotation survival) ----
+    // v3 adds: images (bitmap PNG + center/scale/angle), in addition to v2 data
     fun serialize(): ByteArray {
-        // v2 adds: sections (heights) + per-stroke sectionIndex
         val baos = ByteArrayOutputStream()
         val out = DataOutputStream(baos)
 
-        out.writeInt(2) // version = 2
+        out.writeInt(3) // version = 3
 
         // --- sections ---
         out.writeInt(sections.size)
@@ -638,16 +653,34 @@ class InkCanvasView @JvmOverloads constructor(
             out.writeInt(op.color)
             out.writeFloat(op.baseWidth)
             out.writeBoolean(op.eraseHLOnly)
-            out.writeInt(op.sectionIndex)                // NEW in v2
+            out.writeInt(op.sectionIndex)
             out.writeInt(op.points.size)
             for (p in op.points) {
                 out.writeFloat(p.x)
                 out.writeFloat(p.y)
             }
         }
+
+        // --- images (v3) ---
+        out.writeInt(imageNodes.size)
+        for (n in imageNodes) {
+            out.writeFloat(n.center.x)
+            out.writeFloat(n.center.y)
+            out.writeFloat(n.scale)
+            out.writeFloat(n.angleRad)
+
+            // Encode bitmap as PNG
+            val imgBos = ByteArrayOutputStream()
+            n.bitmap.compress(Bitmap.CompressFormat.PNG, 100, imgBos)
+            val png = imgBos.toByteArray()
+            out.writeInt(png.size)
+            out.write(png)
+        }
+
         out.flush()
         return baos.toByteArray()
     }
+
 
 
     fun deserialize(data: ByteArray) {
@@ -669,7 +702,7 @@ class InkCanvasView @JvmOverloads constructor(
                 sections.add(Section(heightPx = h, yOffsetPx = 0f))
             }
 
-            // repack offsets (top-to-bottom with gap)
+            // repack offsets
             var acc = 0f
             for (i in sections.indices) {
                 sections[i].yOffsetPx = acc
@@ -678,8 +711,8 @@ class InkCanvasView @JvmOverloads constructor(
 
             // --- strokes ---
             strokes.clear()
-            val n = `in`.readInt().coerceAtLeast(0)
-            repeat(n) {
+            val nStrokes = `in`.readInt().coerceAtLeast(0)
+            repeat(nStrokes) {
                 val typeOrdinal = `in`.readInt()
                 val all = enumValues<BrushType>()
                 val type = if (typeOrdinal in all.indices) all[typeOrdinal] else BrushType.PEN
@@ -699,16 +732,34 @@ class InkCanvasView @JvmOverloads constructor(
                 strokes.add(op)
             }
 
+            // --- images (v3) ---
+            imageNodes.clear()
+            if (ver >= 3) {
+                val imgCount = `in`.readInt().coerceAtLeast(0)
+                repeat(imgCount) {
+                    val cx = `in`.readFloat()
+                    val cy = `in`.readFloat()
+                    val scale = `in`.readFloat()
+                    val ang = `in`.readFloat()
+                    val pngLen = `in`.readInt().coerceAtLeast(0)
+                    val png = ByteArray(pngLen)
+                    `in`.readFully(png)
+                    val bmp = BitmapFactory.decodeByteArray(png, 0, png.size) ?: return@repeat
+                    imageNodes.add(ImageNode(bmp, PointF(cx, cy), scale, ang))
+                }
+            }
+
             redoStack.clear()
             current = null
             cancelTransform()
             selectedStrokes.clear()
             selectedBounds = null
+            selectedImage = null
             selectionInteractive = false
             overlayActive = false
             clearMarquee()
 
-            // Allocate bitmaps to match restored sections *if* we already know width,
+            // Allocate bitmaps to match restored sections if we already know width,
             // otherwise onSizeChanged() will allocate later.
             if (width > 0) allocateSectionBitmaps(width)
 
@@ -1225,6 +1276,8 @@ class InkCanvasView @JvmOverloads constructor(
         bringImageToFront(node) // top of images (but still under ink)
         clampImageToDocument(node)
         invalidate()
+        requestAutosave()
+
 
     }
     private fun bringImageToFront(node: ImageNode) {
@@ -2640,6 +2693,8 @@ class InkCanvasView @JvmOverloads constructor(
 
         rebuildCommitted()
         invalidate()
+        requestAutosave()
+
     }
 
     private fun cancelTransform() {
@@ -4321,6 +4376,8 @@ class InkCanvasView @JvmOverloads constructor(
         rebuildCommitted()
         lastDirtyViewRect = null
         postInvalidateOnAnimation()
+        requestAutosave()
+
     }
 
 
@@ -4375,6 +4432,8 @@ class InkCanvasView @JvmOverloads constructor(
 
             pastePreviewVisible = false
             invalidate()
+            requestAutosave()
+
             return
         }
 
@@ -4397,6 +4456,8 @@ class InkCanvasView @JvmOverloads constructor(
         pastePreviewVisible = false
         rebuildCommitted()
         invalidate()
+        requestAutosave()
+
     }
 
 

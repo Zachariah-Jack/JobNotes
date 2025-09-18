@@ -152,6 +152,8 @@ class MainActivity : AppCompatActivity() {
 
     // ───────── Canvas ─────────
     private lateinit var inkCanvas: InkCanvasView
+    private val autosaveFile by lazy { File(filesDir, "autosave.pelnote") }
+
 
     // ───────── Panels ─────────
     private lateinit var panelPen: View
@@ -363,6 +365,15 @@ class MainActivity : AppCompatActivity() {
 
         // Initialize first
         inkCanvas = findViewById<InkCanvasView>(R.id.inkCanvas)
+        // Wire autosave sink (writes internal autosave file whenever canvas requests)
+        inkCanvas.setAutosaveListener(object : InkCanvasView.OnAutosaveListener {
+            override fun onAutosaveRequested(payload: ByteArray) {
+                try {
+                    autosaveFile.outputStream().use { it.write(payload) }
+                } catch (_: Throwable) { /* ignore */ }
+            }
+        })
+
 
         // Restore per-tool color/size memory (must be after inkCanvas is bound)
         run {
@@ -383,6 +394,16 @@ class MainActivity : AppCompatActivity() {
         savedInstanceState?.getByteArray("ink_state")?.let { bytes ->
             try { inkCanvas.deserialize(bytes) } catch (_: Throwable) { /* ignore bad payloads */ }
         }
+        // If not restoring from rotation state, try loading autosave
+        if (savedInstanceState == null) {
+            try {
+                if (autosaveFile.exists()) {
+                    val bytes = autosaveFile.readBytes()
+                    inkCanvas.deserialize(bytes)
+                }
+            } catch (_: Throwable) { /* ignore bad autosave */ }
+        }
+
 
         // For quick verification, allow finger drawing too.
         // Change to true later if you want stylus-only drawing.
@@ -595,6 +616,16 @@ class MainActivity : AppCompatActivity() {
 
 
     }
+    override fun onPause() {
+        super.onPause()
+        try {
+            val bytes = inkCanvas.serialize()
+            autosaveFile.outputStream().use { it.write(bytes) }
+        } catch (_: Throwable) { /* ignore */ }
+    }
+
+
+
 
     @Suppress("UNUSED_PARAMETER")
     fun onTitleEditClicked(v: View) {
