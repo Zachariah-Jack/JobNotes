@@ -1257,14 +1257,19 @@ class InkCanvasView @JvmOverloads constructor(
                     val right = left + w
                     val bottom = top + h
 
+// First, clip to this section's page rect (axis-aligned)
                     canvas.save()
-                    // Rotate around image center (section-local coords)
+                    canvas.clipRect(0f, 0f, width.toFloat(), s.heightPx)
+
+// Then rotate and draw the image
+                    canvas.save()
                     canvas.rotate(
                         Math.toDegrees(node.angleRad.toDouble()).toFloat(),
                         cxLocal, cyLocal
                     )
                     canvas.drawBitmap(bmp, null, RectF(left, top, right, bottom), null)
-                    canvas.restore()
+                    canvas.restore()  // rotation
+                    canvas.restore()  // clip
                 }
             }
 
@@ -1325,7 +1330,7 @@ class InkCanvasView @JvmOverloads constructor(
 
 
 
-        if (pasteArmed && pastePreviewVisible && clipboard.isNotEmpty()) {
+        if (pasteArmed && pastePreviewVisible && (clipboard.isNotEmpty() || clipboardImage != null)) {
             drawClipboardGhost(canvas, pastePreviewCx, pastePreviewCy)
         }
 
@@ -1661,7 +1666,7 @@ class InkCanvasView @JvmOverloads constructor(
 
 
                     // Tap to place paste; then translate immediately
-                    if (pasteArmed && clipboard.isNotEmpty()) {
+                    if (pasteArmed && (clipboard.isNotEmpty() || clipboardImage != null)) {
                         performPasteAt(cx, cy)
                         pasteArmed = false
                         cancelStylusHoldToPan()
@@ -1670,8 +1675,6 @@ class InkCanvasView @JvmOverloads constructor(
                         activePointerId = event.getPointerId(idx)
                         return true
                     }
-
-                    // HUD button disabled — no priority tap handling
 
 
                     // Transform selection (handles first, then inside; otherwise maybe clear)
@@ -1754,6 +1757,7 @@ class InkCanvasView @JvmOverloads constructor(
                         selectedImage?.let { node ->
                             node.center.x = cxM
                             node.center.y = cyM
+                            clampImageToDocument(node)
                             postInvalidateOnAnimation()
                         }
                     }
@@ -2352,6 +2356,8 @@ class InkCanvasView @JvmOverloads constructor(
                     n.center.x += dx
                     n.center.y += dy
                     downX = cx; downY = cy
+                    clampImageToDocument(n)
+
                 }
                 TransformKind.SCALE_UNIFORM -> {
                     // Uniform scale from the handle move (simple heuristic: delta to center)
@@ -2363,6 +2369,8 @@ class InkCanvasView @JvmOverloads constructor(
                     val curR   = hypot(curDx.toDouble(),   curDy.toDouble()).toFloat().coerceAtLeast(1e-3f)
                     val s = (curR / startR).coerceIn(0.1f, 10f)
                     n.scale = (n.scale * s).coerceIn(0.05f, 20f)
+                    clampImageToDocument(n)
+
                     downX = cx; downY = cy
                 }
                 TransformKind.ROTATE -> {
@@ -2389,6 +2397,7 @@ class InkCanvasView @JvmOverloads constructor(
             TransformKind.TRANSLATE -> {
                 val dx = cx - downX
                 val dy = cy - downY
+
                 overlayMatrix.reset()
                 overlayMatrix.postTranslate(dx, dy)
                 selectedBounds = RectF(r).apply { offset(dx, dy) }
@@ -4241,6 +4250,31 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
 
+    /** Clamp an image so its bounding box stays within the current document pages. */
+    private fun clampImageToDocument(n: ImageNode) {
+        val docW = width.toFloat()
+        val w = n.bitmap.width  * n.scale
+        val h = n.bitmap.height * n.scale
+
+        // Find the section this image’s CENTER currently lives in (or nearest)
+        var secIdx = sectionIndexAtDocY(n.center.y)
+        if (secIdx < 0) {
+            secIdx = if (n.center.y < 0f) 0 else max(0, sections.lastIndex)
+        }
+        val s = sections.getOrNull(secIdx) ?: return
+        val secTop = s.yOffsetPx
+        val secBot = s.yOffsetPx + s.heightPx
+
+        // Clamp center so full bbox remains within the page rect
+        val minCx = w * 0.5f
+        val maxCx = docW - w * 0.5f
+        val minCy = secTop + h * 0.5f
+        val maxCy = secBot - h * 0.5f
+
+        n.center.x = n.center.x.coerceIn(minCx, maxCx)
+        n.center.y = n.center.y.coerceIn(minCy, maxCy)
+    }
+
     // Paste centered at (cx, cy) in doc-space, then immediately enter translate
     private fun performPasteAt(cx: Float, cy: Float) {
         // IMAGE paste
@@ -4257,6 +4291,8 @@ class InkCanvasView @JvmOverloads constructor(
 
             // Select the new image and bring it to front (among images)
             selectedImage = node
+            clampImageToDocument(node)
+
             bringImageToFront(node)
             selectedStrokes.clear()
             selectedBounds = null
