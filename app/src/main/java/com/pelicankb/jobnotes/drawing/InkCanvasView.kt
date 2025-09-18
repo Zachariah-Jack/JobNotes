@@ -1455,6 +1455,21 @@ class InkCanvasView @JvmOverloads constructor(
                 // Single-finger (not stylus): pan or move selection; never draw
                 if (!isStylus(event, idx) && event.pointerCount == 1 && !scalingInProgress) {
                     val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
+                    // --- IMAGE first on finger: handles/inside take priority over panning
+                    if (selectedImage != null) {
+                        val hImg = detectHandle(cx, cy)
+                        if (hImg != Handle.NONE) {
+                            beginTransform(hImg, cx, cy)
+                            transforming = true
+                            activePointerId = event.getPointerId(idx)
+                            return true
+                        }
+                        if (isInsideSelectedImage(cx, cy)) {
+                            movingImage = true
+                            activePointerId = event.getPointerId(idx)
+                            return true
+                        }
+                    }
 
                     // If an image is already selected and we pressed inside it, start moving it
                     if (selectedImage != null && isInsideSelectedImage(cx, cy)) {
@@ -1520,6 +1535,28 @@ class InkCanvasView @JvmOverloads constructor(
 
 
                 if (canDrawNow) {
+                    // --- IMAGE first: if an image is selected, prioritize handles/inside over pan/draw
+                    val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
+
+                    if (selectedImage != null) {
+                        // 1) Handles (resize/rotate): begin transform & consume
+                        val hImg = detectHandle(cx, cy)
+                        if (hImg != Handle.NONE) {
+                            cancelStylusHoldToPan()
+                            beginTransform(hImg, cx, cy)
+                            transforming = true
+                            activePointerId = event.getPointerId(idx)
+                            return true
+                        }
+                        // 2) Inside image: begin move & consume
+                        if (isInsideSelectedImage(cx, cy)) {
+                            cancelStylusHoldToPan()
+                            movingImage = true
+                            activePointerId = event.getPointerId(idx)
+                            return true
+                        }
+                    }
+
                     // Tap-and-hold (stylus) -> temporary pan
                     if (!panMode && isStylus(event, idx)) {
                         scheduleStylusHoldToPan(event, idx)
@@ -1538,7 +1575,9 @@ class InkCanvasView @JvmOverloads constructor(
                         return true
                     }
 
-                    val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
+                    // After image interception, continue normal flow
+                    val (cx2, cy2) = toContent(event.getX(idx), event.getY(idx))
+
 
                     // --- IMAGE tap-away: if an image is selected and tap is outside its bounds, drop selection
                     if (selectedImage != null && !isInsideSelectedImage(cx, cy)) {
@@ -1638,17 +1677,6 @@ class InkCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_MOVE -> {
-
-
-
-
-
-
-
-
-
-
-                velocityTracker?.addMovement(event)
                 // Move a selected image only if movingImage is armed
                 if (movingImage && activePointerId != -1) {
                     val i = event.findPointerIndex(activePointerId)
@@ -1662,6 +1690,9 @@ class InkCanvasView @JvmOverloads constructor(
                     }
                     return true
                 }
+
+                velocityTracker?.addMovement(event)
+
 
                 when {
                     // 1-finger finger pan
