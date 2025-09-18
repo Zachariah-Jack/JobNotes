@@ -901,6 +901,9 @@ class InkCanvasView @JvmOverloads constructor(
     private var drawing = false              // ink/eraser stroke
     private var selectingGesture = false     // currently dragging marquee
     private var transforming = false         // moving/resizing existing selection
+    // When true, DOWN/MOVE/UP are steering the paste ghost (finger or stylus).
+    private var placingGhost = false
+
     private var movingImage = false
 
     private var activePointerId = -1
@@ -1190,21 +1193,39 @@ class InkCanvasView @JvmOverloads constructor(
      * Keeps full resolution for later resize; no bitmap reallocation.
      */
     fun insertBitmapAtCenter(bmp: Bitmap, select: Boolean = true) {
+        // View center -> content coords
         val (cx, cy) = toContent(width * 0.5f, height * 0.5f)
 
-        // Fit within ~240dp longest edge, but never upscale initially
-        val targetEdge = dpToPx(240f)
-        val sX = targetEdge / bmp.width.toFloat()
-        val sY = targetEdge / bmp.height.toFloat()
-        val initialScale = min(1f, min(sX, sY)).coerceAtLeast(0.05f)
+// Determine the section we’re dropping into (use nearest if between)
+        val secIdx = sectionIndexForContentY(cy).let { if (it < 0) 0 else it.coerceAtMost(max(0, sections.lastIndex)) }
+        val sec = sections.getOrNull(secIdx)
+        val pageHeight = sec?.heightPx ?: height.toFloat()
 
-        val node = ImageNode(bmp, PointF(cx, cy), scale = initialScale, angleRad = 0f)
+// Half-canvas (page) constraints in CONTENT px
+        val maxW = width * 0.5f       // half the canvas width
+        val maxH = pageHeight * 0.5f  // half the current page height
+
+// Preserve aspect ratio (no warp); never upscale initially
+        val sW = maxW / bmp.width.toFloat()
+        val sH = maxH / bmp.height.toFloat()
+        val initialScale = min(1f, min(sW, sH)).coerceAtLeast(0.05f)
+
+// Create node at content center with initial scale
+        val node = ImageNode(
+            bitmap = bmp,
+            center = PointF(cx, cy),
+            scale = initialScale,
+            angleRad = 0f
+        )
+
+// Insert & immediately select with handles (no long-press required)
         imageNodes.add(node)
-        if (select) {
-            selectedImage = node
-            bringImageToFront(node) // maintain "recent selection on top" among images
-        }
+        selectedImage = node
+        selectionInteractive = true
+        bringImageToFront(node) // top of images (but still under ink)
+        clampImageToDocument(node)
         invalidate()
+
     }
     private fun bringImageToFront(node: ImageNode) {
         val idx = imageNodes.indexOf(node)
@@ -1529,6 +1550,21 @@ class InkCanvasView @JvmOverloads constructor(
                 pullHudVisible = false
                 pullHudProgress = 0f
                 pullCommittedThisDrag = false
+                // ----- Paste ghost steering (finger or stylus) -----
+                run {
+                    val idx = event.actionIndex
+                    if (pasteArmed) {
+                        val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
+                        pastePreviewCx = cx
+                        pastePreviewCy = cy
+                        pastePreviewVisible = true
+                        placingGhost = true
+                        activePointerId = event.getPointerId(idx)
+                        invalidate()
+                        return true
+                    }
+                }
+
 
                 // Pointer index for this DOWN event (shared by this case)
                 val idx = event.actionIndex
@@ -1779,6 +1815,18 @@ class InkCanvasView @JvmOverloads constructor(
                     }
                     return true
                 }
+                // ----- Paste ghost: drag-to-place (finger or stylus) -----
+                if (placingGhost && activePointerId != -1) {
+                    val i = event.findPointerIndex(activePointerId)
+                    if (i != -1) {
+                        val (cx, cy) = toContent(event.getX(i), event.getY(i))
+                        pastePreviewCx = cx
+                        pastePreviewCy = cy
+                        postInvalidateOnAnimation()
+                    }
+                    return true
+                }
+
 
                 velocityTracker?.addMovement(event)
 
@@ -1989,6 +2037,16 @@ class InkCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                // Commit paste ghost if we were steering it
+                if (placingGhost) {
+                    performPasteAt(pastePreviewCx, pastePreviewCy)
+                    placingGhost = false
+                    pasteArmed = false
+                    pastePreviewVisible = false
+                    activePointerId = -1
+                    return true
+                }
+
                 movingImage = false
 
                 animateBackIntoBoundsIfNeeded()
