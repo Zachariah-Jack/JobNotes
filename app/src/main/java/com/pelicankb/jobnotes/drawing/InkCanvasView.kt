@@ -276,17 +276,21 @@ class InkCanvasView @JvmOverloads constructor(
         invalidate()
     }
 
-    fun hasSelection(): Boolean = selectedStrokes.isNotEmpty()
+    fun hasSelection(): Boolean = (selectedImage != null) || selectedStrokes.isNotEmpty()
+
     fun hasClipboard(): Boolean = clipboard.isNotEmpty() || clipboardImage != null
 
     fun clearSelection() {
         cancelTransform()
 
+        // images
+        selectedImage = null
 
-        // make absolutely sure nothing stays hidden
+        // strokes
         for (s in selectedStrokes) s.hidden = false
         selectedStrokes.clear()
         selectedBounds = null
+
         selectionInteractive = false
         overlayActive = false
         clearMarquee()
@@ -294,6 +298,18 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     fun deleteSelection() {
+        // Image delete
+        selectedImage?.let { n ->
+            cancelTransform()
+            imageNodes.remove(n)
+            selectedImage = null
+            selectionInteractive = false
+            overlayActive = false
+            invalidate()
+            return
+        }
+
+        // Strokes delete
         if (selectedStrokes.isEmpty()) return
         cancelTransform()
 
