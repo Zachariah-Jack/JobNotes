@@ -277,7 +277,7 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     fun hasSelection(): Boolean = selectedStrokes.isNotEmpty()
-    fun hasClipboard(): Boolean = clipboard.isNotEmpty()
+    fun hasClipboard(): Boolean = clipboard.isNotEmpty() || clipboardImage != null
 
     fun clearSelection() {
         cancelTransform()
@@ -321,7 +321,31 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     fun copySelection(): Boolean {
+        // If an image is selected, copy the image
+        selectedImage?.let { n ->
+            clipboard.clear()              // last-writer-wins: clear strokes clipboard
+            clipboardImage = ClipboardImage(
+                bitmap = n.bitmap,
+                scale = n.scale,
+                angleRad = n.angleRad
+            )
+            selectedStrokes.clear(); selectedBounds = null
+
+            // set clipboardBounds so paste ghost can use it
+            val w = n.bitmap.width * n.scale
+            val h = n.bitmap.height * n.scale
+            clipboardBounds = RectF(
+                n.center.x - w * 0.5f,
+                n.center.y - h * 0.5f,
+                n.center.x + w * 0.5f,
+                n.center.y + h * 0.5f
+            )
+            return true
+        }
+
+        // Otherwise, strokes copy (existing behavior)
         if (selectedStrokes.isEmpty()) return false
+        clipboardImage = null            // last-writer-wins: clear image clipboard
         clipboard.clear()
         for (s in strokes) if (selectedStrokes.contains(s)) clipboard.add(deepCopy(s))
         selectedBounds?.let { clipboardBounds = RectF(it) }
@@ -329,6 +353,20 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     fun cutSelection(): Boolean {
+        // Image cut
+        selectedImage?.let { n ->
+            val ok = copySelection()
+            if (ok) {
+                imageNodes.remove(n)
+                selectedImage = null
+                selectionInteractive = false
+                overlayActive = false
+                invalidate()
+            }
+            return ok
+        }
+
+        // Strokes cut (existing behavior)
         val ok = copySelection()
         if (ok) deleteSelection()
         return ok
@@ -337,7 +375,7 @@ class InkCanvasView @JvmOverloads constructor(
 
 
     fun armPastePlacement(): Boolean {
-        if (clipboard.isEmpty()) return false
+        if (clipboard.isEmpty() && clipboardImage == null) return false
         pasteArmed = true
         // Place ghost in view center until stylus hover moves it
         pastePreviewCx = width * 0.5f / max(1f, scaleFactor) - translationX / max(1f, scaleFactor)
@@ -985,6 +1023,16 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     private val clipboard = mutableListOf<StrokeOp>()
+    // === Image clipboard ===
+// We keep only one image snapshot in the clipboard at a time.
+// Strokes clipboard and image clipboard are mutually exclusive: whoever copied last wins.
+    private data class ClipboardImage(
+        val bitmap: Bitmap,
+        val scale: Float,
+        val angleRad: Float
+    )
+    private var clipboardImage: ClipboardImage? = null
+
     private var clipboardBounds: RectF? = null
 
     // Transform-time overlay
@@ -3110,6 +3158,36 @@ class InkCanvasView @JvmOverloads constructor(
 
     // --- ghost paste preview renderer ---
     private fun drawClipboardGhost(canvas: Canvas, cx: Float, cy: Float) {
+        // IMAGE ghost
+        clipboardImage?.let { ci ->
+            val bb = clipboardBounds ?: return
+            val dx = cx - bb.centerX()
+            val dy = cy - bb.centerY()
+
+            val w = bb.width()
+            val h = bb.height()
+            val dst = RectF(
+                bb.left + dx,
+                bb.top  + dy,
+                bb.right + dx,
+                bb.bottom + dy
+            )
+
+            canvas.save()
+            // Rotate around the bbox center to reflect clipboardImage.angleRad
+            val centerX = (dst.left + dst.right) * 0.5f
+            val centerY = (dst.top + dst.bottom) * 0.5f
+            canvas.rotate(Math.toDegrees(ci.angleRad.toDouble()).toFloat(), centerX, centerY)
+
+            val p = Paint(Paint.ANTI_ALIAS_FLAG).apply { alpha = 140 }
+            canvas.drawBitmap(ci.bitmap, null, dst, p)
+            // Outline
+            canvas.drawRect(dst, ghostStroke)
+            canvas.restore()
+            return
+        }
+
+        // STROKES ghost (existing code)
         val src = clipboardBounds ?: return
         val dx = cx - src.centerX()
         val dy = cy - src.centerY()
@@ -4165,6 +4243,32 @@ class InkCanvasView @JvmOverloads constructor(
 
     // Paste centered at (cx, cy) in doc-space, then immediately enter translate
     private fun performPasteAt(cx: Float, cy: Float) {
+        // IMAGE paste
+        clipboardImage?.let { ci ->
+            cancelTransform()
+            // Create a new image node with same bitmap/scale/angle at the target center
+            val node = ImageNode(
+                bitmap = ci.bitmap,
+                center = PointF(cx, cy),
+                scale = ci.scale,
+                angleRad = ci.angleRad
+            )
+            imageNodes.add(node)
+
+            // Select the new image and bring it to front (among images)
+            selectedImage = node
+            bringImageToFront(node)
+            selectedStrokes.clear()
+            selectedBounds = null
+            selectionInteractive = true
+            overlayActive = false
+
+            pastePreviewVisible = false
+            invalidate()
+            return
+        }
+
+        // STROKES paste (existing behavior)
         val src = clipboardBounds ?: return
         cancelTransform()
         selectedStrokes.clear()
@@ -4172,23 +4276,14 @@ class InkCanvasView @JvmOverloads constructor(
         val dx = cx - src.centerX()
         val dy = cy - src.centerY()
 
-        // 1) Make translated copies (do not set sectionIndex here)
-        val copies = clipboard.map { copy ->
-            val c = deepCopy(copy)
-            translateStroke(c, dx, dy)
-            c
-        }
-
-        // 2) Add + select + compute selection bbox
+        val copies = clipboard.map { copy -> deepCopy(copy).also { translateStroke(it, dx, dy) } }
         strokes.addAll(copies)
         selectedStrokes.addAll(copies)
         selectedBounds = RectF(src).apply { offset(dx, dy) }
         selectionInteractive = true
         overlayActive = true
 
-        // 3) Retag to the page(s) where they actually landed
         rehomeSelectionToCorrectSections()
-
         pastePreviewVisible = false
         rebuildCommitted()
         invalidate()
