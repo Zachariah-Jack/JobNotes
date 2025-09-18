@@ -1184,56 +1184,73 @@ class InkCanvasView @JvmOverloads constructor(
             // White page background for this section
             canvas.drawRect(0f, 0f, width.toFloat(), s.heightPx, pagePaint)
 
-            // --- Draw images in CONTENT space for THIS section, so they pan/zoom with the canvas,
-// and stay BELOW ink/highlighter/text (since layers are drawn after this).
+            // --- Draw images in THIS section (section-local coords), below ink/HL/text ---
             run {
-                val secTop = 0f
-                val secBot = s.heightPx
+                // Section range in CONTENT coords:
+                val secTopGlobal = s.yOffsetPx
+                val secBotGlobal = s.yOffsetPx + s.heightPx
+
                 for (node in imageNodes) {
                     val bmp = node.bitmap
                     val w = bmp.width * node.scale
                     val h = bmp.height * node.scale
-                    val left = node.center.x - w * 0.5f
-                    val top  = node.center.y - h * 0.5f
+
+                    // Image center in section-local coords:
+                    val cxLocal = node.center.x
+                    val cyLocal = node.center.y - s.yOffsetPx
+
+                    // Cull images that are not in this section
+                    val topGlobal    = node.center.y - h * 0.5f
+                    val bottomGlobal = node.center.y + h * 0.5f
+                    if (bottomGlobal <= secTopGlobal || topGlobal >= secBotGlobal) continue
+
+                    val left = cxLocal - w * 0.5f
+                    val top  = cyLocal - h * 0.5f
                     val right = left + w
                     val bottom = top + h
 
-                    // Image is in CONTENT coords for the whole document; we're currently
-                    // translated to this section's top. Draw only the portion intersecting this section.
-                    if (bottom < secTop || top > secBot) continue
-
                     canvas.save()
-                    // Rotate around image center (CONTENT coords within this section)
-                    val cx = node.center.x
-                    val cy = node.center.y
-                    canvas.rotate(Math.toDegrees(node.angleRad.toDouble()).toFloat(), cx, cy)
-
-                    // Draw scaled into destination rect
-                    val dst = RectF(left, top, right, bottom)
-                    canvas.drawBitmap(bmp, null, dst, null)
+                    // Rotate around image center (section-local coords)
+                    canvas.rotate(
+                        Math.toDegrees(node.angleRad.toDouble()).toFloat(),
+                        cxLocal, cyLocal
+                    )
+                    canvas.drawBitmap(bmp, null, RectF(left, top, right, bottom), null)
                     canvas.restore()
                 }
             }
-            // Selected image box + handles, drawn in CONTENT space (rotated)
+
+            // Selected image box + handles (only in the section that contains it)
             selectedImage?.let { n ->
-                val w = n.bitmap.width * n.scale
-                val h = n.bitmap.height * n.scale
-                val halfW = w * 0.5f
-                val halfH = h * 0.5f
+                // Section ownership test in GLOBAL (content) coords:
+                val secTopGlobal = s.yOffsetPx
+                val secBotGlobal = s.yOffsetPx + s.heightPx
+                val topGlobal    = n.center.y - (n.bitmap.height * n.scale) * 0.5f
+                val bottomGlobal = n.center.y + (n.bitmap.height * n.scale) * 0.5f
+                if (bottomGlobal <= secTopGlobal || topGlobal >= secBotGlobal) {
+                    // This section doesn't contain the selected image; skip box here.
+                } else {
+                    val w = n.bitmap.width * n.scale
+                    val h = n.bitmap.height * n.scale
+                    val halfW = w * 0.5f
+                    val halfH = h * 0.5f
 
-                canvas.save()
-                canvas.rotate(Math.toDegrees(n.angleRad.toDouble()).toFloat(), n.center.x, n.center.y)
+                    // Draw box/handles in SECTION-LOCAL coords
+                    val cxLocal = n.center.x
+                    val cyLocal = n.center.y - s.yOffsetPx
 
-                val r = RectF(n.center.x - halfW, n.center.y - halfH, n.center.x + halfW, n.center.y + halfH)
-                // Outline (dashed)
-                canvas.drawRect(r, selectionOutline)
-                // Resize handles (corners & edges)
-                if (selectionInteractive) drawHandles(canvas, r)
-                // Rotation handle (above top-center)
-                drawRotateHandle(canvas, r)
+                    canvas.save()
+                    canvas.rotate(Math.toDegrees(n.angleRad.toDouble()).toFloat(), cxLocal, cyLocal)
 
-                canvas.restore()
+                    val r = RectF(cxLocal - halfW, cyLocal - halfH, cxLocal + halfW, cyLocal + halfH)
+                    canvas.drawRect(r, selectionOutline)
+                    if (selectionInteractive) drawHandles(canvas, r)
+                    drawRotateHandle(canvas, r)
+
+                    canvas.restore()
+                }
             }
+
 
 
 
@@ -1658,6 +1675,10 @@ class InkCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_POINTER_DOWN -> {
+                selectedImage = null
+                selectionInteractive = false
+                overlayActive = false
+
                 // Any second pointer cancels a pending paste and temporary pan
                 if (event.pointerCount >= 2 && pasteArmed) pasteArmed = false
                 cancelStylusHoldToPan()
@@ -3836,6 +3857,19 @@ class InkCanvasView @JvmOverloads constructor(
             zoomTo(target, e.x, e.y)
             return true
         }
+        override fun onSingleTapUp(e: MotionEvent): Boolean {
+            // If tapping on the selected IMAGE, commit it (drop selection)
+            val (cx, cy) = toContent(e.x, e.y)
+            if (selectedImage != null && isInsideSelectedImage(cx, cy)) {
+                selectedImage = null
+                selectionInteractive = false
+                overlayActive = false
+                invalidate()
+                return true
+            }
+            return false
+        }
+
         override fun onLongPress(e: MotionEvent) {
             val (cx, cy) = toContent(e.x, e.y)
             hitImageAtContent(cx, cy)?.let { node ->
