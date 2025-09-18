@@ -1214,27 +1214,27 @@ class InkCanvasView @JvmOverloads constructor(
                     canvas.restore()
                 }
             }
-            // Selected image box (dashed), drawn in CONTENT space
+            // Selected image box + handles, drawn in CONTENT space (rotated)
             selectedImage?.let { n ->
                 val w = n.bitmap.width * n.scale
                 val h = n.bitmap.height * n.scale
                 val halfW = w * 0.5f
                 val halfH = h * 0.5f
 
-                // Draw the rectangle in the image's rotated space
                 canvas.save()
                 canvas.rotate(Math.toDegrees(n.angleRad.toDouble()).toFloat(), n.center.x, n.center.y)
 
                 val r = RectF(n.center.x - halfW, n.center.y - halfH, n.center.x + halfW, n.center.y + halfH)
-                val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                    style = Paint.Style.STROKE
-                    color = 0xFF2196F3.toInt()
-                    strokeWidth = dpToPx(2f)
-                    pathEffect = DashPathEffect(floatArrayOf(12f, 10f), 0f)
-                }
-                canvas.drawRect(r, boxPaint)
+                // Outline (dashed)
+                canvas.drawRect(r, selectionOutline)
+                // Resize handles (corners & edges)
+                if (selectionInteractive) drawHandles(canvas, r)
+                // Rotation handle (above top-center)
+                drawRotateHandle(canvas, r)
+
                 canvas.restore()
             }
+
 
 
             // This section's layers (committed first, then scratch)
@@ -1246,91 +1246,67 @@ class InkCanvasView @JvmOverloads constructor(
             canvas.restore()
         }
         canvas.restore()
-        // Selected image box (dashed) in CONTENT space
-        selectedImage?.let { node ->
-            val w = node.bitmap.width * node.scale
-            val h = node.bitmap.height * node.scale
-            val left = node.center.x - w * 0.5f
-            val top  = node.center.y - h * 0.5f
-            val r = RectF(left, top, left + w, top + h)
-            val boxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                style = Paint.Style.STROKE
-                color = 0xFF2196F3.toInt()
-                strokeWidth = dpToPx(2f)
-                pathEffect = DashPathEffect(floatArrayOf(12f, 10f), 0f)
-            }
-            canvas.drawRect(r, boxPaint)
-        }
 
 
 
-        // If an image is selected, draw selection box and handles
-        selectedImage?.let { node ->
-            val bmp = node.bitmap
-            val left = node.center.x - bmp.width * 0.5f
-            val top  = node.center.y - bmp.height * 0.5f
-            val right = left + bmp.width
-            val bottom = top + bmp.height
 
-            // Dashed blue outline
-            val boxPaint = Paint().apply {
-                style = Paint.Style.STROKE
-                color = Color.BLUE
-                pathEffect = DashPathEffect(floatArrayOf(10f, 10f), 0f)
-                strokeWidth = 3f
-            }
-            canvas.drawRect(left, top, right, bottom, boxPaint)
 
-            // Handle: bottom-right square (resize)
-            val handleSize = 20f
-            val handlePaint = Paint().apply { style = Paint.Style.FILL; color = Color.BLUE }
-            canvas.drawRect(right - handleSize, bottom - handleSize, right, bottom, handlePaint)
-
-            // Handle: top-center circle (rotate)
-            canvas.drawCircle((left + right) * 0.5f, top - 40f, 12f, handlePaint)
-        }
 
 
         // 2) Overlays in section-0 content coords (marquee, selection, paste ghost)
         canvas.save()
         canvas.translate(translationX, translationY)
         canvas.scale(scaleFactor, scaleFactor)
-        // --- Draw images in CONTENT space so they pan/zoom with the canvas ---
-        run {
-            for (node in imageNodes) {
-                val bmp = node.bitmap
-                val w = bmp.width * node.scale
-                val h = bmp.height * node.scale
-                val left = node.center.x - w * 0.5f
-                val top  = node.center.y - h * 0.5f
-                val dst = RectF(left, top, left + w, top + h)
-                canvas.drawBitmap(bmp, null, dst, null)
-            }
-        }
+
 
 
         if (pasteArmed && pastePreviewVisible && clipboard.isNotEmpty()) {
             drawClipboardGhost(canvas, pastePreviewCx, pastePreviewCy)
         }
-        if (overlayActive && selectedStrokes.isNotEmpty()) {
-            if (overlayBmp != null) {
-                canvas.save()
-                canvas.concat(overlayMatrix)
-                // draw the cached selection bitmap at its original top-left
-                canvas.drawBitmap(overlayBmp!!, overlayStartTopLeft.x, overlayStartTopLeft.y, null)
-                canvas.restore()
-                // draw current selection box & handles using selectedBounds
-                selectedBounds?.let { r ->
-                    // drawSelectionHighlights(canvas) // (disabled for perf during live transform)
-                    canvas.drawRect(r, selectionOutline)
-                    if (selectionInteractive) drawHandles(canvas, r)
-                }
 
-            } else {
-                // fallback (shouldn't happen during an active transform)
-                drawSelectionOverlay(canvas)
+// When an IMAGE is selected, do not draw stroke selection overlays.
+// Stroke selection overlays only appear if NO image selection is active.
+        if (selectedImage == null) {
+            if (overlayActive && selectedStrokes.isNotEmpty()) {
+                if (overlayBmp != null) {
+                    canvas.save()
+                    canvas.concat(overlayMatrix)
+                    canvas.drawBitmap(overlayBmp!!, overlayStartTopLeft.x, overlayStartTopLeft.y, null)
+                    canvas.restore()
+                    selectedBounds?.let { r ->
+                        canvas.drawRect(r, selectionOutline)
+                        if (selectionInteractive) drawHandles(canvas, r)
+                    }
+                } else {
+                    drawSelectionOverlay(canvas)
+                }
+            }
+
+            marqueePath?.let { path ->
+                canvas.drawPath(path, marqueeFill)
+                canvas.drawPath(path, marqueeOutline)
+            }
+
+            if (selectedStrokes.isNotEmpty()) {
+                if (overlayRotateActive && overlayStartBounds.width() > 0f && overlayStartBounds.height() > 0f) {
+                    drawRotatedSelectionBox(canvas, overlayStartBounds, overlayRotateAngleRad)
+                    canvas.save()
+                    val cx = overlayStartBounds.centerX()
+                    val cy = overlayStartBounds.centerY()
+                    canvas.rotate(Math.toDegrees(overlayRotateAngleRad.toDouble()).toFloat(), cx, cy)
+                    drawRotateHandle(canvas, overlayStartBounds)
+                    canvas.restore()
+                } else {
+                    drawSelectionHighlights(canvas)
+                    selectedBounds?.let { r ->
+                        canvas.drawRect(r, selectionOutline)
+                        if (selectionInteractive) drawHandles(canvas, r)
+                        drawRotateHandle(canvas, r)
+                    }
+                }
             }
         }
+
 
         marqueePath?.let { path ->
             canvas.drawPath(path, marqueeFill)
@@ -1489,7 +1465,7 @@ class InkCanvasView @JvmOverloads constructor(
 
 
                     // Finger can transform selection: handles first, then inside box
-                    if (selectedStrokes.isNotEmpty() && selectionInteractive) {
+                    if (selectedImage == null && selectedStrokes.isNotEmpty() && selectionInteractive) {
                         val h = detectHandle(cx, cy)
                         if (h != Handle.NONE) {
                             beginTransform(h, cx, cy)
@@ -1505,6 +1481,7 @@ class InkCanvasView @JvmOverloads constructor(
                             return true
                         }
                     }
+
 
                     // Otherwise, start finger panning
                     activePointerId = event.getPointerId(idx)
@@ -1563,6 +1540,22 @@ class InkCanvasView @JvmOverloads constructor(
 
                     val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
 
+                    // --- IMAGE tap-away: if an image is selected and tap is outside its bounds, drop selection
+                    if (selectedImage != null && !isInsideSelectedImage(cx, cy)) {
+                        selectedImage = null
+                        selectionInteractive = false
+                        overlayActive = false
+                        invalidate()
+                        // do NOT return here; we may start other actions (stroke, marquee, etc.)
+                    }
+                    // If an image is already selected and we pressed inside it (stylus), start moving it
+                    if (selectedImage != null && isInsideSelectedImage(cx, cy)) {
+                        movingImage = true
+                        activePointerId = event.getPointerId(idx)
+                        return true
+                    }
+
+
                     // Tap to place paste; then translate immediately
                     if (pasteArmed && clipboard.isNotEmpty()) {
                         performPasteAt(cx, cy)
@@ -1578,10 +1571,9 @@ class InkCanvasView @JvmOverloads constructor(
 
 
                     // Transform selection (handles first, then inside; otherwise maybe clear)
-                    if (selectedStrokes.isNotEmpty() && selectionInteractive) {
+                    if (selectedImage == null && selectedStrokes.isNotEmpty() && selectionInteractive) {
                         val h = detectHandle(cx, cy)
                         if (h != Handle.NONE) {
-                            cancelStylusHoldToPan()
                             beginTransform(h, cx, cy)
                             transforming = true
                             activePointerId = event.getPointerId(idx)
@@ -1589,15 +1581,13 @@ class InkCanvasView @JvmOverloads constructor(
                         }
                         val inside = selectedBounds?.contains(cx, cy) == true
                         if (inside) {
-                            cancelStylusHoldToPan()
                             beginTransform(Handle.INSIDE, cx, cy)
                             transforming = true
                             activePointerId = event.getPointerId(idx)
                             return true
-                        } else if (selectionTool != SelTool.NONE && selectionSticky) {
-                            clearSelection()
                         }
                     }
+
 
 
 
@@ -1648,18 +1638,12 @@ class InkCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_MOVE -> {
-                // Move selected image with the finger/stylus
-                selectedImage?.let { node ->
-                    node.center.x = event.x
-                    node.center.y = event.y
-                    invalidate()
-                    return true
-                }
 
 
 
 
-                // (removed) old drag-distance path; new HUD/progress derived from doc-bottom offset
+
+
 
 
 
@@ -3823,15 +3807,19 @@ class InkCanvasView @JvmOverloads constructor(
         }
         override fun onLongPress(e: MotionEvent) {
             val (cx, cy) = toContent(e.x, e.y)
-// Prefer images: if hit, select and bring to front, then bail
             hitImageAtContent(cx, cy)?.let { node ->
-                selectedImage = node
-                bringImageToFront(node)    // maintain frontmost among images
-                selectionInteractive = true
+                // Clear any stroke selection first
+                selectedStrokes.clear()
+                selectedBounds = null
                 overlayActive = false
+
+                selectedImage = node
+                bringImageToFront(node)
+                selectionInteractive = true
                 invalidate()
                 return
             }
+
 
 
 
