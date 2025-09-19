@@ -140,6 +140,8 @@
     <string name="solid">Solid</string>
     <string name="dashed">Dashed</string>
     <string name="dotted">Dotted</string>
+    <string name="lock_pen_style">Lock Pen Style</string>
+
     <string name="arrow_ends">Arrow Ends?</string>
 
 

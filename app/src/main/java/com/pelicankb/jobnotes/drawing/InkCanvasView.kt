@@ -845,6 +845,15 @@ class InkCanvasView @JvmOverloads constructor(
 
     fun setStrokeStyle(style: StrokeStyle) { baseStrokeStyle = style; invalidate() }
     fun setArrowEndsForNextStroke(enabled: Boolean) { baseArrowEnds = enabled; invalidate() }
+    // === Pen style UI change listener (for MainActivity to sync radios) ===
+    interface OnPenStyleChangeListener { fun onPenStyleChanged(style: StrokeStyle) }
+    private var penStyleChangeListener: OnPenStyleChangeListener? = null
+    fun setOnPenStyleChangeListener(l: OnPenStyleChangeListener?) { penStyleChangeListener = l }
+
+    // Lock Pen Style: if true, do NOT revert to SOLID after finishing a dashed/dotted stroke
+    private var baseLockPenStyle: Boolean = false
+    fun setLockPenStyle(lock: Boolean) { baseLockPenStyle = lock }
+
 
 
     private var eraserHLOnly: Boolean = false
@@ -4386,19 +4395,38 @@ class InkCanvasView @JvmOverloads constructor(
             BrushType.MARKER -> {
                 scratchInkCanvas(op)?.let { withSection(it, op) { c -> drawMarkerSegment(c, sx, sy, nx, ny, op, dist) } }
             }
-            // REPLACE
             BrushType.PEN -> {
                 val segLen = hypot((nx - sx).toDouble(), (ny - sy).toDouble()).toFloat()
-                // Advance the dash phase by the segment length to prevent pattern reset
                 op.dashPhase += segLen
 
                 val p = newStrokePaint(op.color, op.baseWidth)
                 applyStrokeStyle(p, op.strokeStyle, op.baseWidth, op.dashPhase)
 
-                scratchInkCanvas(op)?.let { withSection(it, op) { c ->
-                    c.drawLine(sx, sy, nx, ny, p)
-                } }
+                if (op.strokeStyle == StrokeStyle.SOLID) {
+                    // freehand for solid
+                    scratchInkCanvas(op)?.let { withSection(it, op) { c ->
+                        c.drawLine(sx, sy, nx, ny, p)
+                    } }
+                } else {
+                    // dashed/dotted: force straight line from first point to current point
+                    // 1) clear this section’s scratch ink
+                    scratchInkBySection.getOrNull(op.sectionIndex)?.eraseColor(Color.TRANSPARENT)
+                    // 2) constrain the stroke to exactly two points [first, current]
+                    val first = op.points.first()
+                    if (op.points.size >= 2) {
+                        op.points[1] = Point(nx, ny)
+                        // trim any extra points
+                        while (op.points.size > 2) op.points.removeAt(op.points.lastIndex)
+                    } else {
+                        op.points.add(Point(nx, ny))
+                    }
+                    // 3) draw single straight segment for live feedback
+                    scratchInkCanvas(op)?.let { withSection(it, op) { c ->
+                        c.drawLine(first.x, first.y, nx, ny, p)
+                    } }
+                }
             }
+
 
 
 
@@ -4462,10 +4490,24 @@ class InkCanvasView @JvmOverloads constructor(
         activePointerId = -1
         setLayerType(LAYER_TYPE_NONE, null)
 
+
         // --- NEW: record that the last action was a DRAW_OP, clear redo for transforms ---
         actionUndoStack.add(ActionKind.DRAW_OP)
         actionRedoStack.clear()
         transformRedoStack.clear()
+
+        // --- Auto-revert PEN style unless locked ---
+        val last = strokes.lastOrNull()
+        if (last?.type == BrushType.PEN) {
+            val wasStyled = (last.strokeStyle == StrokeStyle.DASHED || last.strokeStyle == StrokeStyle.DOTTED)
+            if (wasStyled && !baseLockPenStyle) {
+                // Reset the next-stroke style to SOLID
+                baseStrokeStyle = StrokeStyle.SOLID
+                penStyleChangeListener?.onPenStyleChanged(baseStrokeStyle)
+
+            }
+        }
+
 
         rebuildCommitted()
         lastDirtyViewRect = null

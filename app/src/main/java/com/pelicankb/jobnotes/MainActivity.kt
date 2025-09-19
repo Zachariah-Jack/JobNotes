@@ -22,6 +22,8 @@ import android.widget.CheckBox
 import android.widget.ImageButton
 import android.widget.PopupMenu
 import android.widget.PopupWindow
+import android.widget.RadioButton
+
 import android.widget.SeekBar
 import android.widget.TextView
 import android.widget.Toast
@@ -201,6 +203,8 @@ class MainActivity : AppCompatActivity() {
     // ADD (Pen style state)
     private var penStrokeStyle: InkCanvasView.StrokeStyle = InkCanvasView.StrokeStyle.SOLID
     private var penArrowEnds: Boolean = false
+    private var penLockStyle: Boolean = false
+
 
     private var stylusPopup: PopupWindow? = null
 
@@ -369,6 +373,18 @@ class MainActivity : AppCompatActivity() {
 
         // Initialize first
         inkCanvas = findViewById<InkCanvasView>(R.id.inkCanvas)
+        inkCanvas.setOnPenStyleChangeListener(object : InkCanvasView.OnPenStyleChangeListener {
+            override fun onPenStyleChanged(style: InkCanvasView.StrokeStyle) {
+                // Keep the activity's state in sync
+                penStrokeStyle = style
+
+                // If the stylus popup is open, update the radios so UI matches the actual style
+                if (stylusPopup?.isShowing == true) {
+                    syncPenStyleRadios()
+                }
+            }
+        })
+
         // Wire autosave sink (writes internal autosave file whenever canvas requests)
         inkCanvas.setAutosaveListener(object : InkCanvasView.OnAutosaveListener {
             override fun onAutosaveRequested(payload: ByteArray) {
@@ -1044,6 +1060,8 @@ class MainActivity : AppCompatActivity() {
         val rbDashed = content.findViewById<RadioButton>(R.id.rbStyleDashed)
         val rbDotted = content.findViewById<RadioButton>(R.id.rbStyleDotted)
         val cbArrow  = content.findViewById<CheckBox>(R.id.cbArrowEnds)
+        val cbLock  = content.findViewById<CheckBox>(R.id.cbLockPenStyle)
+
 
 // Initialize UI from current state
         when (penStrokeStyle) {
@@ -1052,6 +1070,8 @@ class MainActivity : AppCompatActivity() {
             InkCanvasView.StrokeStyle.DOTTED -> rbDotted.isChecked = true
         }
         cbArrow.isChecked = penArrowEnds
+        cbLock.isChecked = penLockStyle
+
 
         rg.setOnCheckedChangeListener { _, checkedId ->
             penStrokeStyle = when (checkedId) {
@@ -1071,6 +1091,14 @@ class MainActivity : AppCompatActivity() {
                 inkCanvas.setArrowEndsForNextStroke(penArrowEnds)
             }
         }
+        cbLock.setOnCheckedChangeListener { _, isChecked ->
+            penLockStyle = isChecked
+            inkCanvas.setLockPenStyle(isChecked)
+        }
+        // Ensure radios reflect any recent auto-revert before showing
+        syncPenStyleRadios()
+
+
 
         // Return a focusable popup that dismisses on outside-tap and restores canvas focus
         return PopupWindow(
@@ -1112,11 +1140,37 @@ class MainActivity : AppCompatActivity() {
         // NEW: style + arrow (only affects next strokes where applicable, i.e., PEN)
         inkCanvas.setStrokeStyle(penStrokeStyle)
         inkCanvas.setArrowEndsForNextStroke(penArrowEnds)
+        inkCanvas.setLockPenStyle(penLockStyle)
+        // Ensure the UI matches the actual style
+        val rg = stylusPopup?.contentView?.findViewById<RadioGroup>(R.id.rgStrokeStyle)
+        val rbSolid = stylusPopup?.contentView?.findViewById<RadioButton>(R.id.rbStyleSolid)
+        val rbDashed = stylusPopup?.contentView?.findViewById<RadioButton>(R.id.rbStyleDashed)
+        val rbDotted = stylusPopup?.contentView?.findViewById<RadioButton>(R.id.rbStyleDotted)
+        when (penStrokeStyle) {
+            InkCanvasView.StrokeStyle.SOLID  -> rbSolid?.isChecked = true
+            InkCanvasView.StrokeStyle.DASHED -> rbDashed?.isChecked = true
+            InkCanvasView.StrokeStyle.DOTTED -> rbDotted?.isChecked = true
+        }
+
+
 
         // Persist latest pen color
         prefs.edit().putInt(PREF_PEN_COLOR, penFamilyColor).apply()
 
         updateToolbarActiveStates()
+    }
+
+    // Sync the pen style radio group to match penStrokeStyle
+    private fun syncPenStyleRadios() {
+        val content = stylusPopup?.contentView ?: return
+        val rbSolid  = content.findViewById<RadioButton>(R.id.rbStyleSolid)
+        val rbDashed = content.findViewById<RadioButton>(R.id.rbStyleDashed)
+        val rbDotted = content.findViewById<RadioButton>(R.id.rbStyleDotted)
+        when (penStrokeStyle) {
+            InkCanvasView.StrokeStyle.SOLID  -> rbSolid?.isChecked  = true
+            InkCanvasView.StrokeStyle.DASHED -> rbDashed?.isChecked = true
+            InkCanvasView.StrokeStyle.DOTTED -> rbDotted?.isChecked = true
+        }
     }
 
     // ───────── Highlighter popup ─────────
