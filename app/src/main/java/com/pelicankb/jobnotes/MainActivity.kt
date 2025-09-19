@@ -198,6 +198,10 @@ class MainActivity : AppCompatActivity() {
     private enum class BrushTypeLocal { FOUNTAIN, CALLIGRAPHY, PEN, PENCIL, MARKER }
     private var brushType: BrushTypeLocal = BrushTypeLocal.PEN
     private var brushSizeDp: Float = 4f
+    // ADD (Pen style state)
+    private var penStrokeStyle: InkCanvasView.StrokeStyle = InkCanvasView.StrokeStyle.SOLID
+    private var penArrowEnds: Boolean = false
+
     private var stylusPopup: PopupWindow? = null
 
     // Pen color chips
@@ -1034,6 +1038,40 @@ class MainActivity : AppCompatActivity() {
 
 
 
+        // NEW: bind Style radios + Arrow Ends checkbox
+        val rg = content.findViewById<RadioGroup>(R.id.rgStrokeStyle)
+        val rbSolid  = content.findViewById<RadioButton>(R.id.rbStyleSolid)
+        val rbDashed = content.findViewById<RadioButton>(R.id.rbStyleDashed)
+        val rbDotted = content.findViewById<RadioButton>(R.id.rbStyleDotted)
+        val cbArrow  = content.findViewById<CheckBox>(R.id.cbArrowEnds)
+
+// Initialize UI from current state
+        when (penStrokeStyle) {
+            InkCanvasView.StrokeStyle.SOLID  -> rbSolid.isChecked = true
+            InkCanvasView.StrokeStyle.DASHED -> rbDashed.isChecked = true
+            InkCanvasView.StrokeStyle.DOTTED -> rbDotted.isChecked = true
+        }
+        cbArrow.isChecked = penArrowEnds
+
+        rg.setOnCheckedChangeListener { _, checkedId ->
+            penStrokeStyle = when (checkedId) {
+                R.id.rbStyleDashed -> InkCanvasView.StrokeStyle.DASHED
+                R.id.rbStyleDotted -> InkCanvasView.StrokeStyle.DOTTED
+                else -> InkCanvasView.StrokeStyle.SOLID
+            }
+            // live-apply for Pen only
+            if (toolFamily == ToolFamily.PEN_FAMILY && brushType == BrushTypeLocal.PEN) {
+                inkCanvas.setStrokeStyle(penStrokeStyle)
+            }
+        }
+
+        cbArrow.setOnCheckedChangeListener { _, isChecked ->
+            penArrowEnds = isChecked
+            if (toolFamily == ToolFamily.PEN_FAMILY && brushType == BrushTypeLocal.PEN) {
+                inkCanvas.setArrowEndsForNextStroke(penArrowEnds)
+            }
+        }
+
         // Return a focusable popup that dismisses on outside-tap and restores canvas focus
         return PopupWindow(
             content,
@@ -1055,6 +1093,7 @@ class MainActivity : AppCompatActivity() {
     }
 
 
+    // REPLACE
     private fun applyPenFamilyBrush() {
         toolFamily = ToolFamily.PEN_FAMILY
         inkCanvas.setStrokeWidthDp(brushSizeDp)
@@ -1069,6 +1108,11 @@ class MainActivity : AppCompatActivity() {
         )
         // Use per-tool memory for color
         inkCanvas.setColor(penFamilyColor)
+
+        // NEW: style + arrow (only affects next strokes where applicable, i.e., PEN)
+        inkCanvas.setStrokeStyle(penStrokeStyle)
+        inkCanvas.setArrowEndsForNextStroke(penArrowEnds)
+
         // Persist latest pen color
         prefs.edit().putInt(PREF_PEN_COLOR, penFamilyColor).apply()
 

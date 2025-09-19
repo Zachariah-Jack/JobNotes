@@ -136,6 +136,11 @@
     <string name="brushes">Brushes</string>
     <string name="size_dp">%1$d dp</string>
     <string name="select">Select</string>
+    <string name="stroke_style">Stroke Style</string>
+    <string name="solid">Solid</string>
+    <string name="dashed">Dashed</string>
+    <string name="dotted">Dotted</string>
+    <string name="arrow_ends">Arrow Ends?</string>
 
 
 </resources>

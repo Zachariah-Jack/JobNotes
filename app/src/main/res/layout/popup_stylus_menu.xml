@@ -1,113 +1,135 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/popupStylusRoot"
     android:layout_width="wrap_content"
     android:layout_height="wrap_content"
     android:orientation="vertical"
-    android:paddingStart="12dp"
-    android:paddingEnd="12dp"
-    android:paddingTop="12dp"
-    android:paddingBottom="12dp">
+    android:padding="12dp">
 
-
-
-
-
-    <!-- Brush buttons row -->
+    <!-- Top row: Fountain / Calligraphy / Pen / Pencil / Marker -->
     <LinearLayout
-        android:id="@+id/brushRow"
+        android:id="@+id/rowTools"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
-        android:layout_gravity="center_horizontal"
-        android:gravity="center_vertical"
         android:orientation="horizontal">
 
         <ImageButton
             android:id="@+id/iconFountain"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:layout_marginEnd="4dp"
             android:background="@drawable/bg_tool_toggle"
-            android:contentDescription="@string/cd_brush_fountain"
-            android:padding="8dp"
-            android:scaleType="centerInside"
-            android:src="@drawable/ic_brush_fountain" />
+            android:src="@drawable/ic_brush_fountain"
+            android:contentDescription="@string/cd_brush_preview" />
 
         <ImageButton
             android:id="@+id/iconCalligraphy"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:layout_marginEnd="4dp"
+            android:layout_marginStart="8dp"
             android:background="@drawable/bg_tool_toggle"
-            android:contentDescription="@string/cd_brush_calligraphy"
-            android:padding="8dp"
-            android:scaleType="centerInside"
-            android:src="@drawable/ic_brush_calligraphy" />
+            android:src="@drawable/ic_brush_calligraphy"
+            android:contentDescription="@string/cd_brush_preview" />
 
         <ImageButton
             android:id="@+id/iconPen"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:layout_marginEnd="4dp"
+            android:layout_marginStart="8dp"
             android:background="@drawable/bg_tool_toggle"
-            android:contentDescription="@string/cd_brush_pen"
-            android:padding="8dp"
-            android:scaleType="centerInside"
-            android:src="@drawable/ic_brush_pen" />
+            android:src="@drawable/ic_brush_pen"
+            android:contentDescription="@string/cd_brush_preview" />
 
         <ImageButton
             android:id="@+id/iconPencil"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:layout_marginEnd="4dp"
+            android:layout_marginStart="8dp"
             android:background="@drawable/bg_tool_toggle"
-            android:contentDescription="@string/cd_brush_pencil"
-            android:padding="8dp"
-            android:scaleType="centerInside"
-            android:src="@drawable/ic_brush_pencil" />
+            android:src="@drawable/ic_brush_pencil"
+            android:contentDescription="@string/cd_brush_preview" />
 
         <ImageButton
             android:id="@+id/iconMarker"
             android:layout_width="48dp"
             android:layout_height="48dp"
+            android:layout_marginStart="8dp"
             android:background="@drawable/bg_tool_toggle"
-            android:contentDescription="@string/cd_brush_marker"
-            android:padding="8dp"
-            android:scaleType="centerInside"
-            android:src="@drawable/ic_brush_marker" />
+            android:src="@drawable/ic_brush_marker"
+            android:contentDescription="@string/cd_brush_preview" />
     </LinearLayout>
 
     <!-- Size slider row -->
     <LinearLayout
-        android:id="@+id/sizeRow"
+        android:id="@+id/rowSize"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:orientation="horizontal"
         android:gravity="center_vertical"
-        android:orientation="horizontal">
+        android:layout_marginTop="10dp">
 
         <SeekBar
             android:id="@+id/sizeSlider"
-            android:layout_width="0dp"
+            android:layout_width="200dp"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:max="60"
-            android:progress="4"
-            android:contentDescription="@string/cd_brush_size" />
+            android:max="60" />
 
         <TextView
             android:id="@+id/sizeValue"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:text="@string/default_pen_size_value" />
+            android:text="@string/size_dp" />
     </LinearLayout>
 
     <!-- Live brush preview -->
     <com.pelicankb.jobnotes.ui.BrushPreviewView
         android:id="@+id/brushPreview"
         android:layout_width="match_parent"
-        android:layout_height="52dp"
-        android:layout_marginTop="12dp"
-        android:contentDescription="@string/cd_brush_preview" />
+        android:layout_height="60dp"
+        android:layout_marginTop="6dp" />
 
+    <!-- Stroke Style -->
+    <TextView
+        android:id="@+id/labelStyle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/stroke_style"
+        android:textStyle="bold"
+        android:layout_marginTop="10dp" />
+
+    <RadioGroup
+        android:id="@+id/rgStrokeStyle"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <RadioButton
+            android:id="@+id/rbStyleSolid"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/solid"
+            android:checked="true" />
+
+        <RadioButton
+            android:id="@+id/rbStyleDashed"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/dashed"
+            android:layout_marginStart="12dp" />
+
+        <RadioButton
+            android:id="@+id/rbStyleDotted"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/dotted"
+            android:layout_marginStart="12dp" />
+    </RadioGroup>
+
+    <!-- Arrow Ends -->
+    <CheckBox
+        android:id="@+id/cbArrowEnds"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="@string/arrow_ends"
+        android:layout_marginTop="6dp" />
 </LinearLayout>

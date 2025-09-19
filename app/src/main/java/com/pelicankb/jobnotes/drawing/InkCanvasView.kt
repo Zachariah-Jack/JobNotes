@@ -633,20 +633,18 @@ class InkCanvasView @JvmOverloads constructor(
         }
     }
 
-    // v3 adds: images (bitmap PNG + center/scale/angle), in addition to v2 data
+    // REPLACE entire serialize() with this v4 version:
     fun serialize(): ByteArray {
         val baos = ByteArrayOutputStream()
         val out = DataOutputStream(baos)
 
-        out.writeInt(3) // version = 3
+        out.writeInt(4) // version = 4
 
-        // --- sections ---
+        // sections
         out.writeInt(sections.size)
-        for (s in sections) {
-            out.writeFloat(s.heightPx)
-        }
+        for (s in sections) out.writeFloat(s.heightPx)
 
-        // --- strokes ---
+        // strokes (v4: + style, arrows)
         out.writeInt(strokes.size)
         for (op in strokes) {
             out.writeInt(op.type.ordinal)
@@ -655,21 +653,19 @@ class InkCanvasView @JvmOverloads constructor(
             out.writeBoolean(op.eraseHLOnly)
             out.writeInt(op.sectionIndex)
             out.writeInt(op.points.size)
-            for (p in op.points) {
-                out.writeFloat(p.x)
-                out.writeFloat(p.y)
-            }
+            for (p in op.points) { out.writeFloat(p.x); out.writeFloat(p.y) }
+            // NEW:
+            out.writeInt(op.strokeStyle.ordinal)
+            out.writeBoolean(op.arrowEnds)
         }
 
-        // --- images (v3) ---
+        // images (same as v3)
         out.writeInt(imageNodes.size)
         for (n in imageNodes) {
             out.writeFloat(n.center.x)
             out.writeFloat(n.center.y)
             out.writeFloat(n.scale)
             out.writeFloat(n.angleRad)
-
-            // Encode bitmap as PNG
             val imgBos = ByteArrayOutputStream()
             n.bitmap.compress(Bitmap.CompressFormat.PNG, 100, imgBos)
             val png = imgBos.toByteArray()
@@ -683,12 +679,14 @@ class InkCanvasView @JvmOverloads constructor(
 
 
 
+
+    // REPLACE entire deserialize() with this:
     fun deserialize(data: ByteArray) {
         try {
             val `in` = DataInputStream(ByteArrayInputStream(data))
             val ver = `in`.readInt()
 
-            // --- sections ---
+            // sections
             sections.clear()
             if (ver >= 2) {
                 val secCount = `in`.readInt().coerceAtLeast(0)
@@ -697,19 +695,13 @@ class InkCanvasView @JvmOverloads constructor(
                     sections.add(Section(heightPx = h, yOffsetPx = 0f))
                 }
             } else {
-                // v1 payloads had no sections; use a single page at current view height (fallback)
                 val h = if (height > 0) height.toFloat() else 1f
                 sections.add(Section(heightPx = h, yOffsetPx = 0f))
             }
-
-            // repack offsets
             var acc = 0f
-            for (i in sections.indices) {
-                sections[i].yOffsetPx = acc
-                acc += sections[i].heightPx + sectionGapPx
-            }
+            for (i in sections.indices) { sections[i].yOffsetPx = acc; acc += sections[i].heightPx + sectionGapPx }
 
-            // --- strokes ---
+            // strokes
             strokes.clear()
             val nStrokes = `in`.readInt().coerceAtLeast(0)
             repeat(nStrokes) {
@@ -729,10 +721,21 @@ class InkCanvasView @JvmOverloads constructor(
                     eraseHLOnly = hlOnly
                     sectionIndex = secIndex.coerceIn(0, max(0, sections.lastIndex))
                 }
+
+                if (ver >= 4) {
+                    // NEW in v4
+                    val styleOrd = `in`.readInt()
+                    op.strokeStyle = enumValues<StrokeStyle>()[styleOrd.coerceIn(0, StrokeStyle.values().lastIndex)]
+                    op.arrowEnds = `in`.readBoolean()
+                } else {
+                    op.strokeStyle = StrokeStyle.SOLID
+                    op.arrowEnds = false
+                }
+
                 strokes.add(op)
             }
 
-            // --- images (v3) ---
+            // images
             imageNodes.clear()
             if (ver >= 3) {
                 val imgCount = `in`.readInt().coerceAtLeast(0)
@@ -759,13 +762,10 @@ class InkCanvasView @JvmOverloads constructor(
             overlayActive = false
             clearMarquee()
 
-            // Allocate bitmaps to match restored sections if we already know width,
-            // otherwise onSizeChanged() will allocate later.
             if (width > 0) allocateSectionBitmaps(width)
-
             rebuildCommitted()
             invalidate()
-        } catch (_: Throwable) { /* ignore bad payloads */ }
+        } catch (_: Throwable) { /* ignore */ }
     }
 
 
@@ -775,6 +775,7 @@ class InkCanvasView @JvmOverloads constructor(
     private data class ErasedEntry(val index: Int, val stroke: StrokeOp)
 
     /** NOTE: regular class (identity equality). */
+// REPLACE the StrokeOp definition (constructor + fields) with:
     private class StrokeOp(
         val type: BrushType,
         var color: Int,
@@ -800,7 +801,12 @@ class InkCanvasView @JvmOverloads constructor(
         // shape metadata (null => freehand)
         var shapeKind: ShapeKind? = null
         var shapeFillColor: Int? = null
+
+        // NEW: style + arrows (applies to PEN strokes)
+        var strokeStyle: StrokeStyle = StrokeStyle.SOLID
+        var arrowEnds: Boolean = false
     }
+
 
     private val strokes = mutableListOf<StrokeOp>()
     private val redoStack = mutableListOf<StrokeOp>()
@@ -828,6 +834,16 @@ class InkCanvasView @JvmOverloads constructor(
     private var baseBrush: BrushType = BrushType.PEN
     private var baseColor: Int = Color.BLACK
     private var baseWidthPx: Float = dpToPx(4f)
+    // ===== Pen stroke style (Solid / Dashed / Dotted) + Arrow Ends =====
+    enum class StrokeStyle { SOLID, DASHED, DOTTED }
+
+    private var baseStrokeStyle: StrokeStyle = StrokeStyle.SOLID
+    private var baseArrowEnds: Boolean = false
+
+    fun setStrokeStyle(style: StrokeStyle) { baseStrokeStyle = style; invalidate() }
+    fun setArrowEndsForNextStroke(enabled: Boolean) { baseArrowEnds = enabled; invalidate() }
+
+
     private var eraserHLOnly: Boolean = false
 
     // ===== Layers =====
@@ -2170,20 +2186,28 @@ class InkCanvasView @JvmOverloads constructor(
 
         val (x, y) = toContent(ev.getX(idx), ev.getY(idx))
         val secIdx = sectionIndexForContentY(y)
+        // REPLACE just the StrokeOp creation block inside startStroke():
         current = StrokeOp(
             type = baseBrush,
             color = baseColor,
             baseWidth = baseWidthPx
         ).also {
             it.sectionIndex = secIdx
-
             it.points.add(Point(x, y))
             it.lastDir = null
             it.calligPath = null
             it.fountainPath = null
             it.eraseHLOnly = eraserHLOnly
+
+            // NEW: style + arrows only used by PEN tool
+            if (baseBrush == BrushType.PEN) {
+                it.strokeStyle = baseStrokeStyle
+                it.arrowEnds = baseArrowEnds
+            }
+
             if (baseBrush == BrushType.ERASER_STROKE) it.erased = mutableListOf()
         }
+
 
         when (baseBrush) {
             BrushType.HIGHLIGHTER_FREEFORM,
@@ -2730,6 +2754,28 @@ class InkCanvasView @JvmOverloads constructor(
             strokeWidth = width
             xfermode = null
         }
+    // ADD (directly after newStrokePaint):
+    private fun applyStrokeStyle(p: Paint, style: StrokeStyle, width: Float) {
+        when (style) {
+            StrokeStyle.SOLID -> {
+                p.pathEffect = null
+                p.strokeCap = Paint.Cap.ROUND
+            }
+            StrokeStyle.DASHED -> {
+                val dash = max(6f, 3f * width)
+                val gap  = max(6f, 2f * width)
+                p.pathEffect = DashPathEffect(floatArrayOf(dash, gap), 0f)
+                p.strokeCap = Paint.Cap.ROUND
+            }
+            StrokeStyle.DOTTED -> {
+                val dot = max(1f, 0.8f * width)
+                val gap = max(2f, 1.6f * width)
+                p.pathEffect = DashPathEffect(floatArrayOf(dot, gap), 0f)
+                p.strokeCap = Paint.Cap.ROUND
+            }
+        }
+    }
+
 
     private val pagePaint =
         Paint(Paint.ANTI_ALIAS_FLAG).apply { color =
@@ -3222,15 +3268,22 @@ class InkCanvasView @JvmOverloads constructor(
                 }
                 BrushType.PEN -> {
                     val pts = op.points
-                    if (pts.size < 2 || ci == null) continue
+                    val ci = committedInkCanvas(op) ?: continue
+                    if (pts.size < 2) continue
                     val p = newStrokePaint(op.color, op.baseWidth)
+                    applyStrokeStyle(p, op.strokeStyle, op.baseWidth)
                     withSection(ci, op) { c ->
                         for (i in 1 until pts.size) {
                             val a = pts[i - 1]; val b = pts[i]
                             c.drawLine(a.x, a.y, b.x, b.y, p)
                         }
+                        if (op.arrowEnds) {
+                            drawArrowHeads(c, pts, op.baseWidth, op.color)
+                        }
                     }
                 }
+
+
                 BrushType.MARKER -> {
                     val pts = op.points
                     if (pts.size < 2 || ci == null) continue
@@ -3475,6 +3528,47 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     // ===== Selection visuals & helpers =====
+
+    // ADD: draw arrowheads at both ends of a polyline (in section-local coords)
+    private fun drawArrowHeads(c: Canvas, pts: List<Point>, width: Float, color: Int) {
+        if (pts.size < 2) return
+        val headLen = max(6f, 4.0f * width)
+        val headW   = max(4f, 2.5f * width)
+
+        fun drawHead(ax: Float, ay: Float, bx: Float, by: Float) {
+            val dx = bx - ax; val dy = by - ay
+            val len = hypot(dx.toDouble(), dy.toDouble()).toFloat().coerceAtLeast(1e-3f)
+            val ux = dx / len; val uy = dy / len
+            val cx = bx; val cy = by
+            val backX = cx - ux * headLen
+            val backY = cy - uy * headLen
+            val nx = -uy; val ny = ux
+            val leftX = backX + nx * (0.5f * headW)
+            val leftY = backY + ny * (0.5f * headW)
+            val rightX = backX - nx * (0.5f * headW)
+            val rightY = backY - ny * (0.5f * headW)
+
+            val path = Path()
+            path.moveTo(cx, cy)
+            path.lineTo(leftX, leftY)
+            path.lineTo(rightX, rightY)
+            path.close()
+
+            val fill = Paint(Paint.ANTI_ALIAS_FLAG or Paint.DITHER_FLAG).apply {
+                style = Paint.Style.FILL
+                this.color = color
+            }
+            c.drawPath(path, fill)
+        }
+
+        // Head at the end
+        val a = pts[pts.lastIndex - 1]; val b = pts.last()
+        drawHead(a.x, a.y, b.x, b.y)
+
+        // Head at the start (reverse direction)
+        val s0 = pts.first(); val s1 = pts[1]
+        drawHead(s1.x, s1.y, s0.x, s0.y)
+    }
 
     private fun drawSelectionHighlights(canvas: Canvas) {
         for (s in selectedStrokes) {
@@ -4306,8 +4400,14 @@ class InkCanvasView @JvmOverloads constructor(
                 scratchInkCanvas(op)?.let { withSection(it, op) { c -> drawMarkerSegment(c, sx, sy, nx, ny, op, dist) } }
             }
             BrushType.PEN -> {
-                scratchInkCanvas(op)?.let { withSection(it, op) { c -> drawPenSegment(c, sx, sy, nx, ny, op) } }
+                val p = newStrokePaint(op.color, op.baseWidth)
+                applyStrokeStyle(p, op.strokeStyle, op.baseWidth)
+                scratchInkCanvas(op)?.let { withSection(it, op) { c ->
+                    c.drawLine(sx, sy, nx, ny, p)
+                } }
             }
+
+
         }
 
         lastDirtyViewRect = strokeDirtyViewRect(sx, sy, nx, ny, op.baseWidth)
