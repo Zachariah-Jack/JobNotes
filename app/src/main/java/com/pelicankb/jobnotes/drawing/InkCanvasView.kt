@@ -805,6 +805,9 @@ class InkCanvasView @JvmOverloads constructor(
         // NEW: style + arrows (applies to PEN strokes)
         var strokeStyle: StrokeStyle = StrokeStyle.SOLID
         var arrowEnds: Boolean = false
+        // ADD inside StrokeOp
+        var dashPhase: Float = 0f
+
     }
 
 
@@ -1484,34 +1487,7 @@ class InkCanvasView @JvmOverloads constructor(
         }
 
 
-        marqueePath?.let { path ->
-            canvas.drawPath(path, marqueeFill)
-            canvas.drawPath(path, marqueeOutline)
-        }
-        if (selectedStrokes.isNotEmpty()) {
-            // During rotation gesture, draw rotated box/handles around the original bounds.
-            if (overlayRotateActive && overlayStartBounds.width() > 0f && overlayStartBounds.height() > 0f) {
-                drawRotatedSelectionBox(canvas, overlayStartBounds, overlayRotateAngleRad)
-                // Rotate-handle should also appear aligned over the rotated box: draw using rotated top-mid.
-                // We'll draw it relative to rotated canvas for consistency:
-                canvas.save()
-                val cx = overlayStartBounds.centerX()
-                val cy = overlayStartBounds.centerY()
-                canvas.rotate(Math.toDegrees(overlayRotateAngleRad.toDouble()).toFloat(), cx, cy)
-                drawRotateHandle(canvas, overlayStartBounds)
-                canvas.restore()
-            } else {
-                // Normal (not rotating): axis-aligned visuals using current bounds
-                drawSelectionHighlights(canvas)
-                selectedBounds?.let { r ->
-                    canvas.drawRect(r, selectionOutline)
-                    if (selectionInteractive) {
-                        drawHandles(canvas, r)
-                    }
-                    drawRotateHandle(canvas, r)
-                }
-            }
-        }
+
 
 
 
@@ -2119,10 +2095,10 @@ class InkCanvasView @JvmOverloads constructor(
                 movingImage = false
 
                 animateBackIntoBoundsIfNeeded()
-            // Reset HUD state (commit, if any, already occurred during MOVE)
-            pullHudVisible = false
-            pullHudProgress = 0f
-            pullCommittedThisDrag = false
+                // Reset HUD state (commit, if any, already occurred during MOVE)
+                pullHudVisible = false
+                pullHudProgress = 0f
+                pullCommittedThisDrag = false
 
 
 
@@ -2754,27 +2730,30 @@ class InkCanvasView @JvmOverloads constructor(
             strokeWidth = width
             xfermode = null
         }
-    // ADD (directly after newStrokePaint):
-    private fun applyStrokeStyle(p: Paint, style: StrokeStyle, width: Float) {
+    // REPLACE
+    private fun applyStrokeStyle(p: Paint, style: StrokeStyle, width: Float, phasePx: Float) {
         when (style) {
             StrokeStyle.SOLID -> {
                 p.pathEffect = null
                 p.strokeCap = Paint.Cap.ROUND
             }
             StrokeStyle.DASHED -> {
-                val dash = max(6f, 3f * width)
-                val gap  = max(6f, 2f * width)
-                p.pathEffect = DashPathEffect(floatArrayOf(dash, gap), 0f)
+                // Clear, speed-independent dashes
+                val dash = max(18f, 6f * width)   // longer dash
+                val gap  = max(12f, 4f * width)   // larger gap
+                p.pathEffect = DashPathEffect(floatArrayOf(dash, gap), phasePx)
                 p.strokeCap = Paint.Cap.ROUND
             }
             StrokeStyle.DOTTED -> {
-                val dot = max(1f, 0.8f * width)
-                val gap = max(2f, 1.6f * width)
-                p.pathEffect = DashPathEffect(floatArrayOf(dot, gap), 0f)
+                // Round "dots": very short on, large gap, round cap
+                val dot = max(1f, 0.10f * width)  // tiny on-length
+                val gap = max(22f, 2.2f * width)  // generous spacing
+                p.pathEffect = DashPathEffect(floatArrayOf(dot, gap), phasePx)
                 p.strokeCap = Paint.Cap.ROUND
             }
         }
     }
+
 
 
     private val pagePaint =
@@ -3266,22 +3245,30 @@ class InkCanvasView @JvmOverloads constructor(
                     val path = op.fountainPath ?: Path(buildFountainPath(op)).also { op.fountainPath = it }
                     ci?.let { withSection(it, op) { c -> c.drawPath(path, fillPaint(op.color)) } }
                 }
+                // REPLACE
                 BrushType.PEN -> {
                     val pts = op.points
                     val ci = committedInkCanvas(op) ?: continue
                     if (pts.size < 2) continue
+
                     val p = newStrokePaint(op.color, op.baseWidth)
-                    applyStrokeStyle(p, op.strokeStyle, op.baseWidth)
+                    // Use the final phase so the pattern continues from live drawing
+                    applyStrokeStyle(p, op.strokeStyle, op.baseWidth, op.dashPhase)
+
+                    // Build a single path for clean dash distribution
+                    val path = Path().apply {
+                        moveTo(pts[0].x, pts[0].y)
+                        for (i in 1 until pts.size) lineTo(pts[i].x, pts[i].y)
+                    }
+
                     withSection(ci, op) { c ->
-                        for (i in 1 until pts.size) {
-                            val a = pts[i - 1]; val b = pts[i]
-                            c.drawLine(a.x, a.y, b.x, b.y, p)
-                        }
+                        c.drawPath(path, p)
                         if (op.arrowEnds) {
                             drawArrowHeads(c, pts, op.baseWidth, op.color)
                         }
                     }
                 }
+
 
 
                 BrushType.MARKER -> {
@@ -4399,13 +4386,20 @@ class InkCanvasView @JvmOverloads constructor(
             BrushType.MARKER -> {
                 scratchInkCanvas(op)?.let { withSection(it, op) { c -> drawMarkerSegment(c, sx, sy, nx, ny, op, dist) } }
             }
+            // REPLACE
             BrushType.PEN -> {
+                val segLen = hypot((nx - sx).toDouble(), (ny - sy).toDouble()).toFloat()
+                // Advance the dash phase by the segment length to prevent pattern reset
+                op.dashPhase += segLen
+
                 val p = newStrokePaint(op.color, op.baseWidth)
-                applyStrokeStyle(p, op.strokeStyle, op.baseWidth)
+                applyStrokeStyle(p, op.strokeStyle, op.baseWidth, op.dashPhase)
+
                 scratchInkCanvas(op)?.let { withSection(it, op) { c ->
                     c.drawLine(sx, sy, nx, ny, p)
                 } }
             }
+
 
 
         }
