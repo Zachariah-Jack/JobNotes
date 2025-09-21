@@ -1281,6 +1281,32 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
 
+    // Insert an empty text box (selected) at the viewport center, ready for editing
+    fun startTextBoxAtCenter(
+        color: Int,
+        textSizeDp: Float,
+        isBold: Boolean,
+        isItalic: Boolean
+    ) {
+        val (cx, cy) = toContent(width * 0.5f, height * 0.5f)
+        val node = TextNode(
+            text = "",
+            center = PointF(cx, cy),
+            color = color,
+            textSizePx = dpToPx(textSizeDp),
+            isBold = isBold,
+            isItalic = isItalic,
+            angleRad = 0f
+        )
+        textNodes.add(node)
+        selectedText = node
+        selectedImage = null
+        selectedStrokes.clear(); selectedBounds = null
+        selectionInteractive = true
+        invalidate()
+        requestAutosave()
+    }
+
     // Called by activity when user taps to place a new text node
     fun insertTextAtCenter(
         text: String,
@@ -1727,6 +1753,33 @@ class InkCanvasView @JvmOverloads constructor(
                 // Single-finger (not stylus): pan or move selection; never draw
                 if (!isStylus(event, idx) && event.pointerCount == 1 && !scalingInProgress) {
                     val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
+
+                    // --- TEXT first for finger: handles/inside/tap select before panning ---
+                    if (selectedText != null) {
+                        val hTxt = detectHandle(cx, cy)
+                        if (hTxt != Handle.NONE) {
+                            beginTransform(hTxt, cx, cy)
+                            transforming = true
+                            activePointerId = event.getPointerId(idx)
+                            return true
+                        }
+                        if (isInsideSelectedText(cx, cy)) {
+                            movingImage = true
+                            activePointerId = event.getPointerId(idx)
+                            return true
+                        }
+                    } else {
+                        hitTextAtContent(cx, cy)?.let { node ->
+                            selectedText = node
+                            selectedImage = null
+                            selectedStrokes.clear(); selectedBounds = null
+                            selectionInteractive = true
+                            invalidate()
+                            return true
+                        }
+                    }
+
+
                     // --- IMAGE first on finger: handles/inside take priority over panning
                     if (selectedImage != null) {
                         val hImg = detectHandle(cx, cy)
@@ -1809,10 +1862,65 @@ class InkCanvasView @JvmOverloads constructor(
                 if (canDrawNow) {
                     // --- IMAGE first: if an image is selected, prioritize handles/inside over pan/draw
                     val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
+                    // --- TEXT first: handles/inside/tap select take priority over pan/draw ---
+                    if (selectedText != null) {
+                        val hTxt = detectHandle(cx, cy)
+                        if (hTxt != Handle.NONE) {
+                            cancelStylusHoldToPan()
+                            beginTransform(hTxt, cx, cy)
+                            transforming = true
+                            activePointerId = event.getPointerId(idx)
+                            return true
+                        }
+                        if (isInsideSelectedText(cx, cy)) {
+                            cancelStylusHoldToPan()
+                            movingImage = true  // reuse flag for moving text
+                            activePointerId = event.getPointerId(idx)
+                            return true
+                        }
+                    } else {
+                        hitTextAtContent(cx, cy)?.let { node ->
+                            selectedText = node
+                            selectedImage = null
+                            selectedStrokes.clear(); selectedBounds = null
+                            selectionInteractive = true
+                            invalidate()
+                            return true
+                        }
+                    }
+
 
                     if (selectedImage != null) {
                         // 1) Handles (resize/rotate): begin transform & consume
                         val hImg = detectHandle(cx, cy)
+                        // --- TEXT first: handles/inside take priority over pan/draw
+                        if (selectedText != null) {
+                            val hTxt = detectHandle(cx, cy)
+                            if (hTxt != Handle.NONE) {
+                                cancelStylusHoldToPan()
+                                beginTransform(hTxt, cx, cy)
+                                transforming = true
+                                activePointerId = event.getPointerId(idx)
+                                return true
+                            }
+                            if (isInsideSelectedText(cx, cy)) {
+                                cancelStylusHoldToPan()
+                                movingImage = true   // reuse flag for moving text
+                                activePointerId = event.getPointerId(idx)
+                                return true
+                            }
+                        } else {
+                            // No selected text yet: if we tapped a text node, select it immediately
+                            hitTextAtContent(cx, cy)?.let { node ->
+                                selectedText = node
+                                selectedImage = null
+                                selectedStrokes.clear(); selectedBounds = null
+                                selectionInteractive = true
+                                invalidate()
+                                return true
+                            }
+                        }
+
                         if (hImg != Handle.NONE) {
                             cancelStylusHoldToPan()
                             beginTransform(hImg, cx, cy)
@@ -1951,20 +2059,31 @@ class InkCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_MOVE -> {
-                // Move a selected image only if movingImage is armed
+                // Move selected image/text only if movingImage is armed
                 if (movingImage && activePointerId != -1) {
                     val i = event.findPointerIndex(activePointerId)
                     if (i != -1) {
                         val (cxM, cyM) = toContent(event.getX(i), event.getY(i))
-                        selectedImage?.let { node ->
-                            node.center.x = cxM
-                            node.center.y = cyM
-                            clampImageToDocument(node)
-                            postInvalidateOnAnimation()
+                        when {
+                            selectedImage != null -> {
+                                selectedImage?.let { node ->
+                                    node.center.x = cxM
+                                    node.center.y = cyM
+                                    clampImageToDocument(node)
+                                }
+                            }
+                            selectedText != null -> {
+                                selectedText?.let { n ->
+                                    n.center.x = cxM
+                                    n.center.y = cyM
+                                }
+                            }
                         }
+                        postInvalidateOnAnimation()
                     }
                     return true
                 }
+
                 // ----- Paste ghost: drag-to-place (finger or stylus) -----
                 if (placingGhost && activePointerId != -1) {
                     val i = event.findPointerIndex(activePointerId)
@@ -2454,6 +2573,29 @@ class InkCanvasView @JvmOverloads constructor(
             setLayerType(LAYER_TYPE_NONE, null)
             return
         }
+        // Images: (existing code may be here)
+
+// === Text: allow translate and rotate (no scale handles) ===
+        selectedText?.let { n ->
+            downX = cx
+            downY = cy
+            transformKind = when (handle) {
+                Handle.INSIDE -> TransformKind.TRANSLATE
+                Handle.ROTATE -> {
+                    rotateCenterX = n.center.x
+                    rotateCenterY = n.center.y
+                    rotateStartAngleRad = atan2(cy - rotateCenterY, cx - rotateCenterX)
+                    overlayRotateActive = true
+                    overlayRotateAngleRad = 0f
+                    TransformKind.ROTATE
+                }
+                else -> null
+            }
+            overlayActive = false
+            setLayerType(LAYER_TYPE_NONE, null)
+            return
+        }
+
 
 
 
@@ -2580,6 +2722,31 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     private fun updateTransform(cx: Float, cy: Float) {
+        // === Text transform ===
+        selectedText?.let { n ->
+            when (transformKind) {
+                TransformKind.TRANSLATE -> {
+                    val dx = cx - downX
+                    val dy = cy - downY
+                    n.center.x += dx
+                    n.center.y += dy
+                    downX = cx; downY = cy
+                }
+                TransformKind.ROTATE -> {
+                    val start = rotateStartAngleRad ?: return@let
+                    val cur = atan2(cy - rotateCenterY, cx - rotateCenterX)
+                    val deltaDegRaw = Math.toDegrees((cur - start).toDouble()).toFloat()
+                    val snapped = (deltaDegRaw / rotateSnapDeg).roundToInt() * rotateSnapDeg
+                    val useDeg = if (abs(deltaDegRaw - snapped) <= rotateSnapTolDeg) snapped else deltaDegRaw
+                    overlayRotateAngleRad = Math.toRadians(useDeg.toDouble()).toFloat()
+                    n.angleRad = overlayRotateAngleRad
+                }
+                else -> {}
+            }
+            postInvalidateOnAnimation()
+            return
+        }
+
         selectedImage?.let { n ->
             when (transformKind) {
                 TransformKind.TRANSLATE -> {
@@ -2696,6 +2863,63 @@ class InkCanvasView @JvmOverloads constructor(
             invalidate()
             return
         }
+        // === Snap Text boxes on move finish ===
+        selectedText?.let { n ->
+            val snapTol = dpToPx(8f)
+            val p = Paint().apply { textSize = n.textSizePx }
+            val w = p.measureText(n.text)
+            val h = n.textSizePx
+            // Candidate lines (this node)
+            val myLeft = n.center.x - w * 0.5f
+            val myRight = n.center.x + w * 0.5f
+            val myCx = n.center.x
+            val myTop = n.center.y - h * 0.5f
+            val myBottom = n.center.y + h * 0.5f
+            val myCy = n.center.y
+
+            var dxSnap = 0f
+            var dySnap = 0f
+
+            for (other in textNodes) {
+                if (other === n) continue
+                val po = Paint().apply { textSize = other.textSizePx }
+                val wo = po.measureText(other.text)
+                val ho = other.textSizePx
+                val oLeft = other.center.x - wo * 0.5f
+                val oRight = other.center.x + wo * 0.5f
+                val oCx = other.center.x
+                val oTop = other.center.y - ho * 0.5f
+                val oBottom = other.center.y + ho * 0.5f
+                val oCy = other.center.y
+
+                // Snap X: left/right/center
+                fun trySnapX(target: Float, mine: Float) {
+                    val d = target - mine
+                    if (abs(d) <= snapTol && abs(d) > abs(dxSnap)) dxSnap = d
+                }
+                trySnapX(oLeft, myLeft)
+                trySnapX(oRight, myRight)
+                trySnapX(oCx, myCx)
+
+                // Snap Y: top/bottom/center
+                fun trySnapY(target: Float, mine: Float) {
+                    val d = target - mine
+                    if (abs(d) <= snapTol && abs(d) > abs(dySnap)) dySnap = d
+                }
+                trySnapY(oTop, myTop)
+                trySnapY(oBottom, myBottom)
+                trySnapY(oCy, myCy)
+            }
+
+            if (dxSnap != 0f || dySnap != 0f) {
+                n.center.x += dxSnap
+                n.center.y += dySnap
+            }
+            invalidate()
+            requestAutosave()
+            return
+        }
+
 
 
         overlayRotateActive = false
@@ -3735,6 +3959,27 @@ class InkCanvasView @JvmOverloads constructor(
 
 
     private fun detectHandle(x: Float, y: Float): Handle {
+        // For Text: allow only INSIDE (move) and ROTATE via the top handle; ignore size handles
+        selectedText?.let { n ->
+            // Treat rotated box same as image's local hit-test
+            val p = Paint().apply { textSize = n.textSizePx }
+            val w = p.measureText(n.text)
+            val h = n.textSizePx
+            val s = sin(-n.angleRad); val c = cos(-n.angleRad)
+            val dx = x - n.center.x; val dy = y - n.center.y
+            val lx = dx * c - dy * s
+            val ly = dx * s + dy * c
+            val halfW = w * 0.5f; val halfH = h * 0.5f
+            // Rotation handle check (above top center)
+            val off = dpToPx(rotateHandleOffsetDp)
+            val rotPad = dpToPx(handleTouchPadDp + 6f)
+            if (abs(lx - 0f) <= rotPad && abs(ly - (-halfH - off)) <= rotPad) return Handle.ROTATE
+            // Inside check
+            if (abs(lx) <= halfW && abs(ly) <= halfH) return Handle.INSIDE
+            // No scale handles for text
+            return Handle.NONE
+        }
+
         // Image selection: reuse handles if an image is selected
         selectedImage?.let { n ->
             val w = n.bitmap.width * n.scale
@@ -3815,6 +4060,14 @@ class InkCanvasView @JvmOverloads constructor(
         }
         return null
     }
+
+
+
+    private fun isInsideSelectedText(cx: Float, cy: Float): Boolean {
+        val n = selectedText ?: return false
+        return hitTextAtContent(cx, cy) === n
+    }
+
 
     private fun hitImageAtContent(cx: Float, cy: Float): ImageNode? {
         // topmost image first (reverse order)
@@ -4092,6 +4345,19 @@ class InkCanvasView @JvmOverloads constructor(
         val clampedBottom = bottom.coerceIn(clampedTop, height)
         return Rect(clampedLeft, clampedTop, clampedRight, clampedBottom)
     }
+    // === Public wrapper for MainActivity to position an overlay in view coordinates
+    fun getSelectedTextViewRect(): Rect? {
+        val n = selectedText ?: return null
+        // Approximate text bbox in CONTENT px
+        val p = Paint().apply { textSize = n.textSizePx }
+        val w = p.measureText(n.text).coerceAtLeast(dpToPx(10f)) // minimal width for empty
+        val h = n.textSizePx
+        val leftC = n.center.x - w * 0.5f
+        val topC  = n.center.y - h * 0.5f
+        val rC = RectF(leftC, topC, leftC + w, topC + h)
+        return contentToViewRect(rC)
+    }
+
     private fun contentToViewX(cx: Float): Float = translationX + cx * scaleFactor
     private fun contentToViewY(cy: Float): Float = translationY + cy * scaleFactor
 
@@ -4289,6 +4555,16 @@ class InkCanvasView @JvmOverloads constructor(
         }
 
         override fun onLongPress(e: MotionEvent) {
+            val (cxT, cyT) = toContent(e.x, e.y)
+            hitTextAtContent(cxT, cyT)?.let { node ->
+                selectedText = node
+                selectedImage = null
+                selectedStrokes.clear(); selectedBounds = null
+                selectionInteractive = true
+                invalidate()
+                return
+            }
+
             val (cx, cy) = toContent(e.x, e.y)
             hitImageAtContent(cx, cy)?.let { node ->
                 // Clear any stroke selection first

@@ -8,10 +8,12 @@ import android.content.pm.PackageManager
 import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Rect
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.text.InputType
+import android.util.TypedValue
 import android.view.*
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
@@ -20,6 +22,7 @@ import android.widget.*
 import android.widget.Button
 import android.widget.CheckBox
 import android.widget.EditText
+import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.PopupMenu
 import android.widget.PopupWindow
@@ -207,6 +210,9 @@ class MainActivity : AppCompatActivity() {
     private var textBold: Boolean = false
     private var textItalic: Boolean = false
     private var textPopup: PopupWindow? = null
+    // Floating editor overlay for immediate typing into a text box
+    private var floatingTextEditor: EditText? = null
+
 
     // ADD (Pen style state)
     private var penStrokeStyle: InkCanvasView.StrokeStyle = InkCanvasView.StrokeStyle.SOLID
@@ -633,10 +639,18 @@ class MainActivity : AppCompatActivity() {
         btnGalleryPen.setOnClickListener { launchGalleryFlow() }
         btnGalleryKbd.setOnClickListener { launchGalleryFlow() }
         // Keyboard → Text popup
-        findViewById<ImageButton>(R.id.btnText).setOnClickListener { v ->
+        findViewById<ImageButton>(R.id.btnText).setOnClickListener {
+            // Insert an empty text box, select it, and start editing immediately
             dismissAllPopups()
-            toggleTextPopup(v)
+            inkCanvas.startTextBoxAtCenter(
+                color = textColor,
+                textSizeDp = textSizeDp,
+                isBold = textBold,
+                isItalic = textItalic
+            )
+            showTextEditorForSelectedText()
         }
+
 
 
 
@@ -1601,6 +1615,78 @@ class MainActivity : AppCompatActivity() {
         // Anchor like your other popups
         showPopupAnchoredWithinScreen(textPopup!!, anchor)
     }
+    private fun showTextEditorForSelectedText() {
+        val r = inkCanvas.getSelectedTextViewRect() ?: return
+        val host = findViewById<FrameLayout>(R.id.canvasHost)
+
+        // Create lazily
+        if (floatingTextEditor == null) {
+            floatingTextEditor = EditText(this).apply {
+                setBackgroundResource(android.R.drawable.edit_text)
+                setPadding(12, 8, 12, 8)
+
+                // allow multi-line while editing
+                isSingleLine = false
+                maxLines = 6
+                imeOptions = EditorInfo.IME_ACTION_DONE
+                inputType = InputType.TYPE_CLASS_TEXT or
+                        InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or
+                        InputType.TYPE_TEXT_FLAG_MULTI_LINE
+
+                setOnEditorActionListener { v, actionId, _ ->
+                    if (actionId == EditorInfo.IME_ACTION_DONE) {
+                        inkCanvas.updateSelectedText(text.toString())
+                        hideTextEditor()
+                        true
+                    } else false
+                }
+            }
+            host.addView(floatingTextEditor, FrameLayout.LayoutParams(r.width(), FrameLayout.LayoutParams.WRAP_CONTENT))
+        }
+
+        // Compute a good default width: ~40% of canvas, clamped to 180–360dp
+        val hostW = host.width.coerceAtLeast(1)
+        fun dp(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, resources.displayMetrics).toInt()
+        val minW = dp(180f)
+        val maxW = dp(360f)
+        val suggested = (hostW * 0.40f).toInt().coerceIn(minW, maxW)
+
+// Position & size
+        val lp = floatingTextEditor!!.layoutParams as FrameLayout.LayoutParams
+        lp.width = suggested
+        lp.leftMargin = r.left
+        lp.topMargin = r.top
+        floatingTextEditor!!.layoutParams = lp
+
+        floatingTextEditor!!.setText("") // start empty for new boxes
+        floatingTextEditor!!.setTextColor(textColor)
+        // size in PX to match canvas text size
+        floatingTextEditor!!.setTextSize(TypedValue.COMPLEX_UNIT_PX, inkCanvas.dpToPx(textSizeDp))
+        floatingTextEditor!!.typeface = Typeface.create(Typeface.DEFAULT, when {
+            textBold && textItalic -> Typeface.BOLD_ITALIC
+            textBold -> Typeface.BOLD
+            textItalic -> Typeface.ITALIC
+            else -> Typeface.NORMAL
+        })
+
+        floatingTextEditor!!.visibility = View.VISIBLE
+        floatingTextEditor!!.requestFocus()
+        // show soft keyboard
+        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+        imm.showSoftInput(floatingTextEditor, InputMethodManager.SHOW_IMPLICIT)
+    }
+
+    private fun hideTextEditor() {
+        floatingTextEditor?.let {
+            // Commit text on hide
+            inkCanvas.updateSelectedText(it.text.toString())
+            it.visibility = View.GONE
+            // hide soft keyboard
+            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.hideSoftInputFromWindow(it.windowToken, 0)
+        }
+    }
+
 
 
     private fun createShapesPopup(anchor: View): PopupWindow {
@@ -1822,6 +1908,17 @@ class MainActivity : AppCompatActivity() {
                     exitTitleEditMode(save = true)
                 }
             }
+            // Close floating text editor on outside tap
+            floatingTextEditor?.let { ed ->
+                if (ed.visibility == View.VISIBLE) {
+                    val rect = Rect()
+                    ed.getGlobalVisibleRect(rect)
+                    if (!rect.contains(ev.rawX.toInt(), ev.rawY.toInt())) {
+                        hideTextEditor()
+                    }
+                }
+            }
+
         }
         return handled
     }
