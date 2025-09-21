@@ -19,6 +19,7 @@ import android.view.WindowManager
 import android.widget.*
 import android.widget.Button
 import android.widget.CheckBox
+import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.PopupMenu
 import android.widget.PopupWindow
@@ -200,6 +201,13 @@ class MainActivity : AppCompatActivity() {
     private enum class BrushTypeLocal { FOUNTAIN, CALLIGRAPHY, PEN, PENCIL, MARKER }
     private var brushType: BrushTypeLocal = BrushTypeLocal.PEN
     private var brushSizeDp: Float = 4f
+    // Text tool state
+    private var textSizeDp: Float = 18f
+    private var textColor: Int = Color.BLACK
+    private var textBold: Boolean = false
+    private var textItalic: Boolean = false
+    private var textPopup: PopupWindow? = null
+
     // ADD (Pen style state)
     private var penStrokeStyle: InkCanvasView.StrokeStyle = InkCanvasView.StrokeStyle.SOLID
     private var penArrowEnds: Boolean = false
@@ -237,6 +245,8 @@ class MainActivity : AppCompatActivity() {
         if (eraserPopup != null && eraserPopup != except) { eraserPopup?.dismiss(); eraserPopup = null }
         if (selectPopup != null && selectPopup != except) { selectPopup?.dismiss(); selectPopup = null }
         if (shapesPopup != null && shapesPopup != except) { shapesPopup?.dismiss(); shapesPopup = null } // <— add this line
+        if (textPopup != null && textPopup != except) { textPopup?.dismiss(); textPopup = null }
+
     }
 
 
@@ -485,6 +495,7 @@ class MainActivity : AppCompatActivity() {
         btnGalleryPen = findViewById(R.id.btnGalleryPen)
         btnOverflowPen = findViewById(R.id.btnOverflowPen)
 
+
         btnCameraKbd = findViewById(R.id.btnCameraKbd)
         btnGalleryKbd = findViewById(R.id.btnGalleryKbd)
         btnOverflowKbd = findViewById(R.id.btnOverflowKbd)
@@ -529,6 +540,7 @@ class MainActivity : AppCompatActivity() {
             dismissAllPopups()
             toggleShapesPopup(v)
         }
+
 
 
 
@@ -620,6 +632,12 @@ class MainActivity : AppCompatActivity() {
         btnCameraKbd.setOnClickListener { launchCameraFlow() }
         btnGalleryPen.setOnClickListener { launchGalleryFlow() }
         btnGalleryKbd.setOnClickListener { launchGalleryFlow() }
+        // Keyboard → Text popup
+        findViewById<ImageButton>(R.id.btnText).setOnClickListener { v ->
+            dismissAllPopups()
+            toggleTextPopup(v)
+        }
+
 
 
 
@@ -1501,6 +1519,89 @@ class MainActivity : AppCompatActivity() {
             showPopupAnchoredWithinScreen(popup, anchor)
         }
     }
+    private fun toggleTextPopup(anchor: View) {
+        textPopup?.let { if (it.isShowing) { it.dismiss(); textPopup = null; return } }
+        dismissAllPopups()
+
+        val parent = (anchor.rootView as? ViewGroup) ?: window.decorView as ViewGroup
+        val content = layoutInflater.inflate(R.layout.popup_text_menu, parent, false)
+
+        val seek = content.findViewById<SeekBar>(R.id.seekTextSize)
+        val sizeLbl = content.findViewById<TextView>(R.id.labelTextSize)
+        val cbB = content.findViewById<CheckBox>(R.id.cbBold)
+        val cbI = content.findViewById<CheckBox>(R.id.cbItalic)
+        val btnColor = content.findViewById<ImageButton>(R.id.btnTextColor)
+        val btnInsert = content.findViewById<Button>(R.id.btnInsertText)
+
+        seek.progress = textSizeDp.toInt().coerceIn(8, 96)
+        sizeLbl.text = getString(R.string.size_dp, seek.progress)
+        cbB.isChecked = textBold
+        cbI.isChecked = textItalic
+
+        seek.setOnSeekBarChangeListener(object: SeekBar.OnSeekBarChangeListener{
+            override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
+                val v = value.coerceIn(8, 96)
+                textSizeDp = v.toFloat()
+                sizeLbl.text = getString(R.string.size_dp, v)
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {}
+        })
+
+        cbB.setOnCheckedChangeListener { _, isChecked -> textBold = isChecked }
+        cbI.setOnCheckedChangeListener { _, isChecked -> textItalic = isChecked }
+
+        btnColor.setOnClickListener {
+            // Reuse your color picker
+            showAdvancedColorPicker(textColor) { picked ->
+                textColor = picked
+                btnColor.imageTintList = ColorStateList.valueOf(textColor)
+            }
+        }
+
+        btnInsert.setOnClickListener {
+            // Prompt simple text input
+            val input = EditText(this@MainActivity).apply {
+                setText("")
+                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            }
+            AlertDialog.Builder(this@MainActivity)
+                .setTitle("Enter text")
+                .setView(input)
+                .setPositiveButton("Insert") { d, _ ->
+                    val txt = input.text?.toString().orEmpty()
+                    if (txt.isNotBlank()) {
+                        inkCanvas.insertTextAtCenter(
+                            text = txt,
+                            color = textColor,
+                            textSizeDp = textSizeDp,
+                            isBold = textBold,
+                            isItalic = textItalic
+                        )
+                    }
+                    d.dismiss()
+                    inkCanvas.requestFocus()
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+
+        textPopup = PopupWindow(
+            content,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            ViewGroup.LayoutParams.WRAP_CONTENT,
+            true
+        ).apply {
+            setBackgroundDrawable(ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card_popup))
+            isOutsideTouchable = true
+            elevation = 8f
+            setOnDismissListener { textPopup = null; inkCanvas.requestFocus() }
+        }
+
+        // Anchor like your other popups
+        showPopupAnchoredWithinScreen(textPopup!!, anchor)
+    }
+
 
     private fun createShapesPopup(anchor: View): PopupWindow {
         val content = inflateForPopup(R.layout.popup_shapes_menu, anchor)

@@ -883,6 +883,20 @@ class InkCanvasView @JvmOverloads constructor(
 
 
     private val imageNodes = mutableListOf<ImageNode>()
+    // ===== Text nodes =====
+    private data class TextNode(
+        var text: String,
+        var center: PointF,     // content coords
+        var color: Int,
+        var textSizePx: Float,
+        var isBold: Boolean,
+        var isItalic: Boolean,
+        var angleRad: Float = 0f
+    )
+
+    private val textNodes = mutableListOf<TextNode>()
+    private var selectedText: TextNode? = null
+
     // ───────── Selection state for images ─────────
     private var selectedImage: ImageNode? = null
 
@@ -1267,6 +1281,36 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
 
+    // Called by activity when user taps to place a new text node
+    fun insertTextAtCenter(
+        text: String,
+        color: Int,
+        textSizeDp: Float,
+        isBold: Boolean,
+        isItalic: Boolean
+    ) {
+        val (cx, cy) = toContent(width * 0.5f, height * 0.5f)
+        val node = TextNode(
+            text = text,
+            center = PointF(cx, cy),
+            color = color,
+            textSizePx = dpToPx(textSizeDp),
+            isBold = isBold,
+            isItalic = isItalic,
+            angleRad = 0f
+        )
+        textNodes.add(node)
+        selectedText = node
+        selectionInteractive = true
+        invalidate()
+        requestAutosave()
+    }
+
+    // Update a selected text node's content (edit-in-place)
+    fun updateSelectedText(newText: String) {
+        selectedText?.let { it.text = newText; invalidate(); requestAutosave() }
+    }
+
     /**
      * Insert a bitmap centered on current viewport (CONTENT coords) as a thumbnail.
      * Keeps full resolution for later resize; no bitmap reallocation.
@@ -1390,6 +1434,34 @@ class InkCanvasView @JvmOverloads constructor(
                     canvas.restore()  // clip
                 }
             }
+            // --- Draw Text in THIS section ---
+            for (n in textNodes) {
+                val secTopGlobal = s.yOffsetPx
+                val secBotGlobal = s.yOffsetPx + s.heightPx
+                val approxH = n.textSizePx
+                val topGlobal = n.center.y - approxH * 0.5f
+                val bottomGlobal = n.center.y + approxH * 0.5f
+                if (bottomGlobal <= secTopGlobal || topGlobal >= secBotGlobal) continue
+
+                val cxLocal = n.center.x
+                val cyLocal = n.center.y - s.yOffsetPx
+
+                val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = n.color
+                    textSize = n.textSizePx
+                    style = Paint.Style.FILL
+                    isFakeBoldText = n.isBold
+                    textSkewX = if (n.isItalic) -0.25f else 0f
+                }
+
+                canvas.save()
+                canvas.rotate(Math.toDegrees(n.angleRad.toDouble()).toFloat(), cxLocal, cyLocal)
+                val x = cxLocal - p.measureText(n.text) * 0.5f
+                val y = cyLocal + n.textSizePx * 0.35f
+                canvas.drawText(n.text, x, y, p)
+                canvas.restore()
+            }
+
 
             // Selected image box + handles (only in the section that contains it)
             selectedImage?.let { n ->
@@ -1421,6 +1493,30 @@ class InkCanvasView @JvmOverloads constructor(
                     canvas.restore()
                 }
             }
+            // Selected Text box + handles
+            selectedText?.let { n ->
+                val secTopGlobal = s.yOffsetPx
+                val secBotGlobal = s.yOffsetPx + s.heightPx
+                val p = Paint().apply { textSize = n.textSizePx }
+                val w = p.measureText(n.text)
+                val h = n.textSizePx
+                val topGlobal = n.center.y - h * 0.5f
+                val bottomGlobal = n.center.y + h * 0.5f
+                if (bottomGlobal > secTopGlobal && topGlobal < secBotGlobal) {
+                    val cxLocal = n.center.x
+                    val cyLocal = n.center.y - s.yOffsetPx
+                    val halfW = w * 0.5f; val halfH = h * 0.5f
+
+                    canvas.save()
+                    canvas.rotate(Math.toDegrees(n.angleRad.toDouble()).toFloat(), cxLocal, cyLocal)
+                    val r = RectF(cxLocal - halfW, cyLocal - halfH, cxLocal + halfW, cyLocal + halfH)
+                    canvas.drawRect(r, selectionOutline)
+                    if (selectionInteractive) drawHandles(canvas, r)
+                    drawRotateHandle(canvas, r)
+                    canvas.restore()
+                }
+            }
+
 
 
 
@@ -3702,6 +3798,22 @@ class InkCanvasView @JvmOverloads constructor(
         if (abs(x - r.right) <= pad && y >= r.top - pad && y <= r.bottom + pad) return Handle.E
 
         return if (r.contains(x, y)) Handle.INSIDE else Handle.NONE
+    }
+
+    private fun hitTextAtContent(cx: Float, cy: Float): TextNode? {
+        for (i in textNodes.size - 1 downTo 0) {
+            val n = textNodes[i]
+            val p = Paint().apply { textSize = n.textSizePx }
+            val w = p.measureText(n.text)
+            val h = n.textSizePx
+            val s = sin(-n.angleRad); val c = cos(-n.angleRad)
+            val dx = cx - n.center.x; val dy = cy - n.center.y
+            val lx = dx * c - dy * s
+            val ly = dx * s + dy * c
+            val halfW = w * 0.5f; val halfH = h * 0.5f
+            if (abs(lx) <= halfW && abs(ly) <= halfH) return n
+        }
+        return null
     }
 
     private fun hitImageAtContent(cx: Float, cy: Float): ImageNode? {

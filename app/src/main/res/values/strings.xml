@@ -143,6 +143,10 @@
     <string name="lock_pen_style">Lock Pen Style</string>
 
     <string name="arrow_ends">Arrow Ends?</string>
+    <string name="bold">Bold</string>
+    <string name="italic">Italic</string>
+    <string name="insert_text">Insert Text</string>
+
 
 
 </resources>
