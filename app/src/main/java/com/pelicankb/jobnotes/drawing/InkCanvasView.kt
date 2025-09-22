@@ -1289,11 +1289,12 @@ class InkCanvasView @JvmOverloads constructor(
         isItalic: Boolean
     ) {
         val (cx, cy) = toContent(width * 0.5f, height * 0.5f)
+        val minDp = 24f
         val node = TextNode(
             text = "",
             center = PointF(cx, cy),
             color = color,
-            textSizePx = dpToPx(textSizeDp),
+            textSizePx = dpToPx(max(textSizeDp, minDp)),
             isBold = isBold,
             isItalic = isItalic,
             angleRad = 0f
@@ -1305,6 +1306,7 @@ class InkCanvasView @JvmOverloads constructor(
         selectionInteractive = true
         invalidate()
         requestAutosave()
+
     }
 
     // Called by activity when user taps to place a new text node
@@ -1336,6 +1338,17 @@ class InkCanvasView @JvmOverloads constructor(
     fun updateSelectedText(newText: String) {
         selectedText?.let { it.text = newText; invalidate(); requestAutosave() }
     }
+    fun setSelectedTextSizeDp(dp: Float) {
+        selectedText?.let {
+            it.textSizePx = dpToPx(dp)
+            invalidate()
+            requestAutosave()
+        }
+    }
+
+    fun getSelectedTextSizeDp(): Float? =
+        selectedText?.let { it.textSizePx / resources.displayMetrics.density }
+
 
     /**
      * Insert a bitmap centered on current viewport (CONTENT coords) as a thumbnail.
@@ -3959,26 +3972,31 @@ class InkCanvasView @JvmOverloads constructor(
 
 
     private fun detectHandle(x: Float, y: Float): Handle {
-        // For Text: allow only INSIDE (move) and ROTATE via the top handle; ignore size handles
+        // For Text: allow INSIDE and ROTATE only; enlarge handle & inside pad
         selectedText?.let { n ->
-            // Treat rotated box same as image's local hit-test
             val p = Paint().apply { textSize = n.textSizePx }
-            val w = p.measureText(n.text)
+            val w = p.measureText(n.text).coerceAtLeast(dpToPx(10f))
             val h = n.textSizePx
+
             val s = sin(-n.angleRad); val c = cos(-n.angleRad)
             val dx = x - n.center.x; val dy = y - n.center.y
             val lx = dx * c - dy * s
             val ly = dx * s + dy * c
-            val halfW = w * 0.5f; val halfH = h * 0.5f
-            // Rotation handle check (above top center)
+
+            val padInside = dpToPx(12f)           // easier to catch inside
+            val halfW = w * 0.5f + padInside
+            val halfH = h * 0.5f + padInside
+
+            // Rotation handle above top-center with larger pad
             val off = dpToPx(rotateHandleOffsetDp)
-            val rotPad = dpToPx(handleTouchPadDp + 6f)
-            if (abs(lx - 0f) <= rotPad && abs(ly - (-halfH - off)) <= rotPad) return Handle.ROTATE
-            // Inside check
+            val rotPad = dpToPx(handleTouchPadDp + 12f)
+            if (abs(lx) <= rotPad && abs(ly - (-h * 0.5f - off)) <= rotPad) return Handle.ROTATE
+
             if (abs(lx) <= halfW && abs(ly) <= halfH) return Handle.INSIDE
-            // No scale handles for text
+
             return Handle.NONE
         }
+
 
         // Image selection: reuse handles if an image is selected
         selectedImage?.let { n ->
@@ -4049,16 +4067,21 @@ class InkCanvasView @JvmOverloads constructor(
         for (i in textNodes.size - 1 downTo 0) {
             val n = textNodes[i]
             val p = Paint().apply { textSize = n.textSizePx }
-            val w = p.measureText(n.text)
+            val w = p.measureText(n.text).coerceAtLeast(dpToPx(10f))
             val h = n.textSizePx
+            // Expand hit area ("halo") so taps are easy
+            val halo = dpToPx(12f)
+
             val s = sin(-n.angleRad); val c = cos(-n.angleRad)
             val dx = cx - n.center.x; val dy = cy - n.center.y
             val lx = dx * c - dy * s
             val ly = dx * s + dy * c
-            val halfW = w * 0.5f; val halfH = h * 0.5f
+            val halfW = w * 0.5f + halo
+            val halfH = h * 0.5f + halo
             if (abs(lx) <= halfW && abs(ly) <= halfH) return n
         }
         return null
+
     }
 
 

@@ -205,7 +205,7 @@ class MainActivity : AppCompatActivity() {
     private var brushType: BrushTypeLocal = BrushTypeLocal.PEN
     private var brushSizeDp: Float = 4f
     // Text tool state
-    private var textSizeDp: Float = 18f
+    private var textSizeDp: Float = 28f
     private var textColor: Int = Color.BLACK
     private var textBold: Boolean = false
     private var textItalic: Boolean = false
@@ -1547,8 +1547,10 @@ class MainActivity : AppCompatActivity() {
         val btnColor = content.findViewById<ImageButton>(R.id.btnTextColor)
         val btnInsert = content.findViewById<Button>(R.id.btnInsertText)
 
-        seek.progress = textSizeDp.toInt().coerceIn(8, 96)
+        val selDp = inkCanvas.getSelectedTextSizeDp() ?: textSizeDp
+        seek.progress = selDp.toInt().coerceIn(8, 96)
         sizeLbl.text = getString(R.string.size_dp, seek.progress)
+
         cbB.isChecked = textBold
         cbI.isChecked = textItalic
 
@@ -1557,7 +1559,11 @@ class MainActivity : AppCompatActivity() {
                 val v = value.coerceIn(8, 96)
                 textSizeDp = v.toFloat()
                 sizeLbl.text = getString(R.string.size_dp, v)
+
+                // If a text box is selected, update its size live
+                inkCanvas.setSelectedTextSizeDp(textSizeDp)
             }
+
             override fun onStartTrackingTouch(sb: SeekBar?) {}
             override fun onStopTrackingTouch(sb: SeekBar?) {}
         })
