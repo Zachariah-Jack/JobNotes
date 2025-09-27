@@ -642,22 +642,9 @@ class MainActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.btnText).setOnClickListener {
             // Insert an empty text box, select it, and start editing immediately
             dismissAllPopups()
-            inkCanvas.startTextBoxAtCenter(
-                color = textColor,
-                textSizeDp = textSizeDp,
-                isBold = textBold,
-                isItalic = textItalic
-            )
-            showTextEditorForSelectedText()
+            toggleTextPopup(it)
+
         }
-
-
-
-
-
-
-        // android.util.Log.d("LAYOUT", "root gravity=${rootLL.gravity}")
-
 
 
         // Overflow menus
@@ -1659,7 +1646,7 @@ class MainActivity : AppCompatActivity() {
 
 // Position & size
         val lp = floatingTextEditor!!.layoutParams as FrameLayout.LayoutParams
-        lp.width = suggested
+        lp.width = r.width()   // r = getSelectedTextViewRect(); matches boxW already
         lp.leftMargin = r.left
         lp.topMargin = r.top
         floatingTextEditor!!.layoutParams = lp
@@ -1924,6 +1911,29 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+            // If the floating text editor is visible and the tap is inside it,
+// route the tap to the editor so the cursor positions precisely there.
+            floatingTextEditor?.let { ed ->
+                if (ed.visibility == View.VISIBLE) {
+                    val rect = Rect()
+                    ed.getGlobalVisibleRect(rect)
+                    if (rect.contains(ev.rawX.toInt(), ev.rawY.toInt())) {
+                        // Translate raw to editor-local coordinates and set selection
+                        val xIn = ev.rawX - rect.left
+                        val yIn = ev.rawY - rect.top
+                        // This API positions caret at a given view position
+                        val off = ed.layout?.getOffsetForHorizontal(
+                            ed.layout?.getLineForVertical(yIn.toInt()) ?: 0,
+                            xIn
+                        )
+                        if (off != null && off >= 0) ed.setSelection(off.coerceIn(0, ed.text?.length ?: 0))
+                        // Also let EditText handle the event (selection handles, etc.)
+                        ed.dispatchTouchEvent(ev)
+                        return true
+                    }
+                }
+            }
+
 
         }
         return handled

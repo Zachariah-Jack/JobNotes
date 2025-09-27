@@ -42,6 +42,7 @@ import kotlin.math.*
 import kotlin.random.Random
 
 import kotlin.math.roundToInt
+import kotlin.math.sign
 import kotlin.math.hypot
 
 
@@ -271,6 +272,7 @@ class InkCanvasView @JvmOverloads constructor(
         lastAppliedSelectionPath?.let { applySelection(Path(it)) }
         invalidate()
     }
+
     fun getSelectionPolicy(): SelectionPolicy = selectionPolicy
 
     fun enterSelectionLasso() {
@@ -886,12 +888,19 @@ class InkCanvasView @JvmOverloads constructor(
     // ===== Text nodes =====
     private data class TextNode(
         var text: String,
-        var center: PointF,     // content coords
+        var center: PointF,     // content coords (cx, cy)
         var color: Int,
         var textSizePx: Float,
         var isBold: Boolean,
         var isItalic: Boolean,
-        var angleRad: Float = 0f
+        var angleRad: Float = 0f,
+
+        // NEW: real text box (CONTENT px)
+        var boxW: Float = 0f,          // total box width
+        var boxH: Float = 0f,          // total box height
+        var paddingPx: Float = 0f,     // inner padding on each side
+        var bgColor: Int? = null,      // background fill (null = none)
+        var cornerRadiusPx: Float = 0f // for bg rounded rect
     )
 
     private val textNodes = mutableListOf<TextNode>()
@@ -1289,7 +1298,11 @@ class InkCanvasView @JvmOverloads constructor(
         isItalic: Boolean
     ) {
         val (cx, cy) = toContent(width * 0.5f, height * 0.5f)
-        val minDp = 24f
+        val minDp = 28f
+        val pad = dpToPx(8f)
+        val boxW = dpToPx(280f)              // ~ 280dp starter width
+        val boxH = dpToPx(120f)              // ~ 120dp starter height (will grow with text if needed)
+
         val node = TextNode(
             text = "",
             center = PointF(cx, cy),
@@ -1297,7 +1310,12 @@ class InkCanvasView @JvmOverloads constructor(
             textSizePx = dpToPx(max(textSizeDp, minDp)),
             isBold = isBold,
             isItalic = isItalic,
-            angleRad = 0f
+            angleRad = 0f,
+            boxW = boxW,
+            boxH = boxH,
+            paddingPx = pad,
+            bgColor = null,
+            cornerRadiusPx = dpToPx(6f)
         )
         textNodes.add(node)
         selectedText = node
@@ -1338,16 +1356,9 @@ class InkCanvasView @JvmOverloads constructor(
     fun updateSelectedText(newText: String) {
         selectedText?.let { it.text = newText; invalidate(); requestAutosave() }
     }
-    fun setSelectedTextSizeDp(dp: Float) {
-        selectedText?.let {
-            it.textSizePx = dpToPx(dp)
-            invalidate()
-            requestAutosave()
-        }
-    }
+    fun setSelectedTextSizeDp(dp: Float) { selectedText?.let { it.textSizePx = dpToPx(dp); invalidate(); requestAutosave() } }
+    fun getSelectedTextSizeDp(): Float? = selectedText?.let { it.textSizePx / resources.displayMetrics.density }
 
-    fun getSelectedTextSizeDp(): Float? =
-        selectedText?.let { it.textSizePx / resources.displayMetrics.density }
 
 
     /**
@@ -1473,62 +1484,93 @@ class InkCanvasView @JvmOverloads constructor(
                     canvas.restore()  // clip
                 }
             }
-            // --- Draw Text in THIS section ---
+
+            // --- Draw Text in THIS section (wrap inside its box) ---
             for (n in textNodes) {
                 val secTopGlobal = s.yOffsetPx
                 val secBotGlobal = s.yOffsetPx + s.heightPx
-                val approxH = n.textSizePx
-                val topGlobal = n.center.y - approxH * 0.5f
-                val bottomGlobal = n.center.y + approxH * 0.5f
+
+                // Cull by vertical intersection with this section
+                val topGlobal = n.center.y - n.boxH * 0.5f
+                val bottomGlobal = n.center.y + n.boxH * 0.5f
                 if (bottomGlobal <= secTopGlobal || topGlobal >= secBotGlobal) continue
 
                 val cxLocal = n.center.x
                 val cyLocal = n.center.y - s.yOffsetPx
 
-                val p = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
                     color = n.color
                     textSize = n.textSizePx
-                    style = Paint.Style.FILL
                     isFakeBoldText = n.isBold
                     textSkewX = if (n.isItalic) -0.25f else 0f
                 }
 
+                // Layout width = inner box width (minus padding)
+                val innerW = max(1f, n.boxW - 2f * n.paddingPx).toInt()
+                // Build StaticLayout for wrapping
+                val layout = android.text.StaticLayout.Builder
+                    .obtain(n.text, 0, n.text.length, textPaint, innerW)
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setLineSpacing(0f, 1f)
+                    .setIncludePad(false)
+                    .build()
+
+                // If content exceeds box height, grow the box once (while not editing)
+                val contentH = layout.height.toFloat() + 2f * n.paddingPx
+                if (contentH > n.boxH) n.boxH = contentH
+
+                // Draw
                 canvas.save()
                 canvas.rotate(Math.toDegrees(n.angleRad.toDouble()).toFloat(), cxLocal, cyLocal)
-                val x = cxLocal - p.measureText(n.text) * 0.5f
-                val y = cyLocal + n.textSizePx * 0.35f
-                canvas.drawText(n.text, x, y, p)
+
+                val left = cxLocal - n.boxW * 0.5f
+                val top = cyLocal - n.boxH * 0.5f
+                val right = left + n.boxW
+                val bottom = top + n.boxH
+
+                // Optional background
+                n.bgColor?.let { bg ->
+                    val r = RectF(left, top, right, bottom)
+                    val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = bg }
+                    canvas.drawRoundRect(r, n.cornerRadiusPx, n.cornerRadiusPx, bgPaint)
+                }
+
+                // Clip to box and draw wrapped text inside with padding
+                canvas.save()
+                canvas.clipRect(left, top, right, bottom)
+                canvas.translate(left + n.paddingPx, top + n.paddingPx)
+                layout.draw(canvas)
+                canvas.restore()
+
                 canvas.restore()
             }
 
 
+
             // Selected image box + handles (only in the section that contains it)
-            selectedImage?.let { n ->
-                // Section ownership test in GLOBAL (content) coords:
+            selectedText?.let { n ->
                 val secTopGlobal = s.yOffsetPx
                 val secBotGlobal = s.yOffsetPx + s.heightPx
-                val topGlobal    = n.center.y - (n.bitmap.height * n.scale) * 0.5f
-                val bottomGlobal = n.center.y + (n.bitmap.height * n.scale) * 0.5f
-                if (bottomGlobal <= secTopGlobal || topGlobal >= secBotGlobal) {
-                    // This section doesn't contain the selected image; skip box here.
-                } else {
-                    val w = n.bitmap.width * n.scale
-                    val h = n.bitmap.height * n.scale
-                    val halfW = w * 0.5f
-                    val halfH = h * 0.5f
-
-                    // Draw box/handles in SECTION-LOCAL coords
+                val topGlobal = n.center.y - n.boxH * 0.5f
+                val bottomGlobal = n.center.y + n.boxH * 0.5f
+                if (bottomGlobal > secTopGlobal && topGlobal < secBotGlobal) {
                     val cxLocal = n.center.x
                     val cyLocal = n.center.y - s.yOffsetPx
+                    val halfW = n.boxW * 0.5f
+                    val halfH = n.boxH * 0.5f
 
                     canvas.save()
                     canvas.rotate(Math.toDegrees(n.angleRad.toDouble()).toFloat(), cxLocal, cyLocal)
-
                     val r = RectF(cxLocal - halfW, cyLocal - halfH, cxLocal + halfW, cyLocal + halfH)
-                    canvas.drawRect(r, selectionOutline)
-                    if (selectionInteractive) drawHandles(canvas, r)
-                    drawRotateHandle(canvas, r)
 
+                    // Thin dashed rectangle only (no fat corners)
+                    canvas.drawRect(r, selectionOutline)
+
+                    // Enable scale handles for the TEXT BOX (not font)
+                    if (selectionInteractive) drawHandles(canvas, r)
+
+                    // Rotate handle
+                    drawRotateHandle(canvas, r)
                     canvas.restore()
                 }
             }
@@ -2594,6 +2636,9 @@ class InkCanvasView @JvmOverloads constructor(
             downY = cy
             transformKind = when (handle) {
                 Handle.INSIDE -> TransformKind.TRANSLATE
+                Handle.N, Handle.S -> TransformKind.SCALE_Y
+                Handle.E, Handle.W -> TransformKind.SCALE_X
+                Handle.NE, Handle.NW, Handle.SE, Handle.SW -> TransformKind.SCALE_UNIFORM
                 Handle.ROTATE -> {
                     rotateCenterX = n.center.x
                     rotateCenterY = n.center.y
@@ -2737,12 +2782,34 @@ class InkCanvasView @JvmOverloads constructor(
     private fun updateTransform(cx: Float, cy: Float) {
         // === Text transform ===
         selectedText?.let { n ->
+            val minW = dpToPx(80f)
+            val minH = dpToPx(40f)
+
             when (transformKind) {
                 TransformKind.TRANSLATE -> {
                     val dx = cx - downX
                     val dy = cy - downY
                     n.center.x += dx
                     n.center.y += dy
+                    downX = cx; downY = cy
+                }
+                TransformKind.SCALE_X -> {
+                    val dx = cx - downX
+                    n.boxW = max(minW, n.boxW + dx * 2f * sign(cx - n.center.x))
+                    downX = cx
+                }
+                TransformKind.SCALE_Y -> {
+                    val dy = cy - downY
+                    n.boxH = max(minH, n.boxH + dy * 2f * sign(cy - n.center.y))
+                    downY = cy
+                }
+                TransformKind.SCALE_UNIFORM -> {
+                    val dx = cx - downX
+                    val dy = cy - downY
+                    // pick the larger change to feel natural
+                    val k = if (abs(dx) > abs(dy)) dx else dy
+                    n.boxW = max(minW, n.boxW + 2f * k * sign(cx - n.center.x))
+                    n.boxH = max(minH, n.boxH + 2f * k * sign(cy - n.center.y))
                     downX = cx; downY = cy
                 }
                 TransformKind.ROTATE -> {
@@ -3972,30 +4039,42 @@ class InkCanvasView @JvmOverloads constructor(
 
 
     private fun detectHandle(x: Float, y: Float): Handle {
-        // For Text: allow INSIDE and ROTATE only; enlarge handle & inside pad
+        // TEXT: box resize on edges/corners + rotate + inside
         selectedText?.let { n ->
-            val p = Paint().apply { textSize = n.textSizePx }
-            val w = p.measureText(n.text).coerceAtLeast(dpToPx(10f))
-            val h = n.textSizePx
-
             val s = sin(-n.angleRad); val c = cos(-n.angleRad)
             val dx = x - n.center.x; val dy = y - n.center.y
             val lx = dx * c - dy * s
             val ly = dx * s + dy * c
 
-            val padInside = dpToPx(12f)           // easier to catch inside
-            val halfW = w * 0.5f + padInside
-            val halfH = h * 0.5f + padInside
+            val halfW = n.boxW * 0.5f
+            val halfH = n.boxH * 0.5f
+            val pad = dpToPx(handleTouchPadDp)
 
-            // Rotation handle above top-center with larger pad
+            // Rotation handle (above top center)
             val off = dpToPx(rotateHandleOffsetDp)
-            val rotPad = dpToPx(handleTouchPadDp + 12f)
-            if (abs(lx) <= rotPad && abs(ly - (-h * 0.5f - off)) <= rotPad) return Handle.ROTATE
+            val rotPad = dpToPx(handleTouchPadDp + 6f)
+            if (abs(lx) <= rotPad && abs(ly - (-halfH - off)) <= rotPad) return Handle.ROTATE
 
+            fun near(px: Float, py: Float) = (abs(px - lx) <= pad && abs(py - ly) <= pad)
+
+            // Corners
+            if (near(-halfW, -halfH)) return Handle.NW
+            if (near(+halfW, -halfH)) return Handle.NE
+            if (near(-halfW, +halfH)) return Handle.SW
+            if (near(+halfW, +halfH)) return Handle.SE
+
+            // Edges
+            if (abs(ly + halfH) <= pad && lx >= -halfW - pad && lx <= halfW + pad) return Handle.N
+            if (abs(ly - halfH) <= pad && lx >= -halfW - pad && lx <= halfW + pad) return Handle.S
+            if (abs(lx + halfW) <= pad && ly >= -halfH - pad && ly <= halfH + pad) return Handle.W
+            if (abs(lx - halfW) <= pad && ly >= -halfH - pad && ly <= halfH + pad) return Handle.E
+
+            // Inside
             if (abs(lx) <= halfW && abs(ly) <= halfH) return Handle.INSIDE
 
             return Handle.NONE
         }
+
 
 
         // Image selection: reuse handles if an image is selected
@@ -4371,13 +4450,9 @@ class InkCanvasView @JvmOverloads constructor(
     // === Public wrapper for MainActivity to position an overlay in view coordinates
     fun getSelectedTextViewRect(): Rect? {
         val n = selectedText ?: return null
-        // Approximate text bbox in CONTENT px
-        val p = Paint().apply { textSize = n.textSizePx }
-        val w = p.measureText(n.text).coerceAtLeast(dpToPx(10f)) // minimal width for empty
-        val h = n.textSizePx
-        val leftC = n.center.x - w * 0.5f
-        val topC  = n.center.y - h * 0.5f
-        val rC = RectF(leftC, topC, leftC + w, topC + h)
+        val leftC = n.center.x - n.boxW * 0.5f
+        val topC  = n.center.y - n.boxH * 0.5f
+        val rC = RectF(leftC, topC, leftC + n.boxW, topC + n.boxH)
         return contentToViewRect(rC)
     }
 
