@@ -15,6 +15,10 @@ import android.graphics.LinearGradient
 import android.graphics.Shader
 
 import android.os.SystemClock
+import android.text.TextPaint
+import android.text.Layout
+import android.text.StaticLayout
+
 
 
 
@@ -895,12 +899,17 @@ class InkCanvasView @JvmOverloads constructor(
         var isItalic: Boolean,
         var angleRad: Float = 0f,
 
-        // NEW: real text box (CONTENT px)
+        // Real text box (CONTENT px)
         var boxW: Float = 0f,          // total box width
         var boxH: Float = 0f,          // total box height
-        var paddingPx: Float = 0f,     // inner padding on each side
+        var paddingPx: Float = 0f,     // inner padding each side
         var bgColor: Int? = null,      // background fill (null = none)
-        var cornerRadiusPx: Float = 0f // for bg rounded rect
+        var cornerRadiusPx: Float = 0f,
+
+        // Layout cache (rebuilt only when text/size/boxW changes)
+        var layout: StaticLayout? = null,
+        var layoutInnerW: Int = 0,
+        var layoutDirty: Boolean = true
     )
 
     private val textNodes = mutableListOf<TextNode>()
@@ -1300,8 +1309,11 @@ class InkCanvasView @JvmOverloads constructor(
         val (cx, cy) = toContent(width * 0.5f, height * 0.5f)
         val minDp = 28f
         val pad = dpToPx(8f)
-        val boxW = dpToPx(280f)              // ~ 280dp starter width
-        val boxH = dpToPx(120f)              // ~ 120dp starter height (will grow with text if needed)
+
+// Start with a box roughly 60% of canvas width and ~120dp height
+        val canvasW = width.toFloat().coerceAtLeast(1f)
+        val boxW = (canvasW * 0.6f).coerceIn(dpToPx(200f), dpToPx(640f))
+        val boxH = dpToPx(120f)
 
         val node = TextNode(
             text = "",
@@ -1315,7 +1327,10 @@ class InkCanvasView @JvmOverloads constructor(
             boxH = boxH,
             paddingPx = pad,
             bgColor = null,
-            cornerRadiusPx = dpToPx(6f)
+            cornerRadiusPx = dpToPx(6f),
+            layout = null,
+            layoutInnerW = 0,
+            layoutDirty = true
         )
         textNodes.add(node)
         selectedText = node
@@ -1354,9 +1369,10 @@ class InkCanvasView @JvmOverloads constructor(
 
     // Update a selected text node's content (edit-in-place)
     fun updateSelectedText(newText: String) {
-        selectedText?.let { it.text = newText; invalidate(); requestAutosave() }
+        selectedText?.let { it.text = newText; it.layoutDirty = true; invalidate(); requestAutosave() }
+
     }
-    fun setSelectedTextSizeDp(dp: Float) { selectedText?.let { it.textSizePx = dpToPx(dp); invalidate(); requestAutosave() } }
+    fun setSelectedTextSizeDp(dp: Float) { selectedText?.let { it.textSizePx = dpToPx(dp); it.layoutDirty = true; invalidate(); requestAutosave() }    }
     fun getSelectedTextSizeDp(): Float? = selectedText?.let { it.textSizePx / resources.displayMetrics.density }
 
 
@@ -1485,48 +1501,27 @@ class InkCanvasView @JvmOverloads constructor(
                 }
             }
 
-            // --- Draw Text in THIS section (wrap inside its box) ---
+            // --- Draw Text in THIS section (wrap inside its box; cached layout) ---
             for (n in textNodes) {
                 val secTopGlobal = s.yOffsetPx
                 val secBotGlobal = s.yOffsetPx + s.heightPx
 
-                // Cull by vertical intersection with this section
                 val topGlobal = n.center.y - n.boxH * 0.5f
                 val bottomGlobal = n.center.y + n.boxH * 0.5f
                 if (bottomGlobal <= secTopGlobal || topGlobal >= secBotGlobal) continue
 
+                // Ensure we have a layout before drawing
+                ensureTextLayout(n)
+
                 val cxLocal = n.center.x
                 val cyLocal = n.center.y - s.yOffsetPx
-
-                val textPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
-                    color = n.color
-                    textSize = n.textSizePx
-                    isFakeBoldText = n.isBold
-                    textSkewX = if (n.isItalic) -0.25f else 0f
-                }
-
-                // Layout width = inner box width (minus padding)
-                val innerW = max(1f, n.boxW - 2f * n.paddingPx).toInt()
-                // Build StaticLayout for wrapping
-                val layout = android.text.StaticLayout.Builder
-                    .obtain(n.text, 0, n.text.length, textPaint, innerW)
-                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                    .setLineSpacing(0f, 1f)
-                    .setIncludePad(false)
-                    .build()
-
-                // If content exceeds box height, grow the box once (while not editing)
-                val contentH = layout.height.toFloat() + 2f * n.paddingPx
-                if (contentH > n.boxH) n.boxH = contentH
-
-                // Draw
-                canvas.save()
-                canvas.rotate(Math.toDegrees(n.angleRad.toDouble()).toFloat(), cxLocal, cyLocal)
-
                 val left = cxLocal - n.boxW * 0.5f
                 val top = cyLocal - n.boxH * 0.5f
                 val right = left + n.boxW
                 val bottom = top + n.boxH
+
+                canvas.save()
+                canvas.rotate(Math.toDegrees(n.angleRad.toDouble()).toFloat(), cxLocal, cyLocal)
 
                 // Optional background
                 n.bgColor?.let { bg ->
@@ -1535,19 +1530,22 @@ class InkCanvasView @JvmOverloads constructor(
                     canvas.drawRoundRect(r, n.cornerRadiusPx, n.cornerRadiusPx, bgPaint)
                 }
 
-                // Clip to box and draw wrapped text inside with padding
+                // Clip and draw wrapped text
                 canvas.save()
                 canvas.clipRect(left, top, right, bottom)
                 canvas.translate(left + n.paddingPx, top + n.paddingPx)
-                layout.draw(canvas)
-                canvas.restore()
+                n.layout?.draw(canvas)
+
 
                 canvas.restore()
+                canvas.restore()
+
             }
 
 
 
-            // Selected image box + handles (only in the section that contains it)
+
+
             selectedText?.let { n ->
                 val secTopGlobal = s.yOffsetPx
                 val secBotGlobal = s.yOffsetPx + s.heightPx
@@ -1574,29 +1572,7 @@ class InkCanvasView @JvmOverloads constructor(
                     canvas.restore()
                 }
             }
-            // Selected Text box + handles
-            selectedText?.let { n ->
-                val secTopGlobal = s.yOffsetPx
-                val secBotGlobal = s.yOffsetPx + s.heightPx
-                val p = Paint().apply { textSize = n.textSizePx }
-                val w = p.measureText(n.text)
-                val h = n.textSizePx
-                val topGlobal = n.center.y - h * 0.5f
-                val bottomGlobal = n.center.y + h * 0.5f
-                if (bottomGlobal > secTopGlobal && topGlobal < secBotGlobal) {
-                    val cxLocal = n.center.x
-                    val cyLocal = n.center.y - s.yOffsetPx
-                    val halfW = w * 0.5f; val halfH = h * 0.5f
 
-                    canvas.save()
-                    canvas.rotate(Math.toDegrees(n.angleRad.toDouble()).toFloat(), cxLocal, cyLocal)
-                    val r = RectF(cxLocal - halfW, cyLocal - halfH, cxLocal + halfW, cyLocal + halfH)
-                    canvas.drawRect(r, selectionOutline)
-                    if (selectionInteractive) drawHandles(canvas, r)
-                    drawRotateHandle(canvas, r)
-                    canvas.restore()
-                }
-            }
 
 
 
@@ -1809,7 +1785,26 @@ class InkCanvasView @JvmOverloads constructor(
                 if (!isStylus(event, idx) && event.pointerCount == 1 && !scalingInProgress) {
                     val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
 
-                    // --- TEXT first for finger: handles/inside/tap select before panning ---
+                    // Border tap of selected text => begin move, exit edit
+                    selectedText?.let { n ->
+                        // Border = inside the box but close to edges (8dp band)
+                        val s = sin(-n.angleRad); val c = cos(-n.angleRad)
+                        val dx = cx - n.center.x; val dy = cy - n.center.y
+                        val lx = dx * c - dy * s
+                        val ly = dx * s + dy * c
+                        val band = dpToPx(8f)
+                        val halfW = n.boxW * 0.5f; val halfH = n.boxH * 0.5f
+                        val nearEdge = (abs(abs(lx) - halfW) <= band && abs(ly) <= halfH) ||
+                                (abs(abs(ly) - halfH) <= band && abs(lx) <= halfW)
+                        if (nearEdge) {
+                            textEditCallbacks?.onRequestFinishEdit()   // hide keyboard/editor
+                            // arm move
+                            movingImage = true
+                            activePointerId = event.getPointerId(idx)
+                            return true
+                        }
+                    }
+// --- TEXT first for finger: handles/inside/tap select before panning ---
                     if (selectedText != null) {
                         val hTxt = detectHandle(cx, cy)
                         if (hTxt != Handle.NONE) {
@@ -2630,7 +2625,7 @@ class InkCanvasView @JvmOverloads constructor(
         }
         // Images: (existing code may be here)
 
-// === Text: allow translate and rotate (no scale handles) ===
+// === Text: allow translate and rotate  ===
         selectedText?.let { n ->
             downX = cx
             downY = cy
@@ -2797,11 +2792,15 @@ class InkCanvasView @JvmOverloads constructor(
                     val dx = cx - downX
                     n.boxW = max(minW, n.boxW + dx * 2f * sign(cx - n.center.x))
                     downX = cx
+                    n.layoutDirty = true
+
                 }
                 TransformKind.SCALE_Y -> {
                     val dy = cy - downY
                     n.boxH = max(minH, n.boxH + dy * 2f * sign(cy - n.center.y))
                     downY = cy
+                    n.layoutDirty = true
+
                 }
                 TransformKind.SCALE_UNIFORM -> {
                     val dx = cx - downX
@@ -2811,6 +2810,8 @@ class InkCanvasView @JvmOverloads constructor(
                     n.boxW = max(minW, n.boxW + 2f * k * sign(cx - n.center.x))
                     n.boxH = max(minH, n.boxH + 2f * k * sign(cy - n.center.y))
                     downX = cx; downY = cy
+                    n.layoutDirty = true
+
                 }
                 TransformKind.ROTATE -> {
                     val start = rotateStartAngleRad ?: return@let
@@ -2946,16 +2947,14 @@ class InkCanvasView @JvmOverloads constructor(
         // === Snap Text boxes on move finish ===
         selectedText?.let { n ->
             val snapTol = dpToPx(8f)
-            val p = Paint().apply { textSize = n.textSizePx }
-            val w = p.measureText(n.text)
-            val h = n.textSizePx
-            // Candidate lines (this node)
-            val myLeft = n.center.x - w * 0.5f
-            val myRight = n.center.x + w * 0.5f
+            // Candidate lines (this node) — use TEXT BOX edges, not glyph metrics
+            val myLeft = n.center.x - n.boxW * 0.5f
+            val myRight = n.center.x + n.boxW * 0.5f
             val myCx = n.center.x
-            val myTop = n.center.y - h * 0.5f
-            val myBottom = n.center.y + h * 0.5f
+            val myTop = n.center.y - n.boxH * 0.5f
+            val myBottom = n.center.y + n.boxH * 0.5f
             val myCy = n.center.y
+
 
             var dxSnap = 0f
             var dySnap = 0f
@@ -2963,8 +2962,8 @@ class InkCanvasView @JvmOverloads constructor(
             for (other in textNodes) {
                 if (other === n) continue
                 val po = Paint().apply { textSize = other.textSizePx }
-                val wo = po.measureText(other.text)
-                val ho = other.textSizePx
+                val wo = other.boxW
+                val ho = other.boxH
                 val oLeft = other.center.x - wo * 0.5f
                 val oRight = other.center.x + wo * 0.5f
                 val oCx = other.center.x
@@ -3742,6 +3741,53 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
 
+
+
+
+    // Build a wrapped text layout (Builder on API 23+, legacy ctor below)
+    private fun buildWrappedLayout(text: CharSequence, paint: TextPaint, widthPx: Int): StaticLayout {
+        return if (android.os.Build.VERSION.SDK_INT >= 23) {
+            StaticLayout.Builder
+                .obtain(text, 0, text.length, paint, widthPx)
+                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                .setIncludePad(false)
+                .setLineSpacing(0f, 1f)
+                .build()
+        } else {
+            @Suppress("DEPRECATION")
+            StaticLayout(text, paint, widthPx, Layout.Alignment.ALIGN_NORMAL, 1f, 0f, false)
+        }
+    }
+
+    // Ensure selected TextNode has a valid layout and sane boxW/boxH.
+// Rebuild only when text/size/boxW changed (n.layoutDirty = true).
+    private fun ensureTextLayout(n: TextNode) {
+        if (!n.layoutDirty && n.layout != null) return
+
+        val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = n.color
+            textSize = n.textSizePx
+            isFakeBoldText = n.isBold
+            textSkewX = if (n.isItalic) -0.25f else 0f
+        }
+
+        // If boxW not set yet, pick a sane default from canvas width (~60%), clamped
+        val canvasW = width.toFloat().coerceAtLeast(1f)
+        val defaultInner = (canvasW * 0.6f)
+            .coerceIn(dpToPx(200f), dpToPx(640f)) - 2f * n.paddingPx
+        val innerW = max(1f, (if (n.boxW > 0f) (n.boxW - 2f * n.paddingPx) else defaultInner)).toInt()
+
+        val layout = buildWrappedLayout(n.text, tp, innerW)
+
+        // Initialize box from layout if not set
+        if (n.boxW <= 0f) n.boxW = layout.width.toFloat() + 2f * n.paddingPx
+        val minH = dpToPx(48f)
+        n.boxH = max(minH, layout.height.toFloat() + 2f * n.paddingPx)
+
+        n.layout = layout
+        n.layoutInnerW = innerW
+        n.layoutDirty = false
+    }
 
     // --- ghost paste preview renderer ---
     private fun drawClipboardGhost(canvas: Canvas, cx: Float, cy: Float) {
@@ -4556,6 +4602,14 @@ class InkCanvasView @JvmOverloads constructor(
         return sum / ev.pointerCount
     }
 
+    // === Text edit callbacks (Activity opens/closes editor) ===
+    interface TextEditCallbacks {
+        fun onRequestStartEdit()    // double tap inside text
+        fun onRequestFinishEdit()   // single tap on border (exit edit -> move)
+    }
+    private var textEditCallbacks: TextEditCallbacks? = null
+    fun setTextEditCallbacks(cb: TextEditCallbacks?) { textEditCallbacks = cb }
+
     private inner class ScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
             stopFling()
@@ -4635,9 +4689,14 @@ class InkCanvasView @JvmOverloads constructor(
 
     private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
         override fun onDoubleTap(e: MotionEvent): Boolean {
-            val target = if (scaleFactor < 1.5f) 2f else 1f
-            zoomTo(target, e.x, e.y)
-            return true
+            val (cx, cy) = toContent(e.x, e.y)
+            // Double-tap inside selected text -> enter edit mode
+            if (selectedText != null && hitTextAtContent(cx, cy) === selectedText) {
+                textEditCallbacks?.onRequestStartEdit()
+                return true
+            }
+            // otherwise keep your existing zoom behavior if you like (or return false)
+            return false
         }
         override fun onSingleTapUp(e: MotionEvent): Boolean {
             // If tapping on the selected IMAGE, commit it (drop selection)

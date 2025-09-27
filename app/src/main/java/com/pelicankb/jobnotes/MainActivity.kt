@@ -389,6 +389,15 @@ class MainActivity : AppCompatActivity() {
 
         // Initialize first
         inkCanvas = findViewById<InkCanvasView>(R.id.inkCanvas)
+        inkCanvas.setTextEditCallbacks(object : InkCanvasView.TextEditCallbacks {
+            override fun onRequestStartEdit() {
+                showTextEditorForSelectedText()
+            }
+            override fun onRequestFinishEdit() {
+                hideTextEditor()
+            }
+        })
+
         inkCanvas.setOnPenStyleChangeListener(object : InkCanvasView.OnPenStyleChangeListener {
             override fun onPenStyleChanged(style: InkCanvasView.StrokeStyle) {
                 // Keep the activity's state in sync
