@@ -1016,6 +1016,14 @@ class InkCanvasView @JvmOverloads constructor(
     private var placingGhost = false
 
     private var movingImage = false
+    // Text box resize bookkeeping
+    private var activeTextHandle: Handle? = null
+    private var textAnchorX = 0f
+    private var textAnchorY = 0f
+    private var textAspect = 1f
+    private var textOrigW = 0f
+    private var textOrigH = 0f
+
 
     private var activePointerId = -1
     private var lastX = 0f
@@ -1986,6 +1994,14 @@ class InkCanvasView @JvmOverloads constructor(
                             return true
                         }
                     }
+                    // If a text is selected and tap was outside, drop text selection
+                    if (selectedText != null && hitTextAtContent(cx, cy) == null) {
+                        selectedText = null
+                        selectionInteractive = false
+                        invalidate()
+                        // don't return; allow other actions
+                    }
+
 
                     // Tap-and-hold (stylus) -> temporary pan
                     if (!panMode && isStylus(event, idx)) {
@@ -2629,20 +2645,38 @@ class InkCanvasView @JvmOverloads constructor(
         selectedText?.let { n ->
             downX = cx
             downY = cy
-            transformKind = when (handle) {
-                Handle.INSIDE -> TransformKind.TRANSLATE
-                Handle.N, Handle.S -> TransformKind.SCALE_Y
-                Handle.E, Handle.W -> TransformKind.SCALE_X
-                Handle.NE, Handle.NW, Handle.SE, Handle.SW -> TransformKind.SCALE_UNIFORM
+            activeTextHandle = handle
+            textAspect = (n.boxW / n.boxH).coerceAtLeast(0.1f)
+            textOrigW = n.boxW
+            textOrigH = n.boxH
+
+            // Anchor = opposite edge/corner
+            val left = n.center.x - n.boxW * 0.5f
+            val right = n.center.x + n.boxW * 0.5f
+            val top = n.center.y - n.boxH * 0.5f
+            val bottom = n.center.y + n.boxH * 0.5f
+
+            when (handle) {
+                Handle.INSIDE -> {
+                    transformKind = TransformKind.TRANSLATE
+                }
+                Handle.N -> { transformKind = TransformKind.SCALE_Y; textAnchorX = n.center.x; textAnchorY = bottom }
+                Handle.S -> { transformKind = TransformKind.SCALE_Y; textAnchorX = n.center.x; textAnchorY = top }
+                Handle.W -> { transformKind = TransformKind.SCALE_X; textAnchorX = right; textAnchorY = n.center.y }
+                Handle.E -> { transformKind = TransformKind.SCALE_X; textAnchorX = left;  textAnchorY = n.center.y }
+                Handle.NW -> { transformKind = TransformKind.SCALE_UNIFORM; textAnchorX = right; textAnchorY = bottom }
+                Handle.NE -> { transformKind = TransformKind.SCALE_UNIFORM; textAnchorX = left;  textAnchorY = bottom }
+                Handle.SW -> { transformKind = TransformKind.SCALE_UNIFORM; textAnchorX = right; textAnchorY = top }
+                Handle.SE -> { transformKind = TransformKind.SCALE_UNIFORM; textAnchorX = left;  textAnchorY = top }
                 Handle.ROTATE -> {
                     rotateCenterX = n.center.x
                     rotateCenterY = n.center.y
                     rotateStartAngleRad = atan2(cy - rotateCenterY, cx - rotateCenterX)
                     overlayRotateActive = true
                     overlayRotateAngleRad = 0f
-                    TransformKind.ROTATE
+                    transformKind = TransformKind.ROTATE
                 }
-                else -> null
+                else -> transformKind = null
             }
             overlayActive = false
             setLayerType(LAYER_TYPE_NONE, null)
@@ -2787,32 +2821,48 @@ class InkCanvasView @JvmOverloads constructor(
                     n.center.x += dx
                     n.center.y += dy
                     downX = cx; downY = cy
+                    clampTextToDocument(n)
+
                 }
                 TransformKind.SCALE_X -> {
-                    val dx = cx - downX
-                    n.boxW = max(minW, n.boxW + dx * 2f * sign(cx - n.center.x))
-                    downX = cx
+                    val minW = max(dpToPx(80f), n.paddingPx * 2f + n.textSizePx) // ≥ one glyph + padding
+                    val newW = max(minW, 2f * abs(cx - textAnchorX))
+                    n.boxW = newW
+                    n.center.x = if (cx >= textAnchorX) textAnchorX + newW * 0.5f else textAnchorX - newW * 0.5f
                     n.layoutDirty = true
-
                 }
                 TransformKind.SCALE_Y -> {
-                    val dy = cy - downY
-                    n.boxH = max(minH, n.boxH + dy * 2f * sign(cy - n.center.y))
-                    downY = cy
+                    val minH = max(dpToPx(48f), n.paddingPx * 2f + n.textSizePx * 3f) // ≥ 3 lines tall minimum
+                    val newH = max(minH, 2f * abs(cy - textAnchorY))
+                    n.boxH = newH
+                    n.center.y = if (cy >= textAnchorY) textAnchorY + newH * 0.5f else textAnchorY - newH * 0.5f
                     n.layoutDirty = true
-
                 }
                 TransformKind.SCALE_UNIFORM -> {
-                    val dx = cx - downX
-                    val dy = cy - downY
-                    // pick the larger change to feel natural
-                    val k = if (abs(dx) > abs(dy)) dx else dy
-                    n.boxW = max(minW, n.boxW + 2f * k * sign(cx - n.center.x))
-                    n.boxH = max(minH, n.boxH + 2f * k * sign(cy - n.center.y))
-                    downX = cx; downY = cy
-                    n.layoutDirty = true
+                    // Corner resize with fixed aspect ratio; anchor opposite corner
+                    val minW = max(dpToPx(80f), n.paddingPx * 2f + n.textSizePx)
+                    val minH = max(dpToPx(48f), n.paddingPx * 2f + n.textSizePx * 3f)
+                    val dx = abs(cx - textAnchorX)
+                    val dy = abs(cy - textAnchorY)
 
+                    val newW1 = max(minW, 2f * dx)
+                    val newH1 = max(minH, newW1 / textAspect)
+                    val newH2 = max(minH, 2f * dy)
+                    val newW2 = max(minW, newH2 * textAspect)
+                    val (newW, newH) = if (abs(newW1 - textOrigW) + abs(newH1 - textOrigH) <=
+                        abs(newW2 - textOrigW) + abs(newH2 - textOrigH)) (newW1 to newH1) else (newW2 to newH2)
+
+                    n.boxW = newW
+                    n.boxH = newH
+
+                    val signX = if (cx >= textAnchorX) +1 else -1
+                    val signY = if (cy >= textAnchorY) +1 else -1
+                    n.center.x = textAnchorX + signX * (newW * 0.5f)
+                    n.center.y = textAnchorY + signY * (newH * 0.5f)
+
+                    n.layoutDirty = true
                 }
+
                 TransformKind.ROTATE -> {
                     val start = rotateStartAngleRad ?: return@let
                     val cur = atan2(cy - rotateCenterY, cx - rotateCenterX)
@@ -2826,6 +2876,7 @@ class InkCanvasView @JvmOverloads constructor(
             }
             postInvalidateOnAnimation()
             return
+
         }
 
         selectedImage?.let { n ->
@@ -4123,6 +4174,7 @@ class InkCanvasView @JvmOverloads constructor(
 
 
 
+
         // Image selection: reuse handles if an image is selected
         selectedImage?.let { n ->
             val w = n.bitmap.width * n.scale
@@ -4712,8 +4764,8 @@ class InkCanvasView @JvmOverloads constructor(
         }
 
         override fun onLongPress(e: MotionEvent) {
-            val (cxT, cyT) = toContent(e.x, e.y)
-            hitTextAtContent(cxT, cyT)?.let { node ->
+            val (cx, cy) = toContent(e.x, e.y)
+            hitTextAtContent(cx, cy)?.let { node ->
                 selectedText = node
                 selectedImage = null
                 selectedStrokes.clear(); selectedBounds = null
@@ -4722,15 +4774,11 @@ class InkCanvasView @JvmOverloads constructor(
                 return
             }
 
-            val (cx, cy) = toContent(e.x, e.y)
-            hitImageAtContent(cx, cy)?.let { node ->
-                // Clear any stroke selection first
-                selectedStrokes.clear()
-                selectedBounds = null
-                overlayActive = false
 
+            hitImageAtContent(cx, cy)?.let { node ->
                 selectedImage = node
-                bringImageToFront(node)
+                selectedText = null
+                selectedStrokes.clear(); selectedBounds = null
                 selectionInteractive = true
                 invalidate()
                 return
@@ -5086,6 +5134,24 @@ class InkCanvasView @JvmOverloads constructor(
         n.center.x = n.center.x.coerceIn(minCx, maxCx)
         n.center.y = n.center.y.coerceIn(minCy, maxCy)
     }
+    /** Clamp a text box so its bounding box stays within the current page. */
+    private fun clampTextToDocument(n: TextNode) {
+        val docW = width.toFloat()
+        // Find the section this text center currently lives in (or nearest)
+        var secIdx = sectionIndexAtDocY(n.center.y)
+        if (secIdx < 0) secIdx = if (n.center.y < 0f) 0 else max(0, sections.lastIndex)
+        val s = sections.getOrNull(secIdx) ?: return
+        val secTop = s.yOffsetPx
+        val secBot = s.yOffsetPx + s.heightPx
+
+        val minCx = n.boxW * 0.5f
+        val maxCx = docW - n.boxW * 0.5f
+        val minCy = secTop + n.boxH * 0.5f
+        val maxCy = secBot - n.boxH * 0.5f
+        n.center.x = n.center.x.coerceIn(minCx, maxCx)
+        n.center.y = n.center.y.coerceIn(minCy, maxCy)
+    }
+
 
     // Paste centered at (cx, cy) in doc-space, then immediately enter translate
     private fun performPasteAt(cx: Float, cy: Float) {

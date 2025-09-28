@@ -392,11 +392,17 @@ class MainActivity : AppCompatActivity() {
         inkCanvas.setTextEditCallbacks(object : InkCanvasView.TextEditCallbacks {
             override fun onRequestStartEdit() {
                 showTextEditorForSelectedText()
+                // Also show the Text popup anchored to the Text icon, and keep it up while editing
+                val btnText = findViewById<ImageButton>(R.id.btnText)
+                if (textPopup?.isShowing != true) toggleTextPopup(btnText)
             }
             override fun onRequestFinishEdit() {
                 hideTextEditor()
+                // Dismiss popup when leaving edit mode
+                textPopup?.dismiss(); textPopup = null
             }
         })
+
 
         inkCanvas.setOnPenStyleChangeListener(object : InkCanvasView.OnPenStyleChangeListener {
             override fun onPenStyleChanged(style: InkCanvasView.StrokeStyle) {
@@ -649,10 +655,15 @@ class MainActivity : AppCompatActivity() {
         btnGalleryKbd.setOnClickListener { launchGalleryFlow() }
         // Keyboard → Text popup
         findViewById<ImageButton>(R.id.btnText).setOnClickListener {
-            // Insert an empty text box, select it, and start editing immediately
+            // Insert a text box of a good size and immediately open the editor
             dismissAllPopups()
-            toggleTextPopup(it)
-
+            inkCanvas.startTextBoxAtCenter(
+                color = textColor,
+                textSizeDp = textSizeDp,
+                isBold = textBold,
+                isItalic = textItalic
+            )
+            showTextEditorForSelectedText()
         }
 
 
@@ -1542,9 +1553,13 @@ class MainActivity : AppCompatActivity() {
         val cbI = content.findViewById<CheckBox>(R.id.cbItalic)
         val btnColor = content.findViewById<ImageButton>(R.id.btnTextColor)
         val btnInsert = content.findViewById<Button>(R.id.btnInsertText)
+        val tvPreview = content.findViewById<TextView>(R.id.previewPelican)
+
 
         val selDp = inkCanvas.getSelectedTextSizeDp() ?: textSizeDp
         seek.progress = selDp.toInt().coerceIn(8, 96)
+        tvPreview.setTextSize(TypedValue.COMPLEX_UNIT_SP, selDp) // initial preview
+
         sizeLbl.text = getString(R.string.size_dp, seek.progress)
 
         cbB.isChecked = textBold
@@ -1558,6 +1573,8 @@ class MainActivity : AppCompatActivity() {
 
                 // If a text box is selected, update its size live
                 inkCanvas.setSelectedTextSizeDp(textSizeDp)
+                tvPreview.setTextSize(TypedValue.COMPLEX_UNIT_SP, v.toFloat())
+
             }
 
             override fun onStartTrackingTouch(sb: SeekBar?) {}
@@ -1621,13 +1638,11 @@ class MainActivity : AppCompatActivity() {
         val r = inkCanvas.getSelectedTextViewRect() ?: return
         val host = findViewById<FrameLayout>(R.id.canvasHost)
 
-        // Create lazily
         if (floatingTextEditor == null) {
             floatingTextEditor = EditText(this).apply {
-                setBackgroundResource(android.R.drawable.edit_text)
-                setPadding(12, 8, 12, 8)
-
-                // allow multi-line while editing
+                // Make the overlay invisible (no own background) so it looks like you’re typing into the canvas box
+                setBackgroundColor(Color.TRANSPARENT)
+                setPadding(0, 0, 0, 0)
                 isSingleLine = false
                 maxLines = 6
                 imeOptions = EditorInfo.IME_ACTION_DONE
@@ -1635,47 +1650,62 @@ class MainActivity : AppCompatActivity() {
                         InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or
                         InputType.TYPE_TEXT_FLAG_MULTI_LINE
 
-                setOnEditorActionListener { v, actionId, _ ->
+                // Live-sync typed text into the canvas box so you see it in the dashed box, not in a separate editor
+                addTextChangedListener(object : android.text.TextWatcher {
+                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                        inkCanvas.updateSelectedText(s?.toString().orEmpty())
+                    }
+                    override fun afterTextChanged(s: android.text.Editable?) {}
+                })
+
+                setOnEditorActionListener { _, actionId, _ ->
                     if (actionId == EditorInfo.IME_ACTION_DONE) {
-                        inkCanvas.updateSelectedText(text.toString())
-                        hideTextEditor()
+                        hideTextEditor()  // updateSelectedText already called by TextWatcher
                         true
                     } else false
                 }
             }
-            host.addView(floatingTextEditor, FrameLayout.LayoutParams(r.width(), FrameLayout.LayoutParams.WRAP_CONTENT))
+            host.addView(
+                floatingTextEditor,
+                FrameLayout.LayoutParams(r.width(), FrameLayout.LayoutParams.WRAP_CONTENT)
+            )
         }
 
-        // Compute a good default width: ~40% of canvas, clamped to 180–360dp
-        val hostW = host.width.coerceAtLeast(1)
-        fun dp(v: Float) = TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, resources.displayMetrics).toInt()
-        val minW = dp(180f)
-        val maxW = dp(360f)
-        val suggested = (hostW * 0.40f).toInt().coerceIn(minW, maxW)
-
-// Position & size
         val lp = floatingTextEditor!!.layoutParams as FrameLayout.LayoutParams
-        lp.width = r.width()   // r = getSelectedTextViewRect(); matches boxW already
+        lp.width = r.width()
         lp.leftMargin = r.left
         lp.topMargin = r.top
+
+// Keep the editor visible above the keyboard if necessary
+        val visible = Rect()
+        host.getWindowVisibleDisplayFrame(visible)
+        val editorBottom = lp.topMargin + floatingTextEditor!!.height.coerceAtLeast(1)
+        val overlap = editorBottom - visible.bottom
+        if (overlap > 0) {
+            lp.topMargin = (lp.topMargin - overlap - 24).coerceAtLeast(visible.top) // extra 24px margin
+        }
+
         floatingTextEditor!!.layoutParams = lp
 
         floatingTextEditor!!.setText("") // start empty for new boxes
         floatingTextEditor!!.setTextColor(textColor)
-        // size in PX to match canvas text size
         floatingTextEditor!!.setTextSize(TypedValue.COMPLEX_UNIT_PX, inkCanvas.dpToPx(textSizeDp))
-        floatingTextEditor!!.typeface = Typeface.create(Typeface.DEFAULT, when {
-            textBold && textItalic -> Typeface.BOLD_ITALIC
-            textBold -> Typeface.BOLD
-            textItalic -> Typeface.ITALIC
-            else -> Typeface.NORMAL
-        })
+        floatingTextEditor!!.typeface = Typeface.create(
+            Typeface.DEFAULT,
+            when {
+                textBold && textItalic -> Typeface.BOLD_ITALIC
+                textBold -> Typeface.BOLD
+                textItalic -> Typeface.ITALIC
+                else -> Typeface.NORMAL
+            }
+        )
 
         floatingTextEditor!!.visibility = View.VISIBLE
         floatingTextEditor!!.requestFocus()
-        // show soft keyboard
         val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
         imm.showSoftInput(floatingTextEditor, InputMethodManager.SHOW_IMPLICIT)
+
     }
 
     private fun hideTextEditor() {
