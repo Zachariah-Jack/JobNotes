@@ -391,17 +391,18 @@ class MainActivity : AppCompatActivity() {
         inkCanvas = findViewById<InkCanvasView>(R.id.inkCanvas)
         inkCanvas.setTextEditCallbacks(object : InkCanvasView.TextEditCallbacks {
             override fun onRequestStartEdit() {
+                inkCanvas.setEditingSelectedText(true)   // <— hide canvas glyphs while typing
                 showTextEditorForSelectedText()
-                // Also show the Text popup anchored to the Text icon, and keep it up while editing
                 val btnText = findViewById<ImageButton>(R.id.btnText)
                 if (textPopup?.isShowing != true) toggleTextPopup(btnText)
             }
             override fun onRequestFinishEdit() {
                 hideTextEditor()
-                // Dismiss popup when leaving edit mode
+                inkCanvas.setEditingSelectedText(false)  // <— show canvas glyphs again
                 textPopup?.dismiss(); textPopup = null
             }
         })
+
 
 
         inkCanvas.setOnPenStyleChangeListener(object : InkCanvasView.OnPenStyleChangeListener {
@@ -1635,8 +1636,10 @@ class MainActivity : AppCompatActivity() {
         showPopupAnchoredWithinScreen(textPopup!!, anchor)
     }
     private fun showTextEditorForSelectedText() {
-        val r = inkCanvas.getSelectedTextViewRect() ?: return
+        // Use the INNER content rect so typing aligns exactly with the blue box content area
+        val r = inkCanvas.getSelectedTextInnerViewRect() ?: return
         val host = findViewById<FrameLayout>(R.id.canvasHost)
+
 
         if (floatingTextEditor == null) {
             floatingTextEditor = EditText(this).apply {
@@ -1650,14 +1653,7 @@ class MainActivity : AppCompatActivity() {
                         InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or
                         InputType.TYPE_TEXT_FLAG_MULTI_LINE
 
-                // Live-sync typed text into the canvas box so you see it in the dashed box, not in a separate editor
-                addTextChangedListener(object : android.text.TextWatcher {
-                    override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
-                    override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
-                        inkCanvas.updateSelectedText(s?.toString().orEmpty())
-                    }
-                    override fun afterTextChanged(s: android.text.Editable?) {}
-                })
+
 
                 setOnEditorActionListener { _, actionId, _ ->
                     if (actionId == EditorInfo.IME_ACTION_DONE) {
@@ -1710,10 +1706,9 @@ class MainActivity : AppCompatActivity() {
 
     private fun hideTextEditor() {
         floatingTextEditor?.let {
-            // Commit text on hide
+            // Commit text on hide (single update)
             inkCanvas.updateSelectedText(it.text.toString())
             it.visibility = View.GONE
-            // hide soft keyboard
             val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
             imm.hideSoftInputFromWindow(it.windowToken, 0)
         }

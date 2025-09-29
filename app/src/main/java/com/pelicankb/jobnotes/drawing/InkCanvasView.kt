@@ -18,6 +18,9 @@ import android.os.SystemClock
 import android.text.TextPaint
 import android.text.Layout
 import android.text.StaticLayout
+import android.text.Editable
+import android.text.SpannableStringBuilder
+import android.text.TextUtils
 
 
 
@@ -31,6 +34,10 @@ import android.view.VelocityTracker
 import android.view.View
 import android.view.ViewConfiguration
 import android.view.animation.PathInterpolator
+import android.view.KeyEvent
+import android.view.inputmethod.EditorInfo
+import android.view.inputmethod.InputConnection
+import android.view.inputmethod.InputMethodManager
 import android.widget.OverScroller
 
 import androidx.core.content.ContextCompat
@@ -294,18 +301,24 @@ class InkCanvasView @JvmOverloads constructor(
         invalidate()
     }
 
-    fun hasSelection(): Boolean = (selectedImage != null) || selectedStrokes.isNotEmpty()
+    fun hasSelection(): Boolean = (selectedText != null) || (selectedImage != null) || selectedStrokes.isNotEmpty()
 
-    fun hasClipboard(): Boolean = clipboard.isNotEmpty() || clipboardImage != null
+
+    fun hasClipboard(): Boolean = clipboard.isNotEmpty() || clipboardImage != null || clipboardText != null
+
 
     fun clearSelection() {
         cancelTransform()
+
+        // text
+        selectedText = null
 
         // images
         selectedImage = null
 
         // strokes
         for (s in selectedStrokes) s.hidden = false
+
         selectedStrokes.clear()
         selectedBounds = null
 
@@ -316,9 +329,21 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     fun deleteSelection() {
+        // Text delete
+        selectedText?.let {
+            cancelTransform()
+            textNodes.remove(it)
+            selectedText = null
+            selectionInteractive = false
+            invalidate()
+            requestAutosave()
+            return
+        }
+
         // Image delete
         selectedImage?.let { n ->
-            cancelTransform()
+
+        cancelTransform()
             imageNodes.remove(n)
             selectedImage = null
             selectionInteractive = false
@@ -357,6 +382,31 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     fun copySelection(): Boolean {
+        // Text copy
+        selectedText?.let { n ->
+            clipboard.clear()
+            clipboardImage = null
+            clipboardText = ClipboardText(
+                text = n.editable.toString(),
+                color = n.color,
+                textSizePx = n.textSizePx,
+                isBold = n.isBold,
+                isItalic = n.isItalic,
+                boxW = n.boxW,
+                boxH = n.boxH,
+                paddingPx = n.paddingPx,
+                angleRad = n.angleRad
+            )
+            // bounds for paste ghost positioning (we don't draw a text ghost yet)
+            clipboardBounds = RectF(
+                n.center.x - n.boxW * 0.5f,
+                n.center.y - n.boxH * 0.5f,
+                n.center.x + n.boxW * 0.5f,
+                n.center.y + n.boxH * 0.5f
+            )
+            return true
+        }
+
         // If an image is selected, copy the image
         selectedImage?.let { n ->
             clipboard.clear()              // last-writer-wins: clear strokes clipboard
@@ -389,6 +439,19 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     fun cutSelection(): Boolean {
+        // Text cut
+        selectedText?.let { n ->
+            val ok = copySelection()
+            if (ok) {
+                textNodes.remove(n)
+                selectedText = null
+                selectionInteractive = false
+                invalidate()
+                requestAutosave()
+            }
+            return ok
+        }
+
         // Image cut
         selectedImage?.let { n ->
             val ok = copySelection()
@@ -411,7 +474,8 @@ class InkCanvasView @JvmOverloads constructor(
 
 
     fun armPastePlacement(): Boolean {
-        if (clipboard.isEmpty() && clipboardImage == null) return false
+        if (clipboard.isEmpty() && clipboardImage == null && clipboardText == null) return false
+
         pasteArmed = true
         // Place ghost in view center until stylus hover moves it
         pastePreviewCx = width * 0.5f / max(1f, scaleFactor) - translationX / max(1f, scaleFactor)
@@ -900,16 +964,21 @@ class InkCanvasView @JvmOverloads constructor(
         var angleRad: Float = 0f,
 
         // Real text box (CONTENT px)
-        var boxW: Float = 0f,          // total box width
-        var boxH: Float = 0f,          // total box height
-        var paddingPx: Float = 0f,     // inner padding each side
-        var bgColor: Int? = null,      // background fill (null = none)
+        var boxW: Float = 0f,
+        var boxH: Float = 0f,
+        var paddingPx: Float = 0f,
+        var bgColor: Int? = null,
         var cornerRadiusPx: Float = 0f,
 
         // Layout cache (rebuilt only when text/size/boxW changes)
         var layout: StaticLayout? = null,
         var layoutInnerW: Int = 0,
-        var layoutDirty: Boolean = true
+        var layoutDirty: Boolean = true,
+
+        // In-canvas editing state
+        var editable: Editable = SpannableStringBuilder(""),
+        var selStart: Int = 0,
+        var selEnd: Int = 0
     )
 
     private val textNodes = mutableListOf<TextNode>()
@@ -1170,6 +1239,20 @@ class InkCanvasView @JvmOverloads constructor(
         val angleRad: Float
     )
     private var clipboardImage: ClipboardImage? = null
+    // Text clipboard — whole box snapshot (style + geometry)
+    private data class ClipboardText(
+        val text: String,
+        val color: Int,
+        val textSizePx: Float,
+        val isBold: Boolean,
+        val isItalic: Boolean,
+        val boxW: Float,
+        val boxH: Float,
+        val paddingPx: Float,
+        val angleRad: Float
+    )
+    private var clipboardText: ClipboardText? = null
+
 
     private var clipboardBounds: RectF? = null
 
@@ -1377,7 +1460,15 @@ class InkCanvasView @JvmOverloads constructor(
 
     // Update a selected text node's content (edit-in-place)
     fun updateSelectedText(newText: String) {
-        selectedText?.let { it.text = newText; it.layoutDirty = true; invalidate(); requestAutosave() }
+        selectedText?.let {
+            it.editable.clear()
+            it.editable.append(newText)
+            it.selStart = it.editable.length
+            it.selEnd = it.selStart
+            it.layoutDirty = true
+            invalidate()
+        }
+
 
     }
     fun setSelectedTextSizeDp(dp: Float) { selectedText?.let { it.textSizePx = dpToPx(dp); it.layoutDirty = true; invalidate(); requestAutosave() }    }
@@ -1436,6 +1527,70 @@ class InkCanvasView @JvmOverloads constructor(
 
 
 
+    override fun onCheckIsTextEditor(): Boolean {
+        return editingSelectedText && (selectedText != null)
+    }
+
+    override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
+        val n = selectedText ?: return null
+        if (!editingSelectedText) return null
+
+        outAttrs.imeOptions = EditorInfo.IME_ACTION_DONE
+        outAttrs.inputType = EditorInfo.TYPE_CLASS_TEXT or
+                EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE or
+                EditorInfo.TYPE_TEXT_FLAG_CAP_SENTENCES
+
+        // Simple InputConnection that edits n.editable
+        return object : android.view.inputmethod.BaseInputConnection(this, true) {
+            override fun getEditable(): Editable = n.editable
+
+            override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+                val t = text ?: ""
+                // replace selection with new text
+                val start = n.selStart.coerceIn(0, n.editable.length)
+                val end = n.selEnd.coerceIn(0, n.editable.length).coerceAtLeast(start)
+                n.editable.replace(start, end, t)
+                val newPos = (start + t.length).coerceAtMost(n.editable.length)
+                n.selStart = newPos
+                n.selEnd = newPos
+                n.layoutDirty = true
+                invalidate()
+                return true
+            }
+
+            override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+                if (n.editable.isEmpty()) return true
+                val start = (n.selStart - beforeLength).coerceAtLeast(0)
+                val end = (n.selEnd + afterLength).coerceAtMost(n.editable.length)
+                if (end > start) {
+                    n.editable.delete(start, end)
+                    n.selStart = start
+                    n.selEnd = start
+                    n.layoutDirty = true
+                    invalidate()
+                }
+                return true
+            }
+
+            override fun setSelection(start: Int, end: Int): Boolean {
+                val s = start.coerceIn(0, n.editable.length)
+                val e = end.coerceIn(0, n.editable.length)
+                n.selStart = min(s, e)
+                n.selEnd = max(s, e)
+                invalidate()
+                return true
+            }
+
+            override fun sendKeyEvent(event: KeyEvent): Boolean {
+                // Handle ENTER for newline
+                if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_ENTER) {
+                    return commitText("\n", 1)
+                }
+                return super.sendKeyEvent(event)
+            }
+        }
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
 
@@ -1493,11 +1648,11 @@ class InkCanvasView @JvmOverloads constructor(
                     val right = left + w
                     val bottom = top + h
 
-// First, clip to this section's page rect (axis-aligned)
+                    // First, clip to this section's page rect (axis-aligned)
                     canvas.save()
                     canvas.clipRect(0f, 0f, width.toFloat(), s.heightPx)
 
-// Then rotate and draw the image
+                    // Then rotate and draw the image
                     canvas.save()
                     canvas.rotate(
                         Math.toDegrees(node.angleRad.toDouble()).toFloat(),
@@ -1506,6 +1661,8 @@ class InkCanvasView @JvmOverloads constructor(
                     canvas.drawBitmap(bmp, null, RectF(left, top, right, bottom), null)
                     canvas.restore()  // rotation
                     canvas.restore()  // clip
+
+
                 }
             }
 
@@ -1520,6 +1677,27 @@ class InkCanvasView @JvmOverloads constructor(
 
                 // Ensure we have a layout before drawing
                 ensureTextLayout(n)
+                // If this node is the selected one and we are in edit mode, don't draw its glyphs;
+                // the overlay editor will render the live text in that area.
+                if (n === selectedText && editingSelectedText) {
+                    // still draw background if any (so selection looks consistent)
+                    val cxLocal = n.center.x
+                    val cyLocal = n.center.y - s.yOffsetPx
+                    val left = cxLocal - n.boxW * 0.5f
+                    val top = cyLocal - n.boxH * 0.5f
+                    val right = left + n.boxW
+                    val bottom = top + n.boxH
+                    canvas.save()
+                    canvas.rotate(Math.toDegrees(n.angleRad.toDouble()).toFloat(), cxLocal, cyLocal)
+                    n.bgColor?.let { bg ->
+                        val r = RectF(left, top, right, bottom)
+                        val bgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = bg }
+                        canvas.drawRoundRect(r, n.cornerRadiusPx, n.cornerRadiusPx, bgPaint)
+                    }
+                    canvas.restore()
+                    continue
+                }
+
 
                 val cxLocal = n.center.x
                 val cyLocal = n.center.y - s.yOffsetPx
@@ -1770,6 +1948,28 @@ class InkCanvasView @JvmOverloads constructor(
                     val idx = event.actionIndex
                     if (pasteArmed) {
                         val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
+                        // Tap inside selected text while editing -> move caret to tap position
+                        if (editingSelectedText && selectedText != null) {
+                            val n = selectedText!!
+                            if (hitTextAtContent(cx, cy) === n) {
+                                val s = sin(-n.angleRad); val c = cos(-n.angleRad)
+                                val dx = cx - n.center.x; val dy = cy - n.center.y
+                                val lx = dx * c - dy * s
+                                val ly = dx * s + dy * c
+                                val innerX = (lx + n.boxW * 0.5f - n.paddingPx).coerceAtLeast(0f)
+                                val innerY = (ly + n.boxH * 0.5f - n.paddingPx).coerceAtLeast(0f)
+                                ensureTextLayout(n)
+                                n.layout?.let { lay ->
+                                    val line = lay.getLineForVertical(innerY.toInt().coerceAtLeast(0))
+                                    val off = lay.getOffsetForHorizontal(line, innerX)
+                                    n.selStart = off.coerceIn(0, n.editable.length)
+                                    n.selEnd = n.selStart
+                                    invalidate()
+                                    return true
+                                }
+                            }
+                        }
+
                         pastePreviewCx = cx
                         pastePreviewCy = cy
                         pastePreviewVisible = true
@@ -1792,6 +1992,14 @@ class InkCanvasView @JvmOverloads constructor(
                 // Single-finger (not stylus): pan or move selection; never draw
                 if (!isStylus(event, idx) && event.pointerCount == 1 && !scalingInProgress) {
                     val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
+
+                    // If a text is selected and tap was outside, drop text selection (finger path)
+                    if (selectedText != null && hitTextAtContent(cx, cy) == null) {
+                        selectedText = null
+                        selectionInteractive = false
+                        invalidate()
+                        // do not return; allow other actions
+                    }
 
                     // Border tap of selected text => begin move, exit edit
                     selectedText?.let { n ->
@@ -1920,6 +2128,28 @@ class InkCanvasView @JvmOverloads constructor(
                 if (canDrawNow) {
                     // --- IMAGE first: if an image is selected, prioritize handles/inside over pan/draw
                     val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
+                    // Tap inside selected text while editing -> move caret to tap position
+                    if (editingSelectedText && selectedText != null) {
+                        val n = selectedText!!
+                        if (hitTextAtContent(cx, cy) === n) {
+                            val s = sin(-n.angleRad); val c = cos(-n.angleRad)
+                            val dx = cx - n.center.x; val dy = cy - n.center.y
+                            val lx = dx * c - dy * s
+                            val ly = dx * s + dy * c
+                            val innerX = (lx + n.boxW * 0.5f - n.paddingPx).coerceAtLeast(0f)
+                            val innerY = (ly + n.boxH * 0.5f - n.paddingPx).coerceAtLeast(0f)
+                            ensureTextLayout(n)
+                            n.layout?.let { lay ->
+                                val line = lay.getLineForVertical(innerY.toInt().coerceAtLeast(0))
+                                val off = lay.getOffsetForHorizontal(line, innerX)
+                                n.selStart = off.coerceIn(0, n.editable.length)
+                                n.selEnd = n.selStart
+                                invalidate()
+                                return true
+                            }
+                        }
+                    }
+
                     // --- TEXT first: handles/inside/tap select take priority over pan/draw ---
                     if (selectedText != null) {
                         val hTxt = detectHandle(cx, cy)
@@ -2142,7 +2372,9 @@ class InkCanvasView @JvmOverloads constructor(
                                 selectedText?.let { n ->
                                     n.center.x = cxM
                                     n.center.y = cyM
+                                    clampTextToDocument(n)
                                 }
+
                             }
                         }
                         postInvalidateOnAnimation()
@@ -2829,6 +3061,8 @@ class InkCanvasView @JvmOverloads constructor(
                     val newW = max(minW, 2f * abs(cx - textAnchorX))
                     n.boxW = newW
                     n.center.x = if (cx >= textAnchorX) textAnchorX + newW * 0.5f else textAnchorX - newW * 0.5f
+                    clampTextToDocument(n)
+
                     n.layoutDirty = true
                 }
                 TransformKind.SCALE_Y -> {
@@ -2836,6 +3070,8 @@ class InkCanvasView @JvmOverloads constructor(
                     val newH = max(minH, 2f * abs(cy - textAnchorY))
                     n.boxH = newH
                     n.center.y = if (cy >= textAnchorY) textAnchorY + newH * 0.5f else textAnchorY - newH * 0.5f
+                    clampTextToDocument(n)
+
                     n.layoutDirty = true
                 }
                 TransformKind.SCALE_UNIFORM -> {
@@ -2859,6 +3095,8 @@ class InkCanvasView @JvmOverloads constructor(
                     val signY = if (cy >= textAnchorY) +1 else -1
                     n.center.x = textAnchorX + signX * (newW * 0.5f)
                     n.center.y = textAnchorY + signY * (newH * 0.5f)
+                    clampTextToDocument(n)
+
 
                     n.layoutDirty = true
                 }
@@ -3828,7 +4066,8 @@ class InkCanvasView @JvmOverloads constructor(
             .coerceIn(dpToPx(200f), dpToPx(640f)) - 2f * n.paddingPx
         val innerW = max(1f, (if (n.boxW > 0f) (n.boxW - 2f * n.paddingPx) else defaultInner)).toInt()
 
-        val layout = buildWrappedLayout(n.text, tp, innerW)
+        val layout = buildWrappedLayout(n.editable.toString(), tp, innerW)
+
 
         // Initialize box from layout if not set
         if (n.boxW <= 0f) n.boxW = layout.width.toFloat() + 2f * n.paddingPx
@@ -4243,22 +4482,15 @@ class InkCanvasView @JvmOverloads constructor(
     private fun hitTextAtContent(cx: Float, cy: Float): TextNode? {
         for (i in textNodes.size - 1 downTo 0) {
             val n = textNodes[i]
-            val p = Paint().apply { textSize = n.textSizePx }
-            val w = p.measureText(n.text).coerceAtLeast(dpToPx(10f))
-            val h = n.textSizePx
-            // Expand hit area ("halo") so taps are easy
-            val halo = dpToPx(12f)
-
             val s = sin(-n.angleRad); val c = cos(-n.angleRad)
             val dx = cx - n.center.x; val dy = cy - n.center.y
             val lx = dx * c - dy * s
             val ly = dx * s + dy * c
-            val halfW = w * 0.5f + halo
-            val halfH = h * 0.5f + halo
+            val halfW = n.boxW * 0.5f
+            val halfH = n.boxH * 0.5f
             if (abs(lx) <= halfW && abs(ly) <= halfH) return n
         }
         return null
-
     }
 
 
@@ -4553,6 +4785,15 @@ class InkCanvasView @JvmOverloads constructor(
         val rC = RectF(leftC, topC, leftC + n.boxW, topC + n.boxH)
         return contentToViewRect(rC)
     }
+    /** Inner rect (content area) of the selected text box, mapped to VIEW coords. */
+    fun getSelectedTextInnerViewRect(): Rect? {
+        val n = selectedText ?: return null
+        val leftC = (n.center.x - n.boxW * 0.5f) + n.paddingPx
+        val topC  = (n.center.y - n.boxH * 0.5f) + n.paddingPx
+        val rC = RectF(leftC, topC, leftC + (n.boxW - 2f * n.paddingPx), topC + (n.boxH - 2f * n.paddingPx))
+        return contentToViewRect(rC)
+    }
+
 
     private fun contentToViewX(cx: Float): Float = translationX + cx * scaleFactor
     private fun contentToViewY(cy: Float): Float = translationY + cy * scaleFactor
@@ -4661,6 +4902,25 @@ class InkCanvasView @JvmOverloads constructor(
     }
     private var textEditCallbacks: TextEditCallbacks? = null
     fun setTextEditCallbacks(cb: TextEditCallbacks?) { textEditCallbacks = cb }
+
+
+    // While true, canvas acts as a text editor for selectedText
+    private var editingSelectedText: Boolean = false
+    fun setEditingSelectedText(editing: Boolean) {
+        editingSelectedText = editing
+        // Bring focus so IME can attach
+        if (editing && selectedText != null) {
+            requestFocus()
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
+        } else {
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
+            imm.hideSoftInputFromWindow(windowToken, 0)
+        }
+        invalidate()
+    }
+
+
 
     private inner class ScaleListener : ScaleGestureDetector.SimpleOnScaleGestureListener() {
         override fun onScale(detector: ScaleGestureDetector): Boolean {
@@ -5155,6 +5415,43 @@ class InkCanvasView @JvmOverloads constructor(
 
     // Paste centered at (cx, cy) in doc-space, then immediately enter translate
     private fun performPasteAt(cx: Float, cy: Float) {
+        // TEXT paste
+        clipboardText?.let { ct ->
+            cancelTransform()
+            val node = TextNode(
+                text = "",
+                center = PointF(cx, cy),
+                color = ct.color,
+                textSizePx = ct.textSizePx,
+                isBold = ct.isBold,
+                isItalic = ct.isItalic,
+                angleRad = ct.angleRad,
+                boxW = ct.boxW,
+                boxH = ct.boxH,
+                paddingPx = ct.paddingPx,
+                bgColor = null,
+                cornerRadiusPx = dpToPx(6f),
+                layout = null,
+                layoutInnerW = 0,
+                layoutDirty = true,
+                editable = SpannableStringBuilder(ct.text),
+                selStart = ct.text.length,
+                selEnd = ct.text.length
+            )
+            textNodes.add(node)
+            selectedText = node
+            selectedImage = null
+            selectedStrokes.clear(); selectedBounds = null
+            selectionInteractive = true
+            overlayActive = false
+            clampTextToDocument(node)
+
+            pastePreviewVisible = false
+            invalidate()
+            requestAutosave()
+            return
+        }
+
         // IMAGE paste
         clipboardImage?.let { ci ->
             cancelTransform()
