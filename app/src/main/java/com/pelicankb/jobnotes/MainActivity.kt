@@ -211,7 +211,7 @@ class MainActivity : AppCompatActivity() {
     private var textItalic: Boolean = false
     private var textPopup: PopupWindow? = null
     // Floating editor overlay for immediate typing into a text box
-    private var floatingTextEditor: EditText? = null
+
 
 
     // ADD (Pen style state)
@@ -392,12 +392,12 @@ class MainActivity : AppCompatActivity() {
         inkCanvas.setTextEditCallbacks(object : InkCanvasView.TextEditCallbacks {
             override fun onRequestStartEdit() {
                 inkCanvas.setEditingSelectedText(true)   // <— hide canvas glyphs while typing
-                showTextEditorForSelectedText()
+
                 val btnText = findViewById<ImageButton>(R.id.btnText)
                 if (textPopup?.isShowing != true) toggleTextPopup(btnText)
             }
             override fun onRequestFinishEdit() {
-                hideTextEditor()
+
                 inkCanvas.setEditingSelectedText(false)  // <— show canvas glyphs again
                 textPopup?.dismiss(); textPopup = null
             }
@@ -1635,84 +1635,7 @@ class MainActivity : AppCompatActivity() {
         // Anchor like your other popups
         showPopupAnchoredWithinScreen(textPopup!!, anchor)
     }
-    private fun showTextEditorForSelectedText() {
-        // Use the INNER content rect so typing aligns exactly with the blue box content area
-        val r = inkCanvas.getSelectedTextInnerViewRect() ?: return
-        val host = findViewById<FrameLayout>(R.id.canvasHost)
 
-
-        if (floatingTextEditor == null) {
-            floatingTextEditor = EditText(this).apply {
-                // Make the overlay invisible (no own background) so it looks like you’re typing into the canvas box
-                setBackgroundColor(Color.TRANSPARENT)
-                setPadding(0, 0, 0, 0)
-                isSingleLine = false
-                maxLines = 6
-                imeOptions = EditorInfo.IME_ACTION_DONE
-                inputType = InputType.TYPE_CLASS_TEXT or
-                        InputType.TYPE_TEXT_FLAG_CAP_SENTENCES or
-                        InputType.TYPE_TEXT_FLAG_MULTI_LINE
-
-
-
-                setOnEditorActionListener { _, actionId, _ ->
-                    if (actionId == EditorInfo.IME_ACTION_DONE) {
-                        hideTextEditor()  // updateSelectedText already called by TextWatcher
-                        true
-                    } else false
-                }
-            }
-            host.addView(
-                floatingTextEditor,
-                FrameLayout.LayoutParams(r.width(), FrameLayout.LayoutParams.WRAP_CONTENT)
-            )
-        }
-
-        val lp = floatingTextEditor!!.layoutParams as FrameLayout.LayoutParams
-        lp.width = r.width()
-        lp.leftMargin = r.left
-        lp.topMargin = r.top
-
-// Keep the editor visible above the keyboard if necessary
-        val visible = Rect()
-        host.getWindowVisibleDisplayFrame(visible)
-        val editorBottom = lp.topMargin + floatingTextEditor!!.height.coerceAtLeast(1)
-        val overlap = editorBottom - visible.bottom
-        if (overlap > 0) {
-            lp.topMargin = (lp.topMargin - overlap - 24).coerceAtLeast(visible.top) // extra 24px margin
-        }
-
-        floatingTextEditor!!.layoutParams = lp
-
-        floatingTextEditor!!.setText("") // start empty for new boxes
-        floatingTextEditor!!.setTextColor(textColor)
-        floatingTextEditor!!.setTextSize(TypedValue.COMPLEX_UNIT_PX, inkCanvas.dpToPx(textSizeDp))
-        floatingTextEditor!!.typeface = Typeface.create(
-            Typeface.DEFAULT,
-            when {
-                textBold && textItalic -> Typeface.BOLD_ITALIC
-                textBold -> Typeface.BOLD
-                textItalic -> Typeface.ITALIC
-                else -> Typeface.NORMAL
-            }
-        )
-
-        floatingTextEditor!!.visibility = View.VISIBLE
-        floatingTextEditor!!.requestFocus()
-        val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-        imm.showSoftInput(floatingTextEditor, InputMethodManager.SHOW_IMPLICIT)
-
-    }
-
-    private fun hideTextEditor() {
-        floatingTextEditor?.let {
-            // Commit text on hide (single update)
-            inkCanvas.updateSelectedText(it.text.toString())
-            it.visibility = View.GONE
-            val imm = getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.hideSoftInputFromWindow(it.windowToken, 0)
-        }
-    }
 
 
 

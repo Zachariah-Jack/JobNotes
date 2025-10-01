@@ -884,9 +884,11 @@ class InkCanvasView @JvmOverloads constructor(
     private val strokes = mutableListOf<StrokeOp>()
     private val redoStack = mutableListOf<StrokeOp>()
     // ===== Undo/Redo for transforms =====
-    private enum class ActionKind { DRAW_OP, TRANSFORM_OP }
+    private enum class ActionKind { DRAW_OP, TRANSFORM_OP, TEXT_OP }
+
     private val actionUndoStack = mutableListOf<ActionKind>()
     private val actionRedoStack = mutableListOf<ActionKind>()
+
 
     private data class TransformHistory(
         val strokes: List<StrokeOp>,                          // the affected stroke objects (by identity)
@@ -1146,6 +1148,12 @@ class InkCanvasView @JvmOverloads constructor(
         strokeWidth = dpToPx(2f)
         pathEffect = DashPathEffect(floatArrayOf(12f, 10f), 0f)
     }
+    // Thin text caret paint (color set per node before drawing)
+    private val caretPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = dpToPx(2f)
+    }
+
     private val selectionHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
         color = 0x332196F3
@@ -1680,7 +1688,7 @@ class InkCanvasView @JvmOverloads constructor(
                 // If this node is the selected one and we are in edit mode, don't draw its glyphs;
                 // the overlay editor will render the live text in that area.
                 if (n === selectedText && editingSelectedText) {
-                    // still draw background if any (so selection looks consistent)
+                    // Draw background so selection looks consistent; DO NOT skip glyphs anymore.
                     val cxLocal = n.center.x
                     val cyLocal = n.center.y - s.yOffsetPx
                     val left = cxLocal - n.boxW * 0.5f
@@ -1695,7 +1703,7 @@ class InkCanvasView @JvmOverloads constructor(
                         canvas.drawRoundRect(r, n.cornerRadiusPx, n.cornerRadiusPx, bgPaint)
                     }
                     canvas.restore()
-                    continue
+                    // NOTE: no continue; we will draw the glyphs and caret below.
                 }
 
 
@@ -1721,6 +1729,29 @@ class InkCanvasView @JvmOverloads constructor(
                 canvas.clipRect(left, top, right, bottom)
                 canvas.translate(left + n.paddingPx, top + n.paddingPx)
                 n.layout?.draw(canvas)
+                // Draw caret if this is the actively edited text
+                if (n === selectedText && editingSelectedText) {
+                    n.layout?.let { lay ->
+                        // Compute caret at selEnd within this node
+                        val caretOff = n.selEnd.coerceIn(0, n.editable.length)
+                        val line = lay.getLineForOffset(caretOff)
+                        val xInner = lay.getPrimaryHorizontal(caretOff)
+                        val baseline = lay.getLineBaseline(line).toFloat()
+                        val ascent = lay.getLineAscent(line).toFloat()
+
+                        // Convert inner coords back to the node-local space we set above:
+                        val caretX = xInner
+                        val caretTop = baseline + ascent
+                        val caretBottom = baseline
+
+                        // Set caret color to match text color
+                        caretPaint.color = n.color
+
+                        // Draw a thin vertical caret
+                        canvas.drawLine(caretX, caretTop, caretX, caretBottom, caretPaint)
+                    }
+                }
+
 
 
                 canvas.restore()
@@ -4917,7 +4948,14 @@ class InkCanvasView @JvmOverloads constructor(
             val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
             imm.hideSoftInputFromWindow(windowToken, 0)
         }
+        // If we are finishing an edit session, persist
+        if (!editing) {
+            requestAutosave()
+        }
+
         invalidate()
+        requestAutosave()
+
     }
 
 
