@@ -170,6 +170,49 @@ class InkCanvasView @JvmOverloads constructor(
         if (actionUndoStack.isNotEmpty()) {
             val last = actionUndoStack.removeAt(actionUndoStack.lastIndex)
             when (last) {
+                ActionKind.TEXT_OP -> {
+                    if (textUndoStack.isEmpty()) return
+                    when (val op = textUndoStack.removeAt(textUndoStack.lastIndex)) {
+                        is TextOp.Create -> {
+                            // Undo create => remove the node at recorded index (if still present)
+                            val idx = textNodes.indexOf(op.node).takeIf { it >= 0 } ?: op.index
+                            if (idx in 0 until textNodes.size) textNodes.removeAt(idx)
+                            if (selectedText === op.node) selectedText = null
+                            // Push to redo
+                            textRedoStack.add(op)
+                            actionRedoStack.add(ActionKind.TEXT_OP)
+                            rebuildCommitted()
+                            postInvalidateOnAnimation()
+                            return
+                        }
+                        is TextOp.Delete -> {
+                            // Undo delete => reinsert the node
+                            val idx = op.index.coerceIn(0, textNodes.size)
+                            if (!textNodes.contains(op.node)) textNodes.add(idx, op.node)
+                            // Keep selection off (user can reselect)
+                            textRedoStack.add(op)
+                            actionRedoStack.add(ActionKind.TEXT_OP)
+                            rebuildCommitted()
+                            postInvalidateOnAnimation()
+                            return
+                        }
+                        is TextOp.Transform -> {
+                            // Undo transform => apply BEFORE
+                            op.node.center.x = op.beforeCx
+                            op.node.center.y = op.beforeCy
+                            op.node.boxW = op.beforeW
+                            op.node.boxH = op.beforeH
+                            op.node.angleRad = op.beforeAngle
+                            op.node.layoutDirty = true
+                            textRedoStack.add(op)
+                            actionRedoStack.add(ActionKind.TEXT_OP)
+                            rebuildCommitted()
+                            postInvalidateOnAnimation()
+                            return
+                        }
+                    }
+                }
+
                 ActionKind.TRANSFORM_OP -> {
                     // Pop transform history and revert to BEFORE
                     if (transformUndoStack.isEmpty()) return
@@ -228,6 +271,47 @@ class InkCanvasView @JvmOverloads constructor(
         if (actionRedoStack.isEmpty()) return
         val next = actionRedoStack.removeAt(actionRedoStack.lastIndex)
         when (next) {
+            ActionKind.TEXT_OP -> {
+                if (textRedoStack.isEmpty()) return
+                when (val op = textRedoStack.removeAt(textRedoStack.lastIndex)) {
+                    is TextOp.Create -> {
+                        // Redo create => (re)insert node
+                        val idx = op.index.coerceIn(0, textNodes.size)
+                        if (!textNodes.contains(op.node)) textNodes.add(idx, op.node)
+                        actionUndoStack.add(ActionKind.TEXT_OP)
+                        textUndoStack.add(op)
+                        rebuildCommitted()
+                        postInvalidateOnAnimation()
+                        return
+                    }
+                    is TextOp.Delete -> {
+                        // Redo delete => remove node
+                        val idx = textNodes.indexOf(op.node).takeIf { it >= 0 } ?: op.index
+                        if (idx in 0 until textNodes.size) textNodes.removeAt(idx)
+                        if (selectedText === op.node) selectedText = null
+                        actionUndoStack.add(ActionKind.TEXT_OP)
+                        textUndoStack.add(op)
+                        rebuildCommitted()
+                        postInvalidateOnAnimation()
+                        return
+                    }
+                    is TextOp.Transform -> {
+                        // Redo transform => apply AFTER
+                        op.node.center.x = op.afterCx
+                        op.node.center.y = op.afterCy
+                        op.node.boxW = op.afterW
+                        op.node.boxH = op.afterH
+                        op.node.angleRad = op.afterAngle
+                        op.node.layoutDirty = true
+                        actionUndoStack.add(ActionKind.TEXT_OP)
+                        textUndoStack.add(op)
+                        rebuildCommitted()
+                        postInvalidateOnAnimation()
+                        return
+                    }
+                }
+            }
+
             ActionKind.TRANSFORM_OP -> {
                 if (transformRedoStack.isEmpty()) return
                 val hist = transformRedoStack.removeAt(transformRedoStack.lastIndex)
@@ -332,13 +416,21 @@ class InkCanvasView @JvmOverloads constructor(
         // Text delete
         selectedText?.let {
             cancelTransform()
-            textNodes.remove(it)
+            val idx = textNodes.indexOf(it).coerceAtLeast(0)
+            // History: record text delete
+            textRedoStack.clear()
+            actionRedoStack.clear()
+            textUndoStack.add(TextOp.Delete(it, idx))
+            actionUndoStack.add(ActionKind.TEXT_OP)
+
+            textNodes.removeAt(idx)
             selectedText = null
             selectionInteractive = false
             invalidate()
             requestAutosave()
             return
         }
+
 
         // Image delete
         selectedImage?.let { n ->
@@ -888,6 +980,23 @@ class InkCanvasView @JvmOverloads constructor(
 
     private val actionUndoStack = mutableListOf<ActionKind>()
     private val actionRedoStack = mutableListOf<ActionKind>()
+    // Text object-level history
+    private sealed class TextOp {
+        data class Create(val node: TextNode, val index: Int) : TextOp()
+        data class Delete(val node: TextNode, val index: Int) : TextOp()
+        data class Transform(
+            val node: TextNode,
+            val beforeCx: Float, val beforeCy: Float,
+            val beforeW: Float, val beforeH: Float,
+            val beforeAngle: Float,
+            val afterCx: Float, val afterCy: Float,
+            val afterW: Float, val afterH: Float,
+            val afterAngle: Float
+        ) : TextOp()
+    }
+    private val textUndoStack = mutableListOf<TextOp>()
+    private val textRedoStack = mutableListOf<TextOp>()
+
 
 
     private data class TransformHistory(
@@ -1094,6 +1203,13 @@ class InkCanvasView @JvmOverloads constructor(
     private var textAspect = 1f
     private var textOrigW = 0f
     private var textOrigH = 0f
+    // Text transform BEFORE snapshot
+    private var textBeforeCx = 0f
+    private var textBeforeCy = 0f
+    private var textBeforeW = 0f
+    private var textBeforeH = 0f
+    private var textBeforeAngle = 0f
+
 
 
     private var activePointerId = -1
@@ -1464,6 +1580,12 @@ class InkCanvasView @JvmOverloads constructor(
         selectionInteractive = true
         invalidate()
         requestAutosave()
+        // History: record text create
+        textRedoStack.clear()
+        actionRedoStack.clear()
+        textUndoStack.add(TextOp.Create(node, textNodes.lastIndex))
+        actionUndoStack.add(ActionKind.TEXT_OP)
+
     }
 
     // Update a selected text node's content (edit-in-place)
@@ -2912,6 +3034,13 @@ class InkCanvasView @JvmOverloads constructor(
             textAspect = (n.boxW / n.boxH).coerceAtLeast(0.1f)
             textOrigW = n.boxW
             textOrigH = n.boxH
+            // Snapshot BEFORE state for history
+            textBeforeCx = n.center.x
+            textBeforeCy = n.center.y
+            textBeforeW = n.boxW
+            textBeforeH = n.boxH
+            textBeforeAngle = n.angleRad
+
 
             // Anchor = opposite edge/corner
             val left = n.center.x - n.boxW * 0.5f
@@ -3314,6 +3443,22 @@ class InkCanvasView @JvmOverloads constructor(
                 n.center.x += dxSnap
                 n.center.y += dySnap
             }
+            // History: record text transform (BEFORE/AFTER)
+            textRedoStack.clear()
+            actionRedoStack.clear()
+            textUndoStack.add(
+                TextOp.Transform(
+                    node = n,
+                    beforeCx = textBeforeCx, beforeCy = textBeforeCy,
+                    beforeW = textBeforeW,  beforeH = textBeforeH,
+                    beforeAngle = textBeforeAngle,
+                    afterCx  = n.center.x,  afterCy  = n.center.y,
+                    afterW   = n.boxW,      afterH   = n.boxH,
+                    afterAngle = n.angleRad
+                )
+            )
+            actionUndoStack.add(ActionKind.TEXT_OP)
+
             invalidate()
             requestAutosave()
             return
