@@ -664,7 +664,9 @@ class MainActivity : AppCompatActivity() {
                 isBold = textBold,
                 isItalic = textItalic
             )
-            showTextEditorForSelectedText()
+            inkCanvas.setEditingSelectedText(true)
+            toggleTextPopup(it) // keep the text popup visible while editing
+
         }
 
 
@@ -1858,40 +1860,6 @@ class MainActivity : AppCompatActivity() {
                     exitTitleEditMode(save = true)
                 }
             }
-            // Close floating text editor on outside tap
-            floatingTextEditor?.let { ed ->
-                if (ed.visibility == View.VISIBLE) {
-                    val rect = Rect()
-                    ed.getGlobalVisibleRect(rect)
-                    if (!rect.contains(ev.rawX.toInt(), ev.rawY.toInt())) {
-                        hideTextEditor()
-                    }
-                }
-            }
-            // If the floating text editor is visible and the tap is inside it,
-// route the tap to the editor so the cursor positions precisely there.
-            floatingTextEditor?.let { ed ->
-                if (ed.visibility == View.VISIBLE) {
-                    val rect = Rect()
-                    ed.getGlobalVisibleRect(rect)
-                    if (rect.contains(ev.rawX.toInt(), ev.rawY.toInt())) {
-                        // Translate raw to editor-local coordinates and set selection
-                        val xIn = ev.rawX - rect.left
-                        val yIn = ev.rawY - rect.top
-                        // This API positions caret at a given view position
-                        val off = ed.layout?.getOffsetForHorizontal(
-                            ed.layout?.getLineForVertical(yIn.toInt()) ?: 0,
-                            xIn
-                        )
-                        if (off != null && off >= 0) ed.setSelection(off.coerceIn(0, ed.text?.length ?: 0))
-                        // Also let EditText handle the event (selection handles, etc.)
-                        ed.dispatchTouchEvent(ev)
-                        return true
-                    }
-                }
-            }
-
-
         }
         return handled
     }
