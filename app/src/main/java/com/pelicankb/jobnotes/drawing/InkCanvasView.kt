@@ -800,7 +800,8 @@ class InkCanvasView @JvmOverloads constructor(
         val baos = ByteArrayOutputStream()
         val out = DataOutputStream(baos)
 
-        out.writeInt(4) // version = 4
+        out.writeInt(5) // version = 5 (adds text nodes)
+
 
         // sections
         out.writeInt(sections.size)
@@ -834,6 +835,26 @@ class InkCanvasView @JvmOverloads constructor(
             out.writeInt(png.size)
             out.write(png)
         }
+        // text nodes (v5)
+        out.writeInt(textNodes.size)
+        for (n in textNodes) {
+            out.writeUTF(n.text)
+            out.writeFloat(n.center.x)
+            out.writeFloat(n.center.y)
+            out.writeFloat(n.boxW)
+            out.writeFloat(n.boxH)
+            out.writeFloat(n.angleRad)
+            out.writeInt(n.color)
+            out.writeFloat(n.textSizePx)
+            out.writeBoolean(n.isBold)
+            out.writeBoolean(n.isItalic)
+            out.writeFloat(n.paddingPx)
+            // bgColor nullable
+            out.writeBoolean(n.bgColor != null)
+            if (n.bgColor != null) out.writeInt(n.bgColor!!)
+            out.writeFloat(n.cornerRadiusPx)
+        }
+
 
         out.flush()
         return baos.toByteArray()
@@ -913,6 +934,49 @@ class InkCanvasView @JvmOverloads constructor(
                     imageNodes.add(ImageNode(bmp, PointF(cx, cy), scale, ang))
                 }
             }
+            // text nodes (v5)
+            textNodes.clear()
+            if (ver >= 5) {
+                val tCount = `in`.readInt().coerceAtLeast(0)
+                repeat(tCount) {
+                    val t = `in`.readUTF()
+                    val cx = `in`.readFloat()
+                    val cy = `in`.readFloat()
+                    val bw = `in`.readFloat()
+                    val bh = `in`.readFloat()
+                    val ang = `in`.readFloat()
+                    val col = `in`.readInt()
+                    val tsz = `in`.readFloat()
+                    val b = `in`.readBoolean()
+                    val i = `in`.readBoolean()
+                    val pad = `in`.readFloat()
+                    val hasBg = `in`.readBoolean()
+                    val bg = if (hasBg) `in`.readInt() else null
+                    val rad = `in`.readFloat()
+
+                    val node = TextNode(
+                        text = t,
+                        center = PointF(cx, cy),
+                        color = col,
+                        textSizePx = tsz,
+                        isBold = b,
+                        isItalic = i,
+                        angleRad = ang,
+                        boxW = bw,
+                        boxH = bh,
+                        paddingPx = pad,
+                        bgColor = bg,
+                        cornerRadiusPx = rad
+                    )
+                    node.editable.clear()
+                    node.editable.append(t)
+                    node.selStart = node.editable.length
+                    node.selEnd = node.selStart
+                    node.layoutDirty = true
+                    textNodes.add(node)
+                }
+            }
+
 
             redoStack.clear()
             current = null
