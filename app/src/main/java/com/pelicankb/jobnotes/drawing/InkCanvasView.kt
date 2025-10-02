@@ -2166,7 +2166,7 @@ class InkCanvasView @JvmOverloads constructor(
                         val nearEdge = (abs(abs(lx) - halfW) <= band && abs(ly) <= halfH) ||
                                 (abs(abs(ly) - halfH) <= band && abs(lx) <= halfW)
                         if (nearEdge) {
-                            textEditCallbacks?.onRequestFinishEdit()   // hide keyboard/editor
+
                             // arm move
                             movingImage = true
                             activePointerId = event.getPointerId(idx)
@@ -2274,6 +2274,28 @@ class InkCanvasView @JvmOverloads constructor(
                 val canDrawNow = acceptsPointer(event, idx) &&
                         event.pointerCount == 1 &&
                         !scalingInProgress
+                // Even if we can't draw (non-stylus), still allow transforms on selected objects
+                run {
+                    val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
+                    // Text handles first
+                    selectedText?.let {
+                        val hTxt = detectHandle(cx, cy)
+                        if (hTxt != Handle.NONE) {
+                            cancelStylusHoldToPan()
+                            beginTransform(hTxt, cx, cy)
+                            transforming = true
+                            activePointerId = event.getPointerId(idx)
+                            return true
+                        }
+                        if (isInsideSelectedText(cx, cy)) {
+                            cancelStylusHoldToPan()
+                            movingImage = true // reuse flag for moving text
+                            activePointerId = event.getPointerId(idx)
+                            return true
+                        }
+                    }
+                }
+
 
                 // (migrated) Pull-to-add handled earlier for finger before panning begins.
 
@@ -5083,24 +5105,32 @@ class InkCanvasView @JvmOverloads constructor(
     // While true, canvas acts as a text editor for selectedText
     private var editingSelectedText: Boolean = false
     fun setEditingSelectedText(editing: Boolean) {
-        editingSelectedText = editing
-        // Bring focus so IME can attach
-        if (editing && selectedText != null) {
-            requestFocus()
-            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.showSoftInput(this, InputMethodManager.SHOW_IMPLICIT)
-        } else {
-            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as InputMethodManager
-            imm.hideSoftInputFromWindow(windowToken, 0)
+        if (this.editingSelectedText == editing) {
+            // Still ensure focus state matches
+            if (editing) requestFocus() else clearFocus()
+            invalidate()
+            return
         }
-        // If we are finishing an edit session, persist
-        if (!editing) {
+        this.editingSelectedText = editing
+        if (editing) {
+            // Ensure we have a selection and focus
+            selectedText?.let { n ->
+                ensureTextLayout(n)
+                if (!isFocused) requestFocus()
+                try {
+                    val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                    imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                } catch (_: Throwable) { }
+            }
+        } else {
+            // Editing session finished -> autosave and hide IME
+            try {
+                val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+                imm.hideSoftInputFromWindow(windowToken, 0)
+            } catch (_: Throwable) { }
             requestAutosave()
         }
-
         invalidate()
-        requestAutosave()
-
     }
 
 
