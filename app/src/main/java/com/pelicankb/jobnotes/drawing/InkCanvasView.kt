@@ -1333,6 +1333,37 @@ class InkCanvasView @JvmOverloads constructor(
         style = Paint.Style.STROKE
         strokeWidth = dpToPx(2f)
     }
+    // Caret blinking (solid line toggled by a timer)
+    private var caretVisible = true
+    private val caretBlinkPeriodMs = 530L
+    private val caretBlink = object : Runnable {
+        override fun run() {
+            caretVisible = !caretVisible
+            invalidate()
+            if (editingSelectedText && selectedText != null) {
+                postDelayed(this, caretBlinkPeriodMs)
+            } else {
+                caretVisible = true
+            }
+        }
+    }
+    private fun startCaretBlink() {
+        removeCallbacks(caretBlink)
+        caretVisible = true
+        postDelayed(caretBlink, caretBlinkPeriodMs)
+    }
+    private fun stopCaretBlink() {
+        removeCallbacks(caretBlink)
+        caretVisible = true
+    }
+    private fun pokeCaret() {
+        caretVisible = true
+        removeCallbacks(caretBlink)
+        if (editingSelectedText && selectedText != null) {
+            postDelayed(caretBlink, caretBlinkPeriodMs)
+        }
+    }
+
 
     private val selectionHighlight = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
@@ -1749,6 +1780,8 @@ class InkCanvasView @JvmOverloads constructor(
                 n.selEnd = newPos
                 n.layoutDirty = true
                 invalidate()
+                pokeCaret()
+
                 return true
             }
 
@@ -1762,6 +1795,8 @@ class InkCanvasView @JvmOverloads constructor(
                     n.selEnd = start
                     n.layoutDirty = true
                     invalidate()
+                    pokeCaret()
+
                 }
                 return true
             }
@@ -1772,6 +1807,8 @@ class InkCanvasView @JvmOverloads constructor(
                 n.selStart = min(s, e)
                 n.selEnd = max(s, e)
                 invalidate()
+                pokeCaret()
+
                 return true
             }
 
@@ -1916,7 +1953,8 @@ class InkCanvasView @JvmOverloads constructor(
                 canvas.translate(left + n.paddingPx, top + n.paddingPx)
                 n.layout?.draw(canvas)
                 // Draw caret if this is the actively edited text
-                if (n === selectedText && editingSelectedText) {
+                if (n === selectedText && editingSelectedText && caretVisible) {
+
                     n.layout?.let { lay ->
                         // Compute caret at selEnd within this node
                         val caretOff = n.selEnd.coerceIn(0, n.editable.length)
@@ -2106,7 +2144,15 @@ class InkCanvasView @JvmOverloads constructor(
         super.onAttachedToWindow()
         // Ensure the View background itself is not the page — we draw the page in onDraw.
         setBackgroundColor(Color.TRANSPARENT)
+        isFocusableInTouchMode = true
+        isFocusable = true
+
     }
+    override fun onDetachedFromWindow() {
+        try { stopCaretBlink() } catch (_: Throwable) {}
+        super.onDetachedFromWindow()
+    }
+
 
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
@@ -2209,6 +2255,29 @@ class InkCanvasView @JvmOverloads constructor(
                 // Single-finger (not stylus): pan or move selection; never draw
                 if (!isStylus(event, idx) && event.pointerCount == 1 && !scalingInProgress) {
                     val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
+
+                    // TAP-TO-CARET (FINGER) while editing inside the same text box
+                    if (editingSelectedText && selectedText != null) {
+                        val n = selectedText!!
+                        if (hitTextAtContent(cx, cy) === n) {
+                            val s = sin(-n.angleRad); val c = cos(-n.angleRad)
+                            val dx = cx - n.center.x; val dy = cy - n.center.y
+                            val lx = dx * c - dy * s
+                            val ly = dx * s + dy * c
+                            val innerX = (lx + n.boxW * 0.5f - n.paddingPx).coerceAtLeast(0f)
+                            val innerY = (ly + n.boxH * 0.5f - n.paddingPx).coerceAtLeast(0f)
+                            ensureTextLayout(n)
+                            n.layout?.let { lay ->
+                                val line = lay.getLineForVertical(innerY.toInt().coerceAtLeast(0))
+                                val off = lay.getOffsetForHorizontal(line, innerX)
+                                n.selStart = off.coerceIn(0, n.editable.length)
+                                n.selEnd = n.selStart
+                                pokeCaret()
+                                invalidate()
+                                return true
+                            }
+                        }
+                    }
 
                     // If a text is selected and tap was outside, drop text selection (finger path)
                     if (selectedText != null && hitTextAtContent(cx, cy) == null) {
@@ -5170,6 +5239,9 @@ class InkCanvasView @JvmOverloads constructor(
     private var editingSelectedText: Boolean = false
     fun setEditingSelectedText(editing: Boolean) {
         if (this.editingSelectedText == editing) {
+            startCaretBlink()
+            pokeCaret()
+
             // Still ensure focus state matches
             if (editing) requestFocus() else clearFocus()
             invalidate()
@@ -5187,6 +5259,8 @@ class InkCanvasView @JvmOverloads constructor(
                 } catch (_: Throwable) { }
             }
         } else {
+            stopCaretBlink()
+
             // Editing session finished -> autosave and hide IME
             try {
                 val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
@@ -5281,7 +5355,9 @@ class InkCanvasView @JvmOverloads constructor(
             val (cx, cy) = toContent(e.x, e.y)
             // Double-tap inside selected text -> enter edit mode
             if (selectedText != null && hitTextAtContent(cx, cy) === selectedText) {
-                textEditCallbacks?.onRequestStartEdit()
+                setEditingSelectedText(true)
+                pokeCaret()
+
                 return true
             }
             // otherwise keep your existing zoom behavior if you like (or return false)
