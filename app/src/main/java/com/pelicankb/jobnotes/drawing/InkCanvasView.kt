@@ -1753,17 +1753,20 @@ class InkCanvasView @JvmOverloads constructor(
 
 
     override fun onCheckIsTextEditor(): Boolean {
-        return editingSelectedText && (selectedText != null)
+        return (selectedText != null)
     }
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
         val n = selectedText ?: return null
-        if (!editingSelectedText) return null
 
-        outAttrs.imeOptions = EditorInfo.IME_ACTION_DONE
+
+        outAttrs.imeOptions = EditorInfo.IME_ACTION_DONE or EditorInfo.IME_FLAG_NO_FULLSCREEN
         outAttrs.inputType = EditorInfo.TYPE_CLASS_TEXT or
                 EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE or
                 EditorInfo.TYPE_TEXT_FLAG_CAP_SENTENCES
+        outAttrs.initialSelStart = n.selStart
+        outAttrs.initialSelEnd = n.selEnd
+
 
         // Simple InputConnection that edits n.editable
         return object : android.view.inputmethod.BaseInputConnection(this, true) {
@@ -1821,6 +1824,36 @@ class InkCanvasView @JvmOverloads constructor(
             }
         }
     }
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
+        val n = selectedText
+        if (editingSelectedText && n != null) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_DEL -> {
+                    val hasSelection = n.selEnd > n.selStart
+                    val start = if (hasSelection) n.selStart else (n.selStart - 1).coerceAtLeast(0)
+                    val end = n.selEnd
+                    if (end > 0 && end >= start) {
+                        n.editable.delete(start, end)
+                        n.selStart = start
+                        n.selEnd = start
+                        n.layoutDirty = true
+                        invalidate()
+                    }
+                    return true
+                }
+                KeyEvent.KEYCODE_ENTER -> {
+                    n.editable.insert(n.selStart, "\n")
+                    n.selStart += 1
+                    n.selEnd = n.selStart
+                    n.layoutDirty = true
+                    invalidate()
+                    return true
+                }
+            }
+        }
+        return super.onKeyDown(keyCode, event)
+    }
+
 
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
@@ -2152,6 +2185,15 @@ class InkCanvasView @JvmOverloads constructor(
         try { stopCaretBlink() } catch (_: Throwable) {}
         super.onDetachedFromWindow()
     }
+    override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
+        super.onWindowFocusChanged(hasWindowFocus)
+        if (hasWindowFocus && editingSelectedText && selectedText != null) {
+            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
+            imm.restartInput(this)
+            post { imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT) }
+        }
+    }
+
 
 
 
@@ -5251,11 +5293,16 @@ class InkCanvasView @JvmOverloads constructor(
         if (editing) {
             // Ensure we have a selection and focus
             selectedText?.let { n ->
+                startCaretBlink()
+                pokeCaret()
+
                 ensureTextLayout(n)
                 if (!isFocused) requestFocus()
                 try {
                     val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-                    imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT)
+                    imm.restartInput(this)
+                    post { imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT) }
+
                 } catch (_: Throwable) { }
             }
         } else {
@@ -5366,6 +5413,12 @@ class InkCanvasView @JvmOverloads constructor(
         override fun onSingleTapUp(e: MotionEvent): Boolean {
             // If tapping on the selected IMAGE, commit it (drop selection)
             val (cx, cy) = toContent(e.x, e.y)
+            // Single-tap inside selected text -> enter edit (smoother than requiring double-tap)
+            if (!editingSelectedText && selectedText != null && hitTextAtContent(cx, cy) === selectedText) {
+                setEditingSelectedText(true)
+                return true
+            }
+
             if (selectedImage != null && isInsideSelectedImage(cx, cy)) {
                 selectedImage = null
                 selectionInteractive = false
