@@ -2313,15 +2313,29 @@ class InkCanvasView @JvmOverloads constructor(
                     if (editingSelectedText && selectedText != null) {
                         val n = selectedText!!
                         if (hitTextAtContent(cx, cy) === n) {
-                            pendingCaretTap = true
-                            pendingCaretPointerId = event.getPointerId(idx)
-                            pendingDownViewX = event.getX(idx)
-                            pendingDownViewY = event.getY(idx)
-                            pendingDownContentX = cx
-                            pendingDownContentY = cy
-                            return true
+                            // If finger is actually on a handle, let the later handle path take it
+                            val hProbe = detectHandle(cx, cy)
+                            if (hProbe == Handle.NONE) {
+                                val s = sin(-n.angleRad); val c = cos(-n.angleRad)
+                                val dx = cx - n.center.x; val dy = cy - n.center.y
+                                val lx = dx * c - dy * s
+                                val ly = dx * s + dy * c
+                                val innerX = (lx + n.boxW * 0.5f - n.paddingPx).coerceAtLeast(0f)
+                                val innerY = (ly + n.boxH * 0.5f - n.paddingPx).coerceAtLeast(0f)
+                                ensureTextLayout(n)
+                                n.layout?.let { lay ->
+                                    val line = lay.getLineForVertical(innerY.toInt().coerceAtLeast(0))
+                                    val off = lay.getOffsetForHorizontal(line, innerX)
+                                    n.selStart = off.coerceIn(0, n.editable.length)
+                                    n.selEnd = n.selStart
+                                    pokeCaret()
+                                    invalidate()
+                                    return true
+                                }
+                            }
                         }
                     }
+
 
                     // If a text is selected and tap was outside, drop text selection (finger path)
                     if (selectedText != null && hitTextAtContent(cx, cy) == null) {
@@ -2388,8 +2402,10 @@ class InkCanvasView @JvmOverloads constructor(
                             activePointerId = event.getPointerId(idx)
                             return true
                         }
-                        if (isInsideSelectedImage(cx, cy)) {
-                            movingImage = true
+                        if (isInsideSelectedText(cx, cy)) {
+                            cancelStylusHoldToPan()
+                            beginTransform(Handle.INSIDE, cx, cy)
+                            transforming = true
                             activePointerId = event.getPointerId(idx)
                             return true
                         }
@@ -2540,10 +2556,12 @@ class InkCanvasView @JvmOverloads constructor(
                             }
                             if (isInsideSelectedText(cx, cy)) {
                                 cancelStylusHoldToPan()
-                                movingImage = true   // reuse flag for moving text
+                                beginTransform(Handle.INSIDE, cx, cy)
+                                transforming = true
                                 activePointerId = event.getPointerId(idx)
                                 return true
                             }
+
                         } else {
                             // No selected text yet: if we tapped a text node, select it immediately
                             hitTextAtContent(cx, cy)?.let { node ->
@@ -5458,11 +5476,12 @@ class InkCanvasView @JvmOverloads constructor(
         override fun onSingleTapUp(e: MotionEvent): Boolean {
             // If tapping on the selected IMAGE, commit it (drop selection)
             val (cx, cy) = toContent(e.x, e.y)
-            // Single-tap inside selected text -> enter edit (smoother than requiring double-tap)
-            if (!editingSelectedText && selectedText != null && hitTextAtContent(cx, cy) === selectedText) {
-                setEditingSelectedText(true)
+            // Commit-first: if we are editing and the tap is NOT inside the current text, end edit and swallow
+            if (editingSelectedText && (selectedText == null || hitTextAtContent(cx, cy) !== selectedText)) {
+                setEditingSelectedText(false)
                 return true
             }
+
 
             if (selectedImage != null && isInsideSelectedImage(cx, cy)) {
                 selectedImage = null
