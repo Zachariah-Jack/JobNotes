@@ -2271,28 +2271,7 @@ class InkCanvasView @JvmOverloads constructor(
                     val idx = event.actionIndex
                     if (pasteArmed) {
                         val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
-                        // Tap inside selected text while editing -> move caret to tap position
-                        if (editingSelectedText && selectedText != null && !isTransformHandle(hPre) && hitTextAtContent(cx, cy) === selectedText) {
 
-                            val n = selectedText!!
-                            if (hitTextAtContent(cx, cy) === n) {
-                                val s = sin(-n.angleRad); val c = cos(-n.angleRad)
-                                val dx = cx - n.center.x; val dy = cy - n.center.y
-                                val lx = dx * c - dy * s
-                                val ly = dx * s + dy * c
-                                val innerX = (lx + n.boxW * 0.5f - n.paddingPx).coerceAtLeast(0f)
-                                val innerY = (ly + n.boxH * 0.5f - n.paddingPx).coerceAtLeast(0f)
-                                ensureTextLayout(n)
-                                n.layout?.let { lay ->
-                                    val line = lay.getLineForVertical(innerY.toInt().coerceAtLeast(0))
-                                    val off = lay.getOffsetForHorizontal(line, innerX)
-                                    n.selStart = off.coerceIn(0, n.editable.length)
-                                    n.selEnd = n.selStart
-                                    invalidate()
-                                    return true
-                                }
-                            }
-                        }
 
                         pastePreviewCx = cx
                         pastePreviewCy = cy
@@ -2742,7 +2721,8 @@ class InkCanvasView @JvmOverloads constructor(
                         val dyV = event.getY(i) - pendingDownViewY
                         val tool = event.getToolType(i)
                         val slop = if (tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER)
-                            touchSlopPx * 2.5f else touchSlopPx
+                            touchSlopPx.toFloat() * 2.5f else touchSlopPx.toFloat()
+
                         if (abs(dxV) > slop || abs(dyV) > slop) {
                             val (cxM, cyM) = toContent(event.getX(i), event.getY(i))
                             selectedText?.let {
