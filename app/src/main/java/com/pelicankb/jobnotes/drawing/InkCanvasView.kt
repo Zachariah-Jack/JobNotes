@@ -4515,6 +4515,29 @@ class InkCanvasView @JvmOverloads constructor(
         n.layoutDirty = false
     }
 
+    // Return [start,end) word range around offset; letters/digits/underscore are "word"
+    private fun wordRangeAt(n: TextNode, offset: Int): Pair<Int, Int> {
+        val text = n.editable
+        if (text.isEmpty()) return 0 to 0
+        val len = text.length
+        var i = offset.coerceIn(0, len)
+        // If tapping between chars, prefer the left char when possible
+        if (i > 0 && i == len) i = len - 1
+
+        fun isWord(ch: Char) = ch.isLetterOrDigit() || ch == '_'
+
+        var s = i
+        while (s > 0 && isWord(text[s - 1])) s--
+        var e = i
+        while (e < len && isWord(text[e])) e++
+        if (s == e && i < len) {
+            // Non-word char: select just that char
+            s = i; e = (i + 1).coerceAtMost(len)
+        }
+        return s to e
+    }
+
+
     // --- ghost paste preview renderer ---
     private fun drawClipboardGhost(canvas: Canvas, cx: Float, cy: Float) {
         // IMAGE ghost
@@ -5495,6 +5518,30 @@ class InkCanvasView @JvmOverloads constructor(
 
         override fun onLongPress(e: MotionEvent) {
             val (cx, cy) = toContent(e.x, e.y)
+            // Long-press word selection during editing
+            if (editingSelectedText && selectedText != null) {
+                val n = selectedText!!
+                if (hitTextAtContent(cx, cy) === n) {
+                    val s = sin(-n.angleRad); val c = cos(-n.angleRad)
+                    val dx = cx - n.center.x; val dy = cy - n.center.y
+                    val lx = dx * c - dy * s
+                    val ly = dx * s + dy * c
+                    val innerX = (lx + n.boxW * 0.5f - n.paddingPx).coerceAtLeast(0f)
+                    val innerY = (ly + n.boxH * 0.5f - n.paddingPx).coerceAtLeast(0f)
+                    ensureTextLayout(n)
+                    n.layout?.let { lay ->
+                        val line = lay.getLineForVertical(innerY.toInt().coerceAtLeast(0))
+                        val off = lay.getOffsetForHorizontal(line, innerX)
+                        val (ws, we) = wordRangeAt(n, off)
+                        n.selStart = ws
+                        n.selEnd = we
+                        pokeCaret()
+                        invalidate()
+                        return
+                    }
+                }
+            }
+
             hitTextAtContent(cx, cy)?.let { node ->
                 selectedText = node
                 selectedImage = null
