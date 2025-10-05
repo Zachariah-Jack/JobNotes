@@ -2502,7 +2502,9 @@ class InkCanvasView @JvmOverloads constructor(
                     // --- IMAGE first: if an image is selected, prioritize handles/inside over pan/draw
                     val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
                     // Tap inside selected text while editing -> move caret to tap position
-                    if (editingSelectedText && selectedText != null && hitTextAtContent(cx, cy) === selectedText) {
+// (but ONLY if we are not on a handle; handles must win)
+                    val hPre = detectHandle(cx, cy)
+                    if (editingSelectedText && selectedText != null && hPre == Handle.NONE && hitTextAtContent(cx, cy) === selectedText) {
                         pendingCaretTap = true
                         pendingCaretPointerId = event.getPointerId(idx)
                         pendingDownViewX = event.getX(idx)
@@ -2511,6 +2513,7 @@ class InkCanvasView @JvmOverloads constructor(
                         pendingDownContentY = cy
                         return true
                     }
+
 
                     // --- TEXT first: handles/inside/tap select take priority over pan/draw ---
                     if (selectedText != null) {
@@ -2721,21 +2724,17 @@ class InkCanvasView @JvmOverloads constructor(
 
             MotionEvent.ACTION_MOVE -> {
                 // If user started a pending caret tap but moved past slop, convert to MOVE (translate)
-                if (pendingCaretTap && pendingCaretPointerId != -1) {
-                    val i = event.findPointerIndex(pendingCaretPointerId)
-                    if (i != -1) {
-                        val dxV = event.getX(i) - pendingDownViewX
-                        val dyV = event.getY(i) - pendingDownViewY
-                        if (abs(dxV) > touchSlopPx || abs(dyV) > touchSlopPx) {
-                            val (cxM, cyM) = toContent(event.getX(i), event.getY(i))
-                            selectedText?.let {
-                                beginTransform(Handle.INSIDE, cxM, cyM)
-                                transforming = true
-                                activePointerId = pendingCaretPointerId
-                                pendingCaretTap = false
-                                return true
-                            }
-                        }
+                val tool = if (i != -1) event.getToolType(i) else MotionEvent.TOOL_TYPE_UNKNOWN
+                val slop = if (tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER)
+                    touchSlopPx * 2.5f else touchSlopPx
+                if (abs(dxV) > slop || abs(dyV) > slop) {
+                    val (cxM, cyM) = toContent(event.getX(i), event.getY(i))
+                    selectedText?.let {
+                        beginTransform(Handle.INSIDE, cxM, cyM)
+                        transforming = true
+                        activePointerId = pendingCaretPointerId
+                        pendingCaretTap = false
+                        return true
                     }
                 }
 
@@ -5499,6 +5498,12 @@ class InkCanvasView @JvmOverloads constructor(
         override fun onSingleTapUp(e: MotionEvent): Boolean {
             // If tapping on the selected IMAGE, commit it (drop selection)
             val (cx, cy) = toContent(e.x, e.y)
+            // If not editing and we tapped inside the currently selected text, enter edit now
+            if (!editingSelectedText && selectedText != null && hitTextAtContent(cx, cy) === selectedText) {
+                setEditingSelectedText(true)
+                return true
+            }
+
             // Commit-first: if we are editing and the tap is NOT inside the current text, end edit and swallow
             if (editingSelectedText && (selectedText == null || hitTextAtContent(cx, cy) !== selectedText)) {
                 setEditingSelectedText(false)
