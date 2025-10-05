@@ -1397,6 +1397,13 @@ class InkCanvasView @JvmOverloads constructor(
 
 
     private enum class Handle { NONE, INSIDE, N, S, E, W, NE, NW, SE, SW, ROTATE }
+    private fun isTransformHandle(h: Handle): Boolean = when (h) {
+        Handle.N, Handle.S, Handle.E, Handle.W,
+        Handle.NE, Handle.NW, Handle.SE, Handle.SW,
+        Handle.ROTATE -> true
+        else -> false // NONE or INSIDE are not resize/rotate handles
+    }
+
     private enum class TransformKind { TRANSLATE, SCALE_X, SCALE_Y, SCALE_UNIFORM, ROTATE }
 
 
@@ -2265,7 +2272,8 @@ class InkCanvasView @JvmOverloads constructor(
                     if (pasteArmed) {
                         val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
                         // Tap inside selected text while editing -> move caret to tap position
-                        if (editingSelectedText && selectedText != null) {
+                        if (editingSelectedText && selectedText != null && !isTransformHandle(hPre) && hitTextAtContent(cx, cy) === selectedText) {
+
                             val n = selectedText!!
                             if (hitTextAtContent(cx, cy) === n) {
                                 val s = sin(-n.angleRad); val c = cos(-n.angleRad)
@@ -2315,7 +2323,8 @@ class InkCanvasView @JvmOverloads constructor(
                         if (hitTextAtContent(cx, cy) === n) {
                             // If finger is actually on a handle, let the later handle path take it
                             val hProbe = detectHandle(cx, cy)
-                            if (hProbe == Handle.NONE) {
+                            if (!isTransformHandle(hProbe)) {
+
                                 val s = sin(-n.angleRad); val c = cos(-n.angleRad)
                                 val dx = cx - n.center.x; val dy = cy - n.center.y
                                 val lx = dx * c - dy * s
