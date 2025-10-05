@@ -2738,32 +2738,28 @@ class InkCanvasView @JvmOverloads constructor(
                     }
                 }
 
-                // Move selected image/text only if movingImage is armed
-                if (movingImage && activePointerId != -1) {
-                    val i = event.findPointerIndex(activePointerId)
+                // If user started a pending caret tap but moved past slop, convert to MOVE (translate)
+                if (pendingCaretTap && pendingCaretPointerId != -1) {
+                    val i = event.findPointerIndex(pendingCaretPointerId)
                     if (i != -1) {
-                        val (cxM, cyM) = toContent(event.getX(i), event.getY(i))
-                        when {
-                            selectedImage != null -> {
-                                selectedImage?.let { node ->
-                                    node.center.x = cxM
-                                    node.center.y = cyM
-                                    clampImageToDocument(node)
-                                }
-                            }
-                            selectedText != null -> {
-                                selectedText?.let { n ->
-                                    n.center.x = cxM
-                                    n.center.y = cyM
-                                    clampTextToDocument(n)
-                                }
-
+                        val dxV = event.getX(i) - pendingDownViewX
+                        val dyV = event.getY(i) - pendingDownViewY
+                        val tool = event.getToolType(i)
+                        val slop = if (tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER)
+                            touchSlopPx * 2.5f else touchSlopPx
+                        if (abs(dxV) > slop || abs(dyV) > slop) {
+                            val (cxM, cyM) = toContent(event.getX(i), event.getY(i))
+                            selectedText?.let {
+                                beginTransform(Handle.INSIDE, cxM, cyM)
+                                transforming = true
+                                activePointerId = pendingCaretPointerId
+                                pendingCaretTap = false
+                                return true
                             }
                         }
-                        postInvalidateOnAnimation()
                     }
-                    return true
                 }
+
 
                 // ----- Paste ghost: drag-to-place (finger or stylus) -----
                 if (placingGhost && activePointerId != -1) {
