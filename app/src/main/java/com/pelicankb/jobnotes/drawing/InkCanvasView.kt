@@ -838,7 +838,8 @@ class InkCanvasView @JvmOverloads constructor(
         // text nodes (v5)
         out.writeInt(textNodes.size)
         for (n in textNodes) {
-            out.writeUTF(n.text)
+            out.writeUTF(n.editable.toString())
+
             out.writeFloat(n.center.x)
             out.writeFloat(n.center.y)
             out.writeFloat(n.boxW)
