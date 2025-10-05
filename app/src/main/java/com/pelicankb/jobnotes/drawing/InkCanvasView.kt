@@ -1246,6 +1246,8 @@ class InkCanvasView @JvmOverloads constructor(
     private val viewConfig = ViewConfiguration.get(context)
     private val minFlingVelocity = viewConfig.scaledMinimumFlingVelocity
     private val maxFlingVelocity = viewConfig.scaledMaximumFlingVelocity
+    private val touchSlopPx = viewConfig.scaledTouchSlop
+
 
     // Tap-and-hold (temporary hand tool for stylus)
     private var tempPanActive = false
@@ -1258,6 +1260,14 @@ class InkCanvasView @JvmOverloads constructor(
     private var transforming = false         // moving/resizing existing selection
     // When true, DOWN/MOVE/UP are steering the paste ghost (finger or stylus).
     private var placingGhost = false
+    // Pending tap that may become a caret set (tap) or a move (drag past slop)
+    private var pendingCaretTap = false
+    private var pendingCaretPointerId = -1
+    private var pendingDownViewX = 0f
+    private var pendingDownViewY = 0f
+    private var pendingDownContentX = 0f
+    private var pendingDownContentY = 0f
+
 
     private var movingImage = false
     // Text box resize bookkeeping
@@ -2302,22 +2312,13 @@ class InkCanvasView @JvmOverloads constructor(
                     if (editingSelectedText && selectedText != null) {
                         val n = selectedText!!
                         if (hitTextAtContent(cx, cy) === n) {
-                            val s = sin(-n.angleRad); val c = cos(-n.angleRad)
-                            val dx = cx - n.center.x; val dy = cy - n.center.y
-                            val lx = dx * c - dy * s
-                            val ly = dx * s + dy * c
-                            val innerX = (lx + n.boxW * 0.5f - n.paddingPx).coerceAtLeast(0f)
-                            val innerY = (ly + n.boxH * 0.5f - n.paddingPx).coerceAtLeast(0f)
-                            ensureTextLayout(n)
-                            n.layout?.let { lay ->
-                                val line = lay.getLineForVertical(innerY.toInt().coerceAtLeast(0))
-                                val off = lay.getOffsetForHorizontal(line, innerX)
-                                n.selStart = off.coerceIn(0, n.editable.length)
-                                n.selEnd = n.selStart
-                                pokeCaret()
-                                invalidate()
-                                return true
-                            }
+                            pendingCaretTap = true
+                            pendingCaretPointerId = event.getPointerId(idx)
+                            pendingDownViewX = event.getX(idx)
+                            pendingDownViewY = event.getY(idx)
+                            pendingDownContentX = cx
+                            pendingDownContentY = cy
+                            return true
                         }
                     }
 
@@ -2342,10 +2343,11 @@ class InkCanvasView @JvmOverloads constructor(
                                 (abs(abs(ly) - halfH) <= band && abs(lx) <= halfW)
                         if (nearEdge) {
 
-                            // arm move
-                            movingImage = true
+                            beginTransform(Handle.INSIDE, cx, cy)
+                            transforming = true
                             activePointerId = event.getPointerId(idx)
                             return true
+
                         }
                     }
 // --- TEXT first for finger: handles/inside/tap select before panning ---
@@ -2358,10 +2360,12 @@ class InkCanvasView @JvmOverloads constructor(
                             return true
                         }
                         if (isInsideSelectedText(cx, cy)) {
-                            movingImage = true
+                            beginTransform(Handle.INSIDE, cx, cy)
+                            transforming = true
                             activePointerId = event.getPointerId(idx)
                             return true
                         }
+
                     } else {
                         hitTextAtContent(cx, cy)?.let { node ->
                             selectedText = node
@@ -2462,12 +2466,14 @@ class InkCanvasView @JvmOverloads constructor(
                             activePointerId = event.getPointerId(idx)
                             return true
                         }
-                        if (isInsideSelectedText(cx, cy)) {
+                        if (!editingSelectedText && isInsideSelectedText(cx, cy)) {
                             cancelStylusHoldToPan()
-                            movingImage = true // reuse flag for moving text
+                            beginTransform(Handle.INSIDE, cx, cy)
+                            transforming = true
                             activePointerId = event.getPointerId(idx)
                             return true
                         }
+
                     }
                 }
 
@@ -2479,25 +2485,14 @@ class InkCanvasView @JvmOverloads constructor(
                     // --- IMAGE first: if an image is selected, prioritize handles/inside over pan/draw
                     val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
                     // Tap inside selected text while editing -> move caret to tap position
-                    if (editingSelectedText && selectedText != null) {
-                        val n = selectedText!!
-                        if (hitTextAtContent(cx, cy) === n) {
-                            val s = sin(-n.angleRad); val c = cos(-n.angleRad)
-                            val dx = cx - n.center.x; val dy = cy - n.center.y
-                            val lx = dx * c - dy * s
-                            val ly = dx * s + dy * c
-                            val innerX = (lx + n.boxW * 0.5f - n.paddingPx).coerceAtLeast(0f)
-                            val innerY = (ly + n.boxH * 0.5f - n.paddingPx).coerceAtLeast(0f)
-                            ensureTextLayout(n)
-                            n.layout?.let { lay ->
-                                val line = lay.getLineForVertical(innerY.toInt().coerceAtLeast(0))
-                                val off = lay.getOffsetForHorizontal(line, innerX)
-                                n.selStart = off.coerceIn(0, n.editable.length)
-                                n.selEnd = n.selStart
-                                invalidate()
-                                return true
-                            }
-                        }
+                    if (editingSelectedText && selectedText != null && hitTextAtContent(cx, cy) === selectedText) {
+                        pendingCaretTap = true
+                        pendingCaretPointerId = event.getPointerId(idx)
+                        pendingDownViewX = event.getX(idx)
+                        pendingDownViewY = event.getY(idx)
+                        pendingDownContentX = cx
+                        pendingDownContentY = cy
+                        return true
                     }
 
                     // --- TEXT first: handles/inside/tap select take priority over pan/draw ---
@@ -2512,7 +2507,8 @@ class InkCanvasView @JvmOverloads constructor(
                         }
                         if (isInsideSelectedText(cx, cy)) {
                             cancelStylusHoldToPan()
-                            movingImage = true  // reuse flag for moving text
+                            beginTransform(Handle.INSIDE, cx, cy)
+                            transforming = true
                             activePointerId = event.getPointerId(idx)
                             return true
                         }
@@ -2705,6 +2701,25 @@ class InkCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_MOVE -> {
+                // If user started a pending caret tap but moved past slop, convert to MOVE (translate)
+                if (pendingCaretTap && pendingCaretPointerId != -1) {
+                    val i = event.findPointerIndex(pendingCaretPointerId)
+                    if (i != -1) {
+                        val dxV = event.getX(i) - pendingDownViewX
+                        val dyV = event.getY(i) - pendingDownViewY
+                        if (abs(dxV) > touchSlopPx || abs(dyV) > touchSlopPx) {
+                            val (cxM, cyM) = toContent(event.getX(i), event.getY(i))
+                            selectedText?.let {
+                                beginTransform(Handle.INSIDE, cxM, cyM)
+                                transforming = true
+                                activePointerId = pendingCaretPointerId
+                                pendingCaretTap = false
+                                return true
+                            }
+                        }
+                    }
+                }
+
                 // Move selected image/text only if movingImage is armed
                 if (movingImage && activePointerId != -1) {
                     val i = event.findPointerIndex(activePointerId)
@@ -2954,6 +2969,35 @@ class InkCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                // Commit a pending caret tap (no drag)
+                if (pendingCaretTap) {
+                    val i = if (pendingCaretPointerId != -1) event.findPointerIndex(pendingCaretPointerId) else -1
+                    val ix = if (i != -1) i else event.actionIndex
+                    val (cxUp, cyUp) = toContent(event.getX(ix), event.getY(ix))
+                    selectedText?.let { n ->
+                        if (hitTextAtContent(cxUp, cyUp) === n) {
+                            val s = sin(-n.angleRad); val c = cos(-n.angleRad)
+                            val dx = cxUp - n.center.x; val dy = cyUp - n.center.y
+                            val lx = dx * c - dy * s
+                            val ly = dx * s + dy * c
+                            val innerX = (lx + n.boxW * 0.5f - n.paddingPx).coerceAtLeast(0f)
+                            val innerY = (ly + n.boxH * 0.5f - n.paddingPx).coerceAtLeast(0f)
+                            ensureTextLayout(n)
+                            n.layout?.let { lay ->
+                                val line = lay.getLineForVertical(innerY.toInt().coerceAtLeast(0))
+                                val off = lay.getOffsetForHorizontal(line, innerX)
+                                n.selStart = off.coerceIn(0, n.editable.length)
+                                n.selEnd = n.selStart
+                                pokeCaret()
+                                invalidate()
+                            }
+                        }
+                    }
+                    pendingCaretTap = false
+                    pendingCaretPointerId = -1
+                    // continue with normal finish (don’t return)
+                }
+
                 // Commit paste ghost if we were steering it
                 if (placingGhost) {
                     performPasteAt(pastePreviewCx, pastePreviewCy)
