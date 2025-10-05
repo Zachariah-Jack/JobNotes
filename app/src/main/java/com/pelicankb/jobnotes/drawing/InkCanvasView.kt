@@ -2723,20 +2723,7 @@ class InkCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_MOVE -> {
-                // If user started a pending caret tap but moved past slop, convert to MOVE (translate)
-                val tool = if (i != -1) event.getToolType(i) else MotionEvent.TOOL_TYPE_UNKNOWN
-                val slop = if (tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER)
-                    touchSlopPx * 2.5f else touchSlopPx
-                if (abs(dxV) > slop || abs(dyV) > slop) {
-                    val (cxM, cyM) = toContent(event.getX(i), event.getY(i))
-                    selectedText?.let {
-                        beginTransform(Handle.INSIDE, cxM, cyM)
-                        transforming = true
-                        activePointerId = pendingCaretPointerId
-                        pendingCaretTap = false
-                        return true
-                    }
-                }
+
 
                 // If user started a pending caret tap but moved past slop, convert to MOVE (translate)
                 if (pendingCaretTap && pendingCaretPointerId != -1) {
