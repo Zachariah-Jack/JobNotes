@@ -3354,7 +3354,8 @@ class InkCanvasView @JvmOverloads constructor(
             downX = cx
             downY = cy
             activeTextHandle = handle
-            textAspect = (n.boxW / n.boxH).coerceAtLeast(0.1f)
+            textAspect = (n.boxW / max(1f, n.boxH)).coerceAtLeast(0.1f)
+
             textOrigW = n.boxW
             textOrigH = n.boxH
             // Snapshot BEFORE state for history
