@@ -2407,7 +2407,8 @@ class InkCanvasView @JvmOverloads constructor(
                             activePointerId = event.getPointerId(idx)
                             return true
                         }
-                        if (isInsideSelectedText(cx, cy)) {
+                        if (isInsideSelectedImage(cx, cy)) {
+
                             cancelStylusHoldToPan()
                             beginTransform(Handle.INSIDE, cx, cy)
                             transforming = true
