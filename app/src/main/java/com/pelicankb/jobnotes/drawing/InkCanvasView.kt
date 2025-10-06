@@ -2401,6 +2401,15 @@ class InkCanvasView @JvmOverloads constructor(
                         if (inside) {
                             beginTransform(Handle.INSIDE, cx, cy)
                             transforming = true
+                            // While editing, do not start finger panning on DOWN; wait for UP to commit
+                            if (editingSelectedText) {
+                                activePointerId = -1
+                                drawing = false
+                                selectingGesture = false
+                                transforming = false
+                                return true
+                            }
+
                             activePointerId = event.getPointerId(idx)
                             return true
                         }
