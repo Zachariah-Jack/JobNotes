@@ -2371,13 +2371,15 @@ class InkCanvasView @JvmOverloads constructor(
 // --- TEXT first for finger: handles/inside/tap select before panning ---
                     if (selectedText != null) {
                         val hTxt = detectHandle(cx, cy)
-                        if (hTxt != Handle.NONE) {
+                        if (isTransformHandle(hTxt)) {
+
                             beginTransform(hTxt, cx, cy)
                             transforming = true
                             activePointerId = event.getPointerId(idx)
                             return true
                         }
-                        if (isInsideSelectedText(cx, cy)) {
+                        if (!editingSelectedText && isInsideSelectedText(cx, cy)) {
+
                             beginTransform(Handle.INSIDE, cx, cy)
                             transforming = true
                             activePointerId = event.getPointerId(idx)
