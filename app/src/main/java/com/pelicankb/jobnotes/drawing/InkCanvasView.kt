@@ -2333,26 +2333,7 @@ class InkCanvasView @JvmOverloads constructor(
                         // do not return; allow other actions
                     }
 
-                    // Border tap of selected text => begin move, exit edit
-                    selectedText?.let { n ->
-                        // Border = inside the box but close to edges (8dp band)
-                        val s = sin(-n.angleRad); val c = cos(-n.angleRad)
-                        val dx = cx - n.center.x; val dy = cy - n.center.y
-                        val lx = dx * c - dy * s
-                        val ly = dx * s + dy * c
-                        val band = dpToPx(8f)
-                        val halfW = n.boxW * 0.5f; val halfH = n.boxH * 0.5f
-                        val nearEdge = (abs(abs(lx) - halfW) <= band && abs(ly) <= halfH) ||
-                                (abs(abs(ly) - halfH) <= band && abs(lx) <= halfW)
-                        if (nearEdge) {
 
-                            beginTransform(Handle.INSIDE, cx, cy)
-                            transforming = true
-                            activePointerId = event.getPointerId(idx)
-                            return true
-
-                        }
-                    }
 // --- TEXT first for finger: handles/inside/tap select before panning ---
                     if (selectedText != null) {
                         val hTxt = detectHandle(cx, cy)
