@@ -2492,16 +2492,7 @@ class InkCanvasView @JvmOverloads constructor(
                     // Tap inside selected text while editing -> move caret to tap position
 // (but ONLY if we are not on a handle; handles must win)
                     val hPre = detectHandle(cx, cy)
-                    if (editingSelectedText && selectedText != null && !isTransformHandle(hPre) && hitTextAtContent(cx, cy) === selectedText) {
 
-                        pendingCaretTap = true
-                        pendingCaretPointerId = event.getPointerId(idx)
-                        pendingDownViewX = event.getX(idx)
-                        pendingDownViewY = event.getY(idx)
-                        pendingDownContentX = cx
-                        pendingDownContentY = cy
-                        return true
-                    }
 
 
                     // --- TEXT first: handles/inside/tap select take priority over pan/draw ---
