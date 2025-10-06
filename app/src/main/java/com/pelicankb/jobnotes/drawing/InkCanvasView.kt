@@ -5487,6 +5487,10 @@ class InkCanvasView @JvmOverloads constructor(
 
         override fun onLongPress(e: MotionEvent) {
             val (cx, cy) = toContent(e.x, e.y)
+            pendingCaretTap = false
+            pendingCaretPointerId = -1
+            transforming = false
+
             // Long-press word selection during editing
             if (editingSelectedText && selectedText != null) {
                 val n = selectedText!!
