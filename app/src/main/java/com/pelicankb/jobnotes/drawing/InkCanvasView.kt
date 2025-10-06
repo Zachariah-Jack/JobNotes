@@ -1268,6 +1268,16 @@ class InkCanvasView @JvmOverloads constructor(
     private var pendingDownViewY = 0f
     private var pendingDownContentX = 0f
     private var pendingDownContentY = 0f
+    private var pendingCaretFromStylus = false
+
+    // Pending transform handle (arm on DOWN, start on MOVE past slop)
+    private var pendingHandle: Handle? = null
+    private var pendingHandlePointerId = -1
+    private var pendingHandleDownViewX = 0f
+    private var pendingHandleDownViewY = 0f
+    private var pendingHandleDownCx = 0f
+    private var pendingHandleDownCy = 0f
+
 
 
     private var movingImage = false
@@ -2002,6 +2012,27 @@ class InkCanvasView @JvmOverloads constructor(
                 canvas.save()
                 canvas.clipRect(left, top, right, bottom)
                 canvas.translate(left + n.paddingPx, top + n.paddingPx)
+                // Selection highlight (draw under glyphs)
+                if (n === selectedText && editingSelectedText && n.selStart != n.selEnd) {
+                    n.layout?.let { lay ->
+                        val sOff = min(n.selStart, n.selEnd)
+                        val eOff = max(n.selStart, n.selEnd)
+                        val sLine = lay.getLineForOffset(sOff)
+                        val eLine = lay.getLineForOffset(eOff)
+                        for (ln in sLine..eLine) {
+                            val lineStart = max(sOff, lay.getLineStart(ln))
+                            val lineEnd   = min(eOff, lay.getLineEnd(ln))
+                            if (lineEnd <= lineStart) continue
+                            val x0 = lay.getPrimaryHorizontal(lineStart)
+                            val x1 = lay.getPrimaryHorizontal(lineEnd)
+                            val topL = lay.getLineTop(ln).toFloat()
+                            val botL = lay.getLineBottom(ln).toFloat()
+                            val l = min(x0, x1); val r = max(x0, x1)
+                            canvas.drawRect(l, topL, r, botL, selectionHighlight)
+                        }
+                    }
+                }
+
                 n.layout?.draw(canvas)
                 // Draw caret if this is the actively edited text
                 if (n === selectedText && editingSelectedText && caretVisible) {
@@ -2286,11 +2317,14 @@ class InkCanvasView @JvmOverloads constructor(
 
                 // Pointer index for this DOWN event (shared by this case)
                 val idx = event.actionIndex
-
-                // idx already defined earlier in ACTION_DOWN
-
-
-
+                // Commit-first on DOWN: if editing and the tap is NOT inside the current text, end edit and swallow
+                run {
+                    val (cx0, cy0) = toContent(event.getX(idx), event.getY(idx))
+                    if (editingSelectedText && selectedText != null && hitTextAtContent(cx0, cy0) !== selectedText) {
+                        setEditingSelectedText(false)
+                        return true
+                    }
+                }
 
                 // Single-finger (not stylus): pan or move selection; never draw
                 if (!isStylus(event, idx) && event.pointerCount == 1 && !scalingInProgress) {
@@ -2484,6 +2518,24 @@ class InkCanvasView @JvmOverloads constructor(
                     val hPre = detectHandle(cx, cy)
                     // Stylus caret while editing (only if not on a transform handle)
                     if (editingSelectedText && selectedText != null && !isTransformHandle(hPre) && hitTextAtContent(cx, cy) === selectedText) {
+                        val n = selectedText!!
+                        val s = sin(-n.angleRad); val c = cos(-n.angleRad)
+                        val dx = cx - n.center.x; val dy = cy - n.center.y
+                        val lx = dx * c - dy * s
+                        val ly = dx * s + dy * c
+                        val innerX = (lx + n.boxW * 0.5f - n.paddingPx).coerceAtLeast(0f)
+                        val innerY = (ly + n.boxH * 0.5f - n.paddingPx).coerceAtLeast(0f)
+                        ensureTextLayout(n)
+                        n.layout?.let { lay ->
+                            val line = lay.getLineForVertical(innerY.toInt().coerceAtLeast(0))
+                            val off = lay.getOffsetForHorizontal(line, innerX)
+                            n.selStart = off.coerceIn(0, n.editable.length)
+                            n.selEnd = n.selStart
+                            pokeCaret()
+                            invalidate()
+                        }
+                        // Arm a pending caret so a DRAG past large slop becomes a MOVE
+                        pendingCaretFromStylus = true
                         pendingCaretTap = true
                         pendingCaretPointerId = event.getPointerId(idx)
                         pendingDownViewX = event.getX(idx)
@@ -2494,18 +2546,33 @@ class InkCanvasView @JvmOverloads constructor(
                     }
 
 
-
+                    // Stylus on a real handle while editing → arm pending handle; start transform on MOVE past slop
+                    if (editingSelectedText && selectedText != null && isTransformHandle(hPre) && hitTextAtContent(cx, cy) === selectedText) {
+                        pendingHandle = hPre
+                        pendingHandlePointerId = event.getPointerId(idx)
+                        pendingHandleDownViewX = event.getX(idx)
+                        pendingHandleDownViewY = event.getY(idx)
+                        pendingHandleDownCx = cx
+                        pendingHandleDownCy = cy
+                        return true
+                    }
 
                     // --- TEXT first: handles/inside/tap select take priority over pan/draw ---
                     if (selectedText != null) {
                         val hTxt = detectHandle(cx, cy)
-                        if (hTxt != Handle.NONE) {
-                            cancelStylusHoldToPan()
-                            beginTransform(hTxt, cx, cy)
-                            transforming = true
-                            activePointerId = event.getPointerId(idx)
-                            return true
+                        if (isTransformHandle(hTxt)) {
+                            if (editingSelectedText) {
+                                // already armed above if needed; just consume
+                                return true
+                            } else {
+                                cancelStylusHoldToPan()
+                                beginTransform(hTxt, cx, cy)
+                                transforming = true
+                                activePointerId = event.getPointerId(idx)
+                                return true
+                            }
                         }
+
                         if (!editingSelectedText && isInsideSelectedText(cx, cy)) {
 
                             cancelStylusHoldToPan()
@@ -2714,8 +2781,9 @@ class InkCanvasView @JvmOverloads constructor(
                         val dxV = event.getX(i) - pendingDownViewX
                         val dyV = event.getY(i) - pendingDownViewY
                         val tool = event.getToolType(i)
-                        val slop = if (tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER)
-                            touchSlopPx.toFloat() * 2.5f else touchSlopPx.toFloat()
+                        val slop = if (pendingCaretFromStylus || tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER)
+                            touchSlopPx.toFloat() * 6f else touchSlopPx.toFloat()
+
 
                         if (abs(dxV) > slop || abs(dyV) > slop) {
                             val (cxM, cyM) = toContent(event.getX(i), event.getY(i))
@@ -2729,6 +2797,28 @@ class InkCanvasView @JvmOverloads constructor(
                         }
                     }
                 }
+                // If a transform handle was armed on DOWN, start transform when moving past slop
+                if (pendingHandle != null && pendingHandlePointerId != -1) {
+                    val i = event.findPointerIndex(pendingHandlePointerId)
+                    if (i != -1) {
+                        val dxV = event.getX(i) - pendingHandleDownViewX
+                        val dyV = event.getY(i) - pendingHandleDownViewY
+                        val tool = event.getToolType(i)
+                        val slop = if (tool == MotionEvent.TOOL_TYPE_STYLUS || tool == MotionEvent.TOOL_TYPE_ERASER)
+                            touchSlopPx.toFloat() * 2.5f else touchSlopPx.toFloat()
+                        if (abs(dxV) > slop || abs(dyV) > slop) {
+                            val (cxM, cyM) = toContent(event.getX(i), event.getY(i))
+                            selectedText?.let {
+                                beginTransform(pendingHandle!!, cxM, cyM)
+                                transforming = true
+                                activePointerId = pendingHandlePointerId
+                                pendingHandle = null
+                                return true
+                            }
+                        }
+                    }
+                }
+
 
 
                 // ----- Paste ghost: drag-to-place (finger or stylus) -----
@@ -2979,6 +3069,11 @@ class InkCanvasView @JvmOverloads constructor(
                     }
                     pendingCaretTap = false
                     pendingCaretPointerId = -1
+                    pendingCaretFromStylus = false
+
+                    pendingHandle = null
+                    pendingHandlePointerId = -1
+
                     // continue with normal finish (don’t return)
                 }
 
@@ -3253,6 +3348,8 @@ class InkCanvasView @JvmOverloads constructor(
 
 // === Text: allow translate and rotate  ===
         selectedText?.let { n ->
+            ensureTextLayout(n)
+
             downX = cx
             downY = cy
             activeTextHandle = handle
