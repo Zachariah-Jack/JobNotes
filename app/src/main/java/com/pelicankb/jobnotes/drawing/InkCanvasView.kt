@@ -2488,7 +2488,8 @@ class InkCanvasView @JvmOverloads constructor(
                     // Text handles first
                     selectedText?.let {
                         val hTxt = detectHandle(cx, cy)
-                        if (hTxt != Handle.NONE) {
+                        if (isTransformHandle(hTxt)) {
+
                             cancelStylusHoldToPan()
                             beginTransform(hTxt, cx, cy)
                             transforming = true
