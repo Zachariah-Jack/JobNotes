@@ -5592,6 +5592,8 @@ class InkCanvasView @JvmOverloads constructor(
             if (selectedText != null && hitTextAtContent(cx, cy) === selectedText) {
                 setEditingSelectedText(true)
                 pokeCaret()
+                selectionInteractive = false
+                invalidate()
 
                 return true
             }
@@ -5603,7 +5605,9 @@ class InkCanvasView @JvmOverloads constructor(
             val (cx, cy) = toContent(e.x, e.y)
             // If not editing and we tapped inside the currently selected text, enter edit now
             if (!editingSelectedText && selectedText != null && hitTextAtContent(cx, cy) === selectedText) {
-                setEditingSelectedText(true)
+                // Single tap = Move mode (keep handles visible, no edit)
+                selectionInteractive = true
+                invalidate()
                 return true
             }
 
@@ -5621,6 +5625,15 @@ class InkCanvasView @JvmOverloads constructor(
                 invalidate()
                 return true
             }
+            hitTextAtContent(cx, cy)?.let { node ->
+                selectedText = node
+                selectedImage = null
+                selectedStrokes.clear(); selectedBounds = null
+                selectionInteractive = true
+                invalidate()
+                return true
+            }
+
             return false
         }
 
