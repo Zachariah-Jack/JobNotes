@@ -6018,26 +6018,18 @@ class InkCanvasView @JvmOverloads constructor(
     /** Clamp an image so its bounding box stays within the current document pages. */
     private fun clampImageToDocument(n: ImageNode) {
         val docW = width.toFloat()
+        val docH = contentHeightPx()
         val w = n.bitmap.width  * n.scale
         val h = n.bitmap.height * n.scale
 
-        // Find the section this image’s CENTER currently lives in (or nearest)
-        var secIdx = sectionIndexAtDocY(n.center.y)
-        if (secIdx < 0) {
-            secIdx = if (n.center.y < 0f) 0 else max(0, sections.lastIndex)
-        }
-        val s = sections.getOrNull(secIdx) ?: return
-        val secTop = s.yOffsetPx
-        val secBot = s.yOffsetPx + s.heightPx
-
-        // Clamp center so full bbox remains within the page rect
         val minCx = w * 0.5f
         val maxCx = docW - w * 0.5f
-        val minCy = secTop + h * 0.5f
-        val maxCy = secBot - h * 0.5f
+        val minCy = h * 0.5f
+        val maxCy = docH - h * 0.5f
 
         n.center.x = n.center.x.coerceIn(minCx, maxCx)
         n.center.y = n.center.y.coerceIn(minCy, maxCy)
+
     }
     /** Clamp a text box so its bounding box stays within the current page. */
     private fun clampTextToDocument(n: TextNode) {
