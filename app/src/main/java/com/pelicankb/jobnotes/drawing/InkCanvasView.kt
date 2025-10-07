@@ -4604,7 +4604,10 @@ class InkCanvasView @JvmOverloads constructor(
         // Initialize box from layout if not set
         if (n.boxW <= 0f) n.boxW = layout.width.toFloat() + 2f * n.paddingPx
         val minH = dpToPx(48f)
-        n.boxH = max(minH, layout.height.toFloat() + 2f * n.paddingPx)
+        if (n.boxH <= 0f) {
+            n.boxH = max(minH, layout.height.toFloat() + 2f * n.paddingPx)
+        }
+
 
         n.layout = layout
         n.layoutInnerW = innerW
