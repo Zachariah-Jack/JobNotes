@@ -2800,7 +2800,8 @@ class InkCanvasView @JvmOverloads constructor(
 
 
                 // If user started a pending caret tap but moved past slop, convert to MOVE (translate)
-                if (pendingCaretTap && pendingCaretPointerId != -1) {
+                if (pendingCaretTap && !editingSelectedText && pendingCaretPointerId != -1) {
+
                     val i = event.findPointerIndex(pendingCaretPointerId)
                     if (i != -1) {
                         val dxV = event.getX(i) - pendingDownViewX
