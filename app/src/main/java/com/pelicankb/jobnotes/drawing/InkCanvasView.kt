@@ -2676,7 +2676,8 @@ class InkCanvasView @JvmOverloads constructor(
 
 
                     // Tap-and-hold (stylus) -> temporary pan
-                    if (!panMode && isStylus(event, idx)) {
+                    if (!panMode && isStylus(event, idx) && !editingSelectedText) {
+
                         scheduleStylusHoldToPan(event, idx)
                     }
 
