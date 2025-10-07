@@ -2347,7 +2347,7 @@ class InkCanvasView @JvmOverloads constructor(
                     }
                 }
 
-                // Single-finger (not stylus): pan or move selection; never draw
+                // Single-finger (not stylus): pan or move selection; never draw (finger branch)
                 if (!isStylus(event, idx) && event.pointerCount == 1 && !scalingInProgress) {
                     val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
 
@@ -2391,7 +2391,8 @@ class InkCanvasView @JvmOverloads constructor(
 
 // --- TEXT first for finger: handles/inside/tap select before panning ---
                     if (selectedText != null) {
-                        val hTxt = detectHandle(cx, cy)
+                        val hTxt = if (editingSelectedText) Handle.NONE else detectHandle(cx, cy)
+
                         if (isTransformHandle(hTxt)) {
 
                             beginTransform(hTxt, cx, cy)
@@ -2428,7 +2429,8 @@ class InkCanvasView @JvmOverloads constructor(
                             activePointerId = event.getPointerId(idx)
                             return true
                         }
-                        if (isInsideSelectedImage(cx, cy)) {
+                        if (!editingSelectedText && isInsideSelectedText(cx, cy)) {
+
 
                             cancelStylusHoldToPan()
                             beginTransform(Handle.INSIDE, cx, cy)
@@ -2632,7 +2634,8 @@ class InkCanvasView @JvmOverloads constructor(
                                 activePointerId = event.getPointerId(idx)
                                 return true
                             }
-                            if (isInsideSelectedText(cx, cy)) {
+                            if (!editingSelectedText && isInsideSelectedText(cx, cy)) {
+
                                 cancelStylusHoldToPan()
                                 beginTransform(Handle.INSIDE, cx, cy)
                                 transforming = true
