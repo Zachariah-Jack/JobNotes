@@ -3399,10 +3399,11 @@ class InkCanvasView @JvmOverloads constructor(
                 Handle.INSIDE -> {
                     transformKind = TransformKind.TRANSLATE
                 }
-                Handle.N -> { transformKind = TransformKind.SCALE_Y; textAnchorX = n.center.x; textAnchorY = bottom }
-                Handle.S -> { transformKind = TransformKind.SCALE_Y; textAnchorX = n.center.x; textAnchorY = top }
-                Handle.W -> { transformKind = TransformKind.SCALE_X; textAnchorX = right; textAnchorY = n.center.y }
-                Handle.E -> { transformKind = TransformKind.SCALE_X; textAnchorX = left;  textAnchorY = n.center.y }
+                Handle.N -> { transformKind = TransformKind.TRANSLATE }
+                Handle.S -> { transformKind = TransformKind.TRANSLATE }
+                Handle.W -> { transformKind = TransformKind.TRANSLATE }
+                Handle.E -> { transformKind = TransformKind.TRANSLATE }
+
                 Handle.NW -> { transformKind = TransformKind.SCALE_UNIFORM; textAnchorX = right; textAnchorY = bottom }
                 Handle.NE -> { transformKind = TransformKind.SCALE_UNIFORM; textAnchorX = left;  textAnchorY = bottom }
                 Handle.SW -> { transformKind = TransformKind.SCALE_UNIFORM; textAnchorX = right; textAnchorY = top }
