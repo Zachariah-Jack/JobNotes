@@ -2088,10 +2088,12 @@ class InkCanvasView @JvmOverloads constructor(
                     canvas.drawRect(r, selectionOutline)
 
                     // Enable scale handles for the TEXT BOX (not font)
-                    if (selectionInteractive) drawHandles(canvas, r)
+                    if (selectionInteractive && !editingSelectedText) drawHandles(canvas, r)
+
 
                     // Rotate handle
-                    drawRotateHandle(canvas, r)
+                    if (!editingSelectedText) drawRotateHandle(canvas, r)
+
                     canvas.restore()
                 }
             }
