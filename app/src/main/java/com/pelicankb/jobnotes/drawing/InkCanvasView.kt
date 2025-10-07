@@ -6019,6 +6019,8 @@ class InkCanvasView @JvmOverloads constructor(
     private fun clampImageToDocument(n: ImageNode) {
         val docW = width.toFloat()
         val docH = contentHeightPx()
+
+        // Approx AABB using current scale (ignore rotation for clamp)
         val w = n.bitmap.width  * n.scale
         val h = n.bitmap.height * n.scale
 
@@ -6027,8 +6029,11 @@ class InkCanvasView @JvmOverloads constructor(
         val minCy = h * 0.5f
         val maxCy = docH - h * 0.5f
 
-        n.center.x = n.center.x.coerceIn(minCx, maxCx)
-        n.center.y = n.center.y.coerceIn(minCy, maxCy)
+        // If the image is larger than the document in a dimension,
+        // the range becomes empty (min > max). In that case, center it.
+        n.center.x = if (minCx <= maxCx) n.center.x.coerceIn(minCx, maxCx) else docW * 0.5f
+        n.center.y = if (minCy <= maxCy) n.center.y.coerceIn(minCy, maxCy) else docH * 0.5f
+
 
     }
     /** Clamp a text box so its bounding box stays within the current page. */
