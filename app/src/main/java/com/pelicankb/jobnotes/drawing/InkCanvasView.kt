@@ -2342,7 +2342,8 @@ class InkCanvasView @JvmOverloads constructor(
                     val (cx0, cy0) = toContent(event.getX(idx), event.getY(idx))
                     if (editingSelectedText && selectedText != null && hitTextAtContent(cx0, cy0) !== selectedText) {
                         setEditingSelectedText(false)
-                        return true
+                        // do NOT return; let UP select the tapped node
+
                     }
                 }
 
