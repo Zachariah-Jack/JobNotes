@@ -1439,8 +1439,8 @@ class InkCanvasView @JvmOverloads constructor(
 
 
 
-    private val handleSizeDp = 14f
-    private val handleTouchPadDp = 18f
+    private val handleSizeDp = 16f
+    private val handleTouchPadDp = 24f
     // Bottom "pull to add" affordance
 
     // Viewport-relative thresholds (ratios of screen height)
@@ -2128,8 +2128,26 @@ class InkCanvasView @JvmOverloads constructor(
             drawClipboardGhost(canvas, pastePreviewCx, pastePreviewCy)
         }
 
-// When an IMAGE is selected, do not draw stroke selection overlays.
-// Stroke selection overlays only appear if NO image selection is active.
+        // When an IMAGE is selected, do not draw stroke selection overlays.
+        // Stroke selection overlays only appear if NO image selection is active.
+        // --- Image selection overlays (bbox + handles + rotate) ---
+        selectedImage?.let { n ->
+            val w = n.bitmap.width * n.scale
+            val h = n.bitmap.height * n.scale
+            val cx = n.center.x
+            val cy = n.center.y
+            val r = RectF(cx - w * 0.5f, cy - h * 0.5f, cx + w * 0.5f, cy + h * 0.5f)
+
+            canvas.save()
+            canvas.rotate(Math.toDegrees(n.angleRad.toDouble()).toFloat(), cx, cy)
+            canvas.drawRect(r, selectionOutline)
+            if (selectionInteractive) {
+                drawHandles(canvas, r)
+                drawRotateHandle(canvas, r)
+            }
+            canvas.restore()
+        }
+
         if (selectedImage == null) {
             if (overlayActive && selectedStrokes.isNotEmpty()) {
                 if (overlayBmp != null) {
@@ -3359,6 +3377,7 @@ class InkCanvasView @JvmOverloads constructor(
             activeTextHandle = handle
             textAspect = (n.boxW / max(1f, n.boxH)).coerceAtLeast(0.1f)
 
+
             textOrigW = n.boxW
             textOrigH = n.boxH
             // Snapshot BEFORE state for history
@@ -3450,7 +3469,8 @@ class InkCanvasView @JvmOverloads constructor(
         val sb = selectedBounds ?: return
         val bw = ceil(max(1f, sb.width())).toInt()
         val bh = ceil(max(1f, sb.height())).toInt()
-        if (bw > 0 && bh > 0) {
+        if (bw > 0 && bh > 0 && bw <= 4096 && bh <= 4096 && (bw.toLong() * bh.toLong()) <= 6_000_000L) {
+
             overlayBmp?.recycle()
             overlayBmp = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888)
             overlayBmpCanvas = Canvas(overlayBmp!!)
@@ -3520,6 +3540,14 @@ class InkCanvasView @JvmOverloads constructor(
             }
             overlayBmpCanvas?.restore()
         }
+        else {
+            // Too big to snapshot safely: skip preview bitmap; we’ll still apply matrix math on finish
+            overlayBmp?.recycle()
+            overlayBmp = null
+            overlayBmpCanvas = null
+            overlayStartTopLeft.set(0f, 0f)
+        }
+
         overlayMatrix.reset()
 
         // Build base ONCE (with all erasers applied) for correct background during drag
@@ -3797,14 +3825,14 @@ class InkCanvasView @JvmOverloads constructor(
         overlayRotateAngleRad = 0f
 
         // If we have a live overlay transform, bake it into the points once
-        if (overlayBmp != null) {
+        run {
             val pts = FloatArray(2)
             for (s in selectedStrokes) {
                 for (i in s.points.indices) {
                     val p = s.points[i]
                     pts[0] = p.x
                     pts[1] = p.y
-                    overlayMatrix.mapPoints(pts)  // apply final transform
+                    overlayMatrix.mapPoints(pts)  // apply final transform regardless of preview bitmap
                     s.points[i] = Point(pts[0], pts[1])
                 }
                 s.calligPath = null
