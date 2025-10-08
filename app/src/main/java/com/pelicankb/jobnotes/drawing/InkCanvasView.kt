@@ -3412,8 +3412,9 @@ class InkCanvasView @JvmOverloads constructor(
 
                 Handle.NW -> { transformKind = TransformKind.SCALE_UNIFORM; textAnchorX = right; textAnchorY = bottom }
                 Handle.NE -> { transformKind = TransformKind.SCALE_UNIFORM; textAnchorX = left;  textAnchorY = bottom }
-                Handle.SW -> { transformKind = TransformKind.SCALE_UNIFORM; textAnchorX = right; textAnchorY = top }
-                Handle.SE -> { transformKind = TransformKind.SCALE_UNIFORM; textAnchorX = left;  textAnchorY = top }
+                Handle.SW -> { transformKind = TransformKind.SCALE_UNIFORM; textAnchorX = right; textAnchorY = top    }
+                Handle.SE -> { transformKind = TransformKind.SCALE_UNIFORM; textAnchorX = left;  textAnchorY = top    }
+
                 Handle.ROTATE -> {
                     rotateCenterX = n.center.x
                     rotateCenterY = n.center.y
@@ -3598,20 +3599,23 @@ class InkCanvasView @JvmOverloads constructor(
                     n.layoutDirty = true
                 }
                 TransformKind.SCALE_UNIFORM -> {
-                    // Corner resize with free (non-uniform) scaling; anchor opposite corner
+                    // Corner resize (free X/Y); anchor is the opposite corner recorded in textAnchorX/Y.
                     val minW = max(dpToPx(80f), n.paddingPx * 2f + n.textSizePx)
                     val minH = max(dpToPx(48f), n.paddingPx * 2f + n.textSizePx * 3f)
 
-                    val newW = max(minW, 2f * abs(cx - textAnchorX))
-                    val newH = max(minH, 2f * abs(cy - textAnchorY))
+                    val anchorX = textAnchorX
+                    val anchorY = textAnchorY
+
+                    // New size is twice the distance from anchor to pointer on each axis
+                    val newW = max(minW, 2f * abs(cx - anchorX))
+                    val newH = max(minH, 2f * abs(cy - anchorY))
+
+                    // Center must be the MIDPOINT between anchor and pointer (prevents the "instant double" jump)
+                    n.center.x = (anchorX + cx) * 0.5f
+                    n.center.y = (anchorY + cy) * 0.5f
 
                     n.boxW = newW
                     n.boxH = newH
-
-                    val signX = if (cx >= textAnchorX) +1 else -1
-                    val signY = if (cy >= textAnchorY) +1 else -1
-                    n.center.x = textAnchorX + signX * (newW * 0.5f)
-                    n.center.y = textAnchorY + signY * (newH * 0.5f)
 
                     clampTextToDocument(n)
                     n.layoutDirty = true
