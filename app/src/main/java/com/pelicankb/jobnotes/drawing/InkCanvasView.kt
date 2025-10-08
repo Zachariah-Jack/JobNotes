@@ -4614,6 +4614,17 @@ class InkCanvasView @JvmOverloads constructor(
             n.boxH = max(minH, layout.height.toFloat() + 2f * n.paddingPx)
         }
 
+        // While editing, let height auto-grow downward; width remains fixed
+        if (editingSelectedText && selectedText === n) {
+            val desiredH = max(minH, layout.height.toFloat() + 2f * n.paddingPx)
+            if (desiredH > n.boxH + 0.5f) {
+                // Keep top edge fixed; grow downward
+                val oldTop = n.center.y - n.boxH * 0.5f
+                n.boxH = desiredH
+                n.center.y = oldTop + desiredH * 0.5f
+                clampTextToDocument(n)
+            }
+        }
 
         n.layout = layout
         n.layoutInnerW = innerW
