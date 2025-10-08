@@ -76,6 +76,12 @@ class InkCanvasView @JvmOverloads constructor(
     attrs: AttributeSet? = null,
     defStyle: Int = 0
 ) : View(context, attrs, defStyle) {
+    // ---- UI callbacks (Activity can react to edit state) ----
+    interface TextUiCallbacks {
+        fun onTextEditStateChanged(editing: Boolean)
+    }
+    var textUiCallbacks: TextUiCallbacks? = null
+
     // ---- Shape Snap (Samsung Notes-style) ----
     private var shapeSnapEnabled: Boolean = true
 
@@ -5575,6 +5581,9 @@ class InkCanvasView @JvmOverloads constructor(
             } catch (_: Throwable) { }
             requestAutosave()
         }
+        // Notify Activity so it can show/hide the Text popup persistently
+        try { textUiCallbacks?.onTextEditStateChanged(this.editingSelectedText) } catch (_: Throwable) {}
+
         invalidate()
     }
 
