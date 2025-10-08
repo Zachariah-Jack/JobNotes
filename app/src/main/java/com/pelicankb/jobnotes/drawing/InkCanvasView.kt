@@ -54,6 +54,8 @@ import kotlin.random.Random
 
 import kotlin.math.roundToInt
 import kotlin.math.sign
+import kotlin.math.cos
+import kotlin.math.sin
 import kotlin.math.hypot
 
 
@@ -2511,6 +2513,7 @@ class InkCanvasView @JvmOverloads constructor(
                 // Even if we can't draw (non-stylus), still allow transforms on selected objects
                 run {
                     val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
+
                     // Text handles first
                     selectedText?.let {
                         val hTxt = detectHandle(cx, cy)
@@ -2542,9 +2545,9 @@ class InkCanvasView @JvmOverloads constructor(
                     // --- IMAGE first: if an image is selected, prioritize handles/inside over pan/draw
                     val (cx, cy) = toContent(event.getX(idx), event.getY(idx))
                     // Tap inside selected text while editing -> move caret to tap position
-                    // (but ONLY if we are not on a handle; handles must win)
+// (but ONLY if we are not on a handle; handles must win)
                     val hPre = detectHandle(cx, cy)
-                    // Stylus caret while editing (only if not on a transform handle)
+// Stylus caret while editing (only if not on a transform handle)
                     if (editingSelectedText && selectedText != null && !isTransformHandle(hPre) && hitTextAtContent(cx, cy) === selectedText) {
                         val n = selectedText!!
                         val s = sin(-n.angleRad); val c = cos(-n.angleRad)
@@ -2574,20 +2577,13 @@ class InkCanvasView @JvmOverloads constructor(
                     }
 
 
-                    // Stylus on a real handle while editing → arm pending handle; start transform on MOVE past slop
-                    if (editingSelectedText && selectedText != null && isTransformHandle(hPre) && hitTextAtContent(cx, cy) === selectedText) {
-                        pendingHandle = hPre
-                        pendingHandlePointerId = event.getPointerId(idx)
-                        pendingHandleDownViewX = event.getX(idx)
-                        pendingHandleDownViewY = event.getY(idx)
-                        pendingHandleDownCx = cx
-                        pendingHandleDownCy = cy
-                        return true
-                    }
+
+
 
                     // --- TEXT first: handles/inside/tap select take priority over pan/draw ---
                     if (selectedText != null) {
-                        val hTxt = detectHandle(cx, cy)
+                        val hTxt = if (editingSelectedText) Handle.NONE else detectHandle(cx, cy)
+
                         if (isTransformHandle(hTxt)) {
                             if (editingSelectedText) {
                                 // already armed above if needed; just consume
@@ -2829,7 +2825,8 @@ class InkCanvasView @JvmOverloads constructor(
                     }
                 }
                 // If a transform handle was armed on DOWN, start transform when moving past slop
-                if (pendingHandle != null && pendingHandlePointerId != -1) {
+                if (!editingSelectedText && pendingHandle != null && pendingHandlePointerId != -1) {
+
                     val i = event.findPointerIndex(pendingHandlePointerId)
                     if (i != -1) {
                         val dxV = event.getX(i) - pendingHandleDownViewX
@@ -5609,6 +5606,17 @@ class InkCanvasView @JvmOverloads constructor(
         override fun onSingleTapUp(e: MotionEvent): Boolean {
             // If tapping on the selected IMAGE, commit it (drop selection)
             val (cx, cy) = toContent(e.x, e.y)
+            // Edit mode: single tap on the border exits to Move mode (handles visible)
+            if (editingSelectedText && selectedText != null) {
+                val h = detectHandle(cx, cy)
+                if (h != Handle.NONE) {
+                    setEditingSelectedText(false)
+                    selectionInteractive = true
+                    invalidate()
+                    return true
+                }
+            }
+
             // If not editing and we tapped inside the currently selected text, enter edit now
             if (!editingSelectedText && selectedText != null && hitTextAtContent(cx, cy) === selectedText) {
                 // Single tap = Move mode (keep handles visible, no edit)
