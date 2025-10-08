@@ -5048,6 +5048,25 @@ class InkCanvasView @JvmOverloads constructor(
 
         return if (r.contains(x, y)) Handle.INSIDE else Handle.NONE
     }
+    // Narrow border test for EDIT mode (excludes INSIDE); tolerances in dp
+    private fun isNearTextBorder(n: TextNode, x: Float, y: Float, tolDp: Float): Boolean {
+        val s = sin(-n.angleRad); val c = cos(-n.angleRad)
+        val dx = x - n.center.x;  val dy = y - n.center.y
+        val lx = dx * c - dy * s
+        val ly = dx * s + dy * c
+        val halfW = n.boxW * 0.5f
+        val halfH = n.boxH * 0.5f
+        val pad   = dpToPx(tolDp)
+
+        // On any edge within narrow pad (don’t count deep interior)
+        val nearTop    = (abs(ly + halfH) <= pad) && (lx >= -halfW && lx <= halfW)
+        val nearBottom = (abs(ly - halfH) <= pad) && (lx >= -halfW && lx <= halfW)
+        val nearLeft   = (abs(lx + halfW) <= pad) && (ly >= -halfH && ly <= halfH)
+        val nearRight  = (abs(lx - halfW) <= pad) && (ly >= -halfH && ly <= halfH)
+
+        return nearTop || nearBottom || nearLeft || nearRight
+    }
+
 
     private fun hitTextAtContent(cx: Float, cy: Float): TextNode? {
         for (i in textNodes.size - 1 downTo 0) {
@@ -5612,16 +5631,17 @@ class InkCanvasView @JvmOverloads constructor(
         override fun onSingleTapUp(e: MotionEvent): Boolean {
             // If tapping on the selected IMAGE, commit it (drop selection)
             val (cx, cy) = toContent(e.x, e.y)
-            // Edit mode: single tap on the border exits to Move mode (handles visible)
+            // Edit mode: single tap on the *border* (not inside) exits to Move mode
             if (editingSelectedText && selectedText != null) {
-                val h = detectHandle(cx, cy)
-                if (h != Handle.NONE) {
+                val n = selectedText!!
+                if (isNearTextBorder(n, cx, cy, 8f)) { // tighter 8dp border tolerance
                     setEditingSelectedText(false)
                     selectionInteractive = true
                     invalidate()
                     return true
                 }
             }
+
 
             // If not editing and we tapped inside the currently selected text, enter edit now
             if (!editingSelectedText && selectedText != null && hitTextAtContent(cx, cy) === selectedText) {
