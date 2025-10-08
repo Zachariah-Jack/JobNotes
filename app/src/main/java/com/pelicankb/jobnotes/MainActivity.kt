@@ -389,6 +389,20 @@ class MainActivity : AppCompatActivity() {
 
         // Initialize first
         inkCanvas = findViewById<InkCanvasView>(R.id.inkCanvas)
+        // Keep the Text popup persistent while in Edit mode
+        val btnText = findViewById<ImageButton>(R.id.btnText)
+        inkCanvas.textUiCallbacks = object : InkCanvasView.TextUiCallbacks {
+            override fun onTextEditStateChanged(editing: Boolean) {
+                // If entering Edit -> ensure popup is visible; if leaving -> hide it.
+                val isShowing = (textPopup?.isShowing == true)
+                if (editing && !isShowing) {
+                    toggleTextPopup(btnText)
+                } else if (!editing && isShowing) {
+                    toggleTextPopup(btnText)
+                }
+            }
+        }
+
         inkCanvas.setTextEditCallbacks(object : InkCanvasView.TextEditCallbacks {
             override fun onRequestStartEdit() {
                 inkCanvas.setEditingSelectedText(true)   // <— hide canvas glyphs while typing
