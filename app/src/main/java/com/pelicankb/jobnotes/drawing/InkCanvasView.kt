@@ -4887,14 +4887,12 @@ class InkCanvasView @JvmOverloads constructor(
             canvas.drawRect(rect, handleFill)
             canvas.drawRect(rect, handleStroke)
         }
-        box(r.left, r.top)
+        // corners only
+        box(r.left,  r.top)
         box(r.right, r.top)
-        box(r.left, r.bottom)
+        box(r.left,  r.bottom)
         box(r.right, r.bottom)
-        box(r.centerX(), r.top)
-        box(r.centerX(), r.bottom)
-        box(r.left, r.centerY())
-        box(r.right, r.centerY())
+
     }
     private fun drawRotatedSelectionBox(canvas: Canvas, r: RectF, angleRad: Float) {
         // Rotate around selection center
