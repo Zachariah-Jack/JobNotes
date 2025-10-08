@@ -6085,8 +6085,12 @@ class InkCanvasView @JvmOverloads constructor(
         val maxCx = docW - n.boxW * 0.5f
         val minCy = secTop + n.boxH * 0.5f
         val maxCy = secBot - n.boxH * 0.5f
-        n.center.x = n.center.x.coerceIn(minCx, maxCx)
-        n.center.y = n.center.y.coerceIn(minCy, maxCy)
+
+        // If ranges are empty (box bigger than doc/page), center in that dimension
+        n.center.x = if (minCx <= maxCx) n.center.x.coerceIn(minCx, maxCx) else docW * 0.5f
+        val secMidY = (secTop + secBot) * 0.5f
+        n.center.y = if (minCy <= maxCy) n.center.y.coerceIn(minCy, maxCy) else secMidY
+
     }
 
 
