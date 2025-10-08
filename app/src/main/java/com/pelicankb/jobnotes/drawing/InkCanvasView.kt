@@ -3410,10 +3410,40 @@ class InkCanvasView @JvmOverloads constructor(
                 Handle.W -> { transformKind = TransformKind.TRANSLATE }
                 Handle.E -> { transformKind = TransformKind.TRANSLATE }
 
-                Handle.NW -> { transformKind = TransformKind.SCALE_UNIFORM; textAnchorX = right; textAnchorY = bottom }
-                Handle.NE -> { transformKind = TransformKind.SCALE_UNIFORM; textAnchorX = left;  textAnchorY = bottom }
-                Handle.SW -> { transformKind = TransformKind.SCALE_UNIFORM; textAnchorX = right; textAnchorY = top    }
-                Handle.SE -> { transformKind = TransformKind.SCALE_UNIFORM; textAnchorX = left;  textAnchorY = top    }
+                // Corner resize: anchor = opposite corner in CONTENT coords (respect rotation)
+                Handle.NW -> {
+                    transformKind = TransformKind.SCALE_UNIFORM
+                    val hw = n.boxW * 0.5f; val hh = n.boxH * 0.5f
+                    val cA = cos(n.angleRad); val sA = sin(n.angleRad)
+                    // opposite corner = bottom-right (+hw,+hh) in local → content
+                    textAnchorX = n.center.x + ( hw)*cA - ( hh)*sA
+                    textAnchorY = n.center.y + ( hw)*sA + ( hh)*cA
+                }
+                Handle.NE -> {
+                    transformKind = TransformKind.SCALE_UNIFORM
+                    val hw = n.boxW * 0.5f; val hh = n.boxH * 0.5f
+                    val cA = cos(n.angleRad); val sA = sin(n.angleRad)
+                    // opposite corner = bottom-left (-hw,+hh)
+                    textAnchorX = n.center.x + (-hw)*cA - ( hh)*sA
+                    textAnchorY = n.center.y + (-hw)*sA + ( hh)*cA
+                }
+                Handle.SW -> {
+                    transformKind = TransformKind.SCALE_UNIFORM
+                    val hw = n.boxW * 0.5f; val hh = n.boxH * 0.5f
+                    val cA = cos(n.angleRad); val sA = sin(n.angleRad)
+                    // opposite corner = top-right (+hw,-hh)
+                    textAnchorX = n.center.x + ( hw)*cA - (-hh)*sA
+                    textAnchorY = n.center.y + ( hw)*sA + (-hh)*cA
+                }
+                Handle.SE -> {
+                    transformKind = TransformKind.SCALE_UNIFORM
+                    val hw = n.boxW * 0.5f; val hh = n.boxH * 0.5f
+                    val cA = cos(n.angleRad); val sA = sin(n.angleRad)
+                    // opposite corner = top-left (-hw,-hh)
+                    textAnchorX = n.center.x + (-hw)*cA - (-hh)*sA
+                    textAnchorY = n.center.y + (-hw)*sA + (-hh)*cA
+                }
+
 
                 Handle.ROTATE -> {
                     rotateCenterX = n.center.x
@@ -3599,20 +3629,32 @@ class InkCanvasView @JvmOverloads constructor(
                     n.layoutDirty = true
                 }
                 TransformKind.SCALE_UNIFORM -> {
-                    // Corner resize (free X/Y); anchor is the opposite corner recorded in textAnchorX/Y.
+                    // Corner resize (free X/Y) using LOCAL axes about the opposite-corner anchor.
                     val minW = max(dpToPx(80f), n.paddingPx * 2f + n.textSizePx)
                     val minH = max(dpToPx(48f), n.paddingPx * 2f + n.textSizePx * 3f)
 
-                    val anchorX = textAnchorX
-                    val anchorY = textAnchorY
+                    val ax = textAnchorX
+                    val ay = textAnchorY
 
-                    // New size is twice the distance from anchor to pointer on each axis
-                    val newW = max(minW, 2f * abs(cx - anchorX))
-                    val newH = max(minH, 2f * abs(cy - anchorY))
+                    // Pointer vector from anchor in CONTENT space
+                    val dx = cx - ax
+                    val dy = cy - ay
 
-                    // Center must be the MIDPOINT between anchor and pointer (prevents the "instant double" jump)
-                    n.center.x = (anchorX + cx) * 0.5f
-                    n.center.y = (anchorY + cy) * 0.5f
+                    // Rotate vector into TEXT-LOCAL space (−angle): [lx,ly]
+                    val cA = cos(n.angleRad)
+                    val sA = sin(n.angleRad)
+                    val lx =  dx * cA + dy * sA       // = rotate by −angle
+                    val ly = -dx * sA + dy * cA
+
+                    // New size is absolute local extent (NOT doubled)
+                    val newW = max(minW, abs(lx))
+                    val newH = max(minH, abs(ly))
+
+                    // Center = midpoint(anchor, pointer) in CONTENT space
+                    val midLocalX = lx * 0.5f
+                    val midLocalY = ly * 0.5f
+                    n.center.x = ax + (midLocalX * cA - midLocalY * sA)   // rotate back by +angle
+                    n.center.y = ay + (midLocalX * sA + midLocalY * cA)
 
                     n.boxW = newW
                     n.boxH = newH
