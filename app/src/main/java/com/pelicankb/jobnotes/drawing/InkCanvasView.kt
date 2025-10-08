@@ -3597,18 +3597,12 @@ class InkCanvasView @JvmOverloads constructor(
                     n.layoutDirty = true
                 }
                 TransformKind.SCALE_UNIFORM -> {
-                    // Corner resize with fixed aspect ratio; anchor opposite corner
+                    // Corner resize with free (non-uniform) scaling; anchor opposite corner
                     val minW = max(dpToPx(80f), n.paddingPx * 2f + n.textSizePx)
                     val minH = max(dpToPx(48f), n.paddingPx * 2f + n.textSizePx * 3f)
-                    val dx = abs(cx - textAnchorX)
-                    val dy = abs(cy - textAnchorY)
 
-                    val newW1 = max(minW, 2f * dx)
-                    val newH1 = max(minH, newW1 / textAspect)
-                    val newH2 = max(minH, 2f * dy)
-                    val newW2 = max(minW, newH2 * textAspect)
-                    val (newW, newH) = if (abs(newW1 - textOrigW) + abs(newH1 - textOrigH) <=
-                        abs(newW2 - textOrigW) + abs(newH2 - textOrigH)) (newW1 to newH1) else (newW2 to newH2)
+                    val newW = max(minW, 2f * abs(cx - textAnchorX))
+                    val newH = max(minH, 2f * abs(cy - textAnchorY))
 
                     n.boxW = newW
                     n.boxH = newH
@@ -3617,11 +3611,11 @@ class InkCanvasView @JvmOverloads constructor(
                     val signY = if (cy >= textAnchorY) +1 else -1
                     n.center.x = textAnchorX + signX * (newW * 0.5f)
                     n.center.y = textAnchorY + signY * (newH * 0.5f)
+
                     clampTextToDocument(n)
-
-
                     n.layoutDirty = true
                 }
+
 
                 TransformKind.ROTATE -> {
                     val start = rotateStartAngleRad ?: return@let
