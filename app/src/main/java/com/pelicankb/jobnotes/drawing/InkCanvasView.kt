@@ -5424,6 +5424,13 @@ class InkCanvasView @JvmOverloads constructor(
         val rC = RectF(leftC, topC, leftC + n.boxW, topC + n.boxH)
         return contentToViewRect(rC)
     }
+    /** View-space nudge so Activity can lift the canvas above the IME. Positive = move content up. */
+    fun offsetTranslationForIme(dyViewPx: Float) {
+        translationY -= dyViewPx
+        clampPan()
+        invalidate()
+    }
+
     /** Inner rect (content area) of the selected text box, mapped to VIEW coords. */
     fun getSelectedTextInnerViewRect(): Rect? {
         val n = selectedText ?: return null
