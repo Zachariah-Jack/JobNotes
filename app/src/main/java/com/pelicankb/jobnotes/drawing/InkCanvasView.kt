@@ -2431,7 +2431,8 @@ class InkCanvasView @JvmOverloads constructor(
                             activePointerId = event.getPointerId(idx)
                             return true
                         }
-                        if (!editingSelectedText && isInsideSelectedText(cx, cy)) {
+                        if (!editingSelectedText && isInsideSelectedImage(cx, cy)) {
+
 
 
                             cancelStylusHoldToPan()
