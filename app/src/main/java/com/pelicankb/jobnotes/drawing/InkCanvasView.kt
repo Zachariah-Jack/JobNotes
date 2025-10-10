@@ -1356,6 +1356,15 @@ class InkCanvasView @JvmOverloads constructor(
     }
     private var imeLiftViewPx: Float = 0f
     private var currentImeBottomPx: Int = 0
+    // sample IME height over a few frames so we don’t compute with imeBottom=0 during the animation
+    private val imeSample = Runnable {
+        post(imeLiftRecalc)
+        postDelayed(imeLiftRecalc, 16)
+        postDelayed(imeLiftRecalc, 33)
+        postDelayed(imeLiftRecalc, 66)
+        postDelayed(imeLiftRecalc, 100)
+    }
+
 
     private val imeLiftRecalc = Runnable { recomputeImeLiftForEdit() }
 
@@ -2275,7 +2284,9 @@ class InkCanvasView @JvmOverloads constructor(
             val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
             if (ime != currentImeBottomPx) {
                 currentImeBottomPx = ime
-                post(imeLiftRecalc) // re-evaluate with fresh IME height
+                // sample across the IME animation so we recompute after height stabilizes
+                removeCallbacks(imeSample)
+                post(imeSample)
             }
             insets
         }
