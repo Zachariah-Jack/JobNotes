@@ -5424,12 +5424,13 @@ class InkCanvasView @JvmOverloads constructor(
         val rC = RectF(leftC, topC, leftC + n.boxW, topC + n.boxH)
         return contentToViewRect(rC)
     }
-    /** View-space nudge so Activity can lift the canvas above the IME. Positive = move content up. */
-    fun offsetTranslationForIme(dyViewPx: Float) {
-        translationY -= dyViewPx
+    /** Set absolute IME lift in view px (positive = move content up). Idempotent. */
+    fun setImeLiftPx(liftPx: Float) {
+        translationY = -liftPx
         clampPan()
         invalidate()
     }
+
 
     /** Inner rect (content area) of the selected text box, mapped to VIEW coords. */
     fun getSelectedTextInnerViewRect(): Rect? {
@@ -5586,6 +5587,8 @@ class InkCanvasView @JvmOverloads constructor(
                 val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
                 imm.hideSoftInputFromWindow(windowToken, 0)
             } catch (_: Throwable) { }
+            setImeLiftPx(0f)
+
             requestAutosave()
         }
         // Notify Activity so it can show/hide the Text popup persistently
