@@ -1356,7 +1356,6 @@ class InkCanvasView @JvmOverloads constructor(
     }
     private var imeLiftViewPx: Float = 0f
     private val imeLiftRecalc = Runnable { recomputeImeLiftForEdit() }
-    private fun dp(px: Float) = px * resources.displayMetrics.density
 
 
     private val selectionOutline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -2091,27 +2090,6 @@ class InkCanvasView @JvmOverloads constructor(
                 canvas.restore()
 
             }
-            // Recompute the visual IME lift so the edited text (caret line) sits above the keyboard.
-            private fun recomputeImeLiftForEdit() {
-                if (!editingSelectedText || selectedText == null) { setImeLiftPx(0f); return }
-                val imeBottom = ViewCompat.getRootWindowInsets(this)
-                    ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
-                if (imeBottom <= 0) { setImeLiftPx(0f); return }
-
-                // Use the text box view-rect (fast, robust). If you have a per-caret rect helper, you can swap it in.
-                val r = getSelectedTextViewRect() ?: run { setImeLiftPx(0f); return }
-                val imeTop = height - imeBottom
-                val margin = dp(24f)
-
-                val targetBottom = imeTop - margin
-                val neededUp = (r.bottom - targetBottom).coerceAtLeast(0f)
-                setImeLiftPx(neededUp)
-            }
-
-
-
-
-
 
             selectedText?.let { n ->
                 val secTopGlobal = s.yOffsetPx
@@ -5475,6 +5453,23 @@ class InkCanvasView @JvmOverloads constructor(
         val rC = RectF(leftC, topC, leftC + (n.boxW - 2f * n.paddingPx), topC + (n.boxH - 2f * n.paddingPx))
         return contentToViewRect(rC)
     }
+    // Recompute the visual IME lift so the edited text (caret line) sits above the keyboard.
+    private fun recomputeImeLiftForEdit() {
+        if (!editingSelectedText || selectedText == null) { setImeLiftPx(0f); return }
+        val imeBottom = ViewCompat.getRootWindowInsets(this)
+            ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
+        if (imeBottom <= 0) { setImeLiftPx(0f); return }
+
+        // Use the text box view-rect (fast, robust). If you have a per-caret rect helper, swap it in.
+        val r = getSelectedTextViewRect() ?: run { setImeLiftPx(0f); return }
+        val imeTop = height - imeBottom
+        val margin = dpToPx(24f)
+
+        val targetBottom = imeTop - margin
+        val neededUp = (r.bottom - targetBottom).coerceAtLeast(0f)
+        setImeLiftPx(neededUp)
+    }
+
 
 
     private fun contentToViewX(cx: Float): Float = translationX + cx * scaleFactor
