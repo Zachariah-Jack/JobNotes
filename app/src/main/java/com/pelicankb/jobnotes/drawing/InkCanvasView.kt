@@ -5427,8 +5427,9 @@ class InkCanvasView @JvmOverloads constructor(
     /** Set absolute IME lift in view px (positive = move content up). Idempotent. */
     fun setImeLiftPx(liftPx: Float) {
         translationY = -liftPx
-        clampPan()
-        invalidate()
+        // NOTE: do NOT clamp pan here; this is a pure visual lift above IME
+        postInvalidateOnAnimation()
+
     }
 
 
