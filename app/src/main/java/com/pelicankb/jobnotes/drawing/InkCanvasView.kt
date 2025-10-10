@@ -1351,6 +1351,8 @@ class InkCanvasView @JvmOverloads constructor(
         style = Paint.Style.FILL
         color = 0x1F2196F3  // translucent blue
     }
+    private var imeLiftViewPx: Float = 0f
+
     private val selectionOutline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         color = 0xFF2196F3.toInt()
@@ -1892,6 +1894,9 @@ class InkCanvasView @JvmOverloads constructor(
 
 
     override fun onDraw(canvas: Canvas) {
+        canvas.save()
+        if (imeLiftViewPx != 0f) canvas.translate(0f, -imeLiftViewPx)
+
         super.onDraw(canvas)
 
 
@@ -2226,6 +2231,8 @@ class InkCanvasView @JvmOverloads constructor(
 
         // 5) Bottom pull-to-add affordance (view space) — up arrow with circular progress + label
         drawPullToAddIndicator(canvas)
+        canvas.restore()
+
     }
 
 
@@ -5426,9 +5433,10 @@ class InkCanvasView @JvmOverloads constructor(
     }
     /** Set absolute IME lift in view px (positive = move content up). Idempotent. */
     fun setImeLiftPx(liftPx: Float) {
-        translationY = -liftPx
-        // NOTE: do NOT clamp pan here; this is a pure visual lift above IME
+        imeLiftViewPx = liftPx
+        // Purely visual; no clamp/pan/zoom touching
         postInvalidateOnAnimation()
+
 
     }
 
