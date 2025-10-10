@@ -1355,6 +1355,8 @@ class InkCanvasView @JvmOverloads constructor(
         color = 0x1F2196F3  // translucent blue
     }
     private var imeLiftViewPx: Float = 0f
+    private var currentImeBottomPx: Int = 0
+
     private val imeLiftRecalc = Runnable { recomputeImeLiftForEdit() }
 
 
@@ -2268,6 +2270,16 @@ class InkCanvasView @JvmOverloads constructor(
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
+        // Track IME height live; recompute lift whenever it changes
+        ViewCompat.setOnApplyWindowInsetsListener(this) { _, insets ->
+            val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+            if (ime != currentImeBottomPx) {
+                currentImeBottomPx = ime
+                post(imeLiftRecalc) // re-evaluate with fresh IME height
+            }
+            insets
+        }
+
         // Ensure the View background itself is not the page — we draw the page in onDraw.
         setBackgroundColor(Color.TRANSPARENT)
         isFocusableInTouchMode = true
@@ -5456,12 +5468,15 @@ class InkCanvasView @JvmOverloads constructor(
     // Recompute the visual IME lift so the edited text (caret line) sits above the keyboard.
     private fun recomputeImeLiftForEdit() {
         if (!editingSelectedText || selectedText == null) { setImeLiftPx(0f); return }
-        val imeBottom = ViewCompat.getRootWindowInsets(this)
-            ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
+        val imeBottom = currentImeBottomPx
+
         if (imeBottom <= 0) { setImeLiftPx(0f); return }
 
         // Use the text box view-rect (fast, robust). If you have a per-caret rect helper, swap it in.
-        val r = getSelectedTextViewRect() ?: run { setImeLiftPx(0f); return }
+        val r = (runCatching { getSelectedTextInnerViewRect() }.getOrNull()
+            ?: getSelectedTextViewRect())
+            ?: run { setImeLiftPx(0f); return }
+
         val imeTop = height - imeBottom
         val margin = dpToPx(24f)
 
