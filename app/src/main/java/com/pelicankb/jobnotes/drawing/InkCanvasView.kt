@@ -5480,20 +5480,22 @@ class InkCanvasView @JvmOverloads constructor(
     private fun recomputeImeLiftForEdit() {
         if (!editingSelectedText || selectedText == null) { setImeLiftPx(0f); return }
         val imeBottom = currentImeBottomPx
-
         if (imeBottom <= 0) { setImeLiftPx(0f); return }
 
-        // Use the text box view-rect (fast, robust). If you have a per-caret rect helper, swap it in.
-        val r = (runCatching { getSelectedTextInnerViewRect() }.getOrNull()
-            ?: getSelectedTextViewRect())
-            ?: run { setImeLiftPx(0f); return }
+        // Prefer the caret/inner rect if available; fall back to the outer rect
+        val caretRect = runCatching { getSelectedTextInnerViewRect() }.getOrNull()
+        val r = caretRect ?: getSelectedTextViewRect() ?: run { setImeLiftPx(0f); return }
 
         val imeTop = height - imeBottom
-        val margin = dpToPx(24f)
+        val marginPx = dpToPx(32f)  // a bit more generous
+        val targetBottom = imeTop - marginPx
 
-        val targetBottom = imeTop - margin
         val neededUp = (r.bottom - targetBottom).coerceAtLeast(0f)
-        setImeLiftPx(neededUp)
+
+        // Only lift up while IME is visible; never push content down (prevents visual bounce)
+        val newLift = if (neededUp > imeLiftViewPx) neededUp else imeLiftViewPx
+        setImeLiftPx(newLift)
+
     }
 
 
