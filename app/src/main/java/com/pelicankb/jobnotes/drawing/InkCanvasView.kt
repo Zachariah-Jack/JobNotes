@@ -43,6 +43,7 @@ import android.widget.OverScroller
 import androidx.core.content.ContextCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsAnimationCompat
 
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
@@ -2290,6 +2291,27 @@ class InkCanvasView @JvmOverloads constructor(
             }
             insets
         }
+        // Drive lift on each IME animation frame so the text never gets covered at show time
+        ViewCompat.setWindowInsetsAnimationCallback(
+            this,
+            object : WindowInsetsAnimationCompat.Callback(
+                WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE
+            ) {
+                override fun onProgress(
+                    insets: WindowInsetsCompat,
+                    runningAnimations: MutableList<WindowInsetsAnimationCompat>
+                ): WindowInsetsCompat {
+                    val ime = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
+                    if (ime != currentImeBottomPx) {
+                        currentImeBottomPx = ime
+                        // Recompute now to keep caret above the moving IME edge
+                        recomputeImeLiftForEdit()
+                    }
+                    return insets
+                }
+            }
+        )
+
 
         // Ensure the View background itself is not the page — we draw the page in onDraw.
         setBackgroundColor(Color.TRANSPARENT)
@@ -5492,9 +5514,9 @@ class InkCanvasView @JvmOverloads constructor(
 
         val neededUp = (r.bottom - targetBottom).coerceAtLeast(0f)
 
-        // Only lift up while IME is visible; never push content down (prevents visual bounce)
-        val newLift = if (neededUp > imeLiftViewPx) neededUp else imeLiftViewPx
-        setImeLiftPx(newLift)
+        // Apply the full required lift immediately so the caret never gets covered on IME show
+        setImeLiftPx(neededUp)
+
 
     }
 
