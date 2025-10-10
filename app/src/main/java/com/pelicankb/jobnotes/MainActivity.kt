@@ -389,31 +389,34 @@ class MainActivity : AppCompatActivity() {
 
         // Initialize first
         inkCanvas = findViewById<InkCanvasView>(R.id.inkCanvas)
-        // Keep edited text above the keyboard (IME) by nudging the canvas in view space.
+        // IME -> lift canvas just enough so edited text is visible (no padding, no shrink)
         val root = findViewById<View>(android.R.id.content)
         ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
             val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
-            // Pad the root so toolbars/overlays don't sit under IME
-            v.setPadding(v.paddingLeft, v.paddingTop, v.paddingRight, imeBottom)
-
-            // If editing, make sure the inner text rect is visible above IME with a 24dp margin
-            if (imeBottom > 0) {
-                inkCanvas.getSelectedTextInnerViewRect()?.let { r ->
-                    val safeBottom = (v.height - imeBottom - 24.dp()).coerceAtLeast(0)
-                    when {
-                        r.bottom > safeBottom -> {
-                            // Nudge content UP so caret/lines clear the IME
-                            inkCanvas.offsetTranslationForIme((r.bottom - safeBottom).toFloat())
-                        }
-                        r.top < 24.dp() -> {
-                            // Nudge content DOWN a bit to avoid hugging the top
-                            inkCanvas.offsetTranslationForIme(-(24.dp() - r.top).toFloat())
-                        }
-                    }
-                }
+            if (imeBottom <= 0) {
+                inkCanvas.setImeLiftPx(0f)
+                return@setOnApplyWindowInsetsListener insets
             }
+
+            // Where is the edited text in view coords?
+            val r = inkCanvas.getSelectedTextViewRect()
+            if (r == null) {
+                inkCanvas.setImeLiftPx(0f)
+                return@setOnApplyWindowInsetsListener insets
+            }
+
+            // We want r.bottom to sit above IME top with a 24dp margin.
+            val imeTop = v.height - imeBottom
+            val margin = (24 * v.resources.displayMetrics.density).toInt()
+            val targetBottom = imeTop - margin
+
+            val needed = (r.bottom - targetBottom).coerceAtLeast(0)
+            inkCanvas.setImeLiftPx(needed.toFloat())
+
             insets
         }
+
+
 
         // Keep the Text popup persistent while in Edit mode
         val btnText = findViewById<ImageButton>(R.id.btnText)
@@ -421,11 +424,15 @@ class MainActivity : AppCompatActivity() {
             override fun onTextEditStateChanged(editing: Boolean) {
                 // If entering Edit -> ensure popup is visible; if leaving -> hide it.
                 val isShowing = (textPopup?.isShowing == true)
+                // Always clear any IME lift when we exit edit mode
+                if (!editing) inkCanvas.setImeLiftPx(0f)
+
                 if (editing && !isShowing) {
                     toggleTextPopup(btnText)
                 } else if (!editing && isShowing) {
                     toggleTextPopup(btnText)
                 }
+
             }
         }
 
