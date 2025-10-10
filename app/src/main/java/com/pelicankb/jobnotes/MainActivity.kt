@@ -389,16 +389,41 @@ class MainActivity : AppCompatActivity() {
 
         // Initialize first
         inkCanvas = findViewById<InkCanvasView>(R.id.inkCanvas)
-        // IME -> lift canvas just enough so edited text is visible (no padding, no shrink)
+        // Keep edited text above the IME via pure canvas lift (no window shrink, no root padding)
         val root = findViewById<View>(android.R.id.content)
         ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
             val imeBottom = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
             if (imeBottom <= 0) {
+                // IME hidden -> drop any lift
                 inkCanvas.setImeLiftPx(0f)
                 return@setOnApplyWindowInsetsListener insets
             }
 
-            // Where is the edited text in view coords?
+            // Post to the next frame so caret/layout are up to date after IME animates in
+            v.post {
+                // Prefer the *inner* text rect if you have it; fall back to the outer rect.
+                val r = inkCanvas.getSelectedTextInnerViewRect() ?: inkCanvas.getSelectedTextViewRect()
+                if (r == null) {
+                    inkCanvas.setImeLiftPx(0f)
+                    return@post
+                }
+
+                // Target: r.bottom sits above IME top with a small margin
+                val density = v.resources.displayMetrics.density
+                val marginPx = (24f * density).toInt()
+                val imeTop = v.height - imeBottom
+                val targetBottom = imeTop - marginPx
+
+                val neededUp = (r.bottom - targetBottom).coerceAtLeast(0)
+                // Only lift UP while IME shows; never push down here (prevents any “scroll to top” artifacts)
+                inkCanvas.setImeLiftPx(neededUp.toFloat())
+            }
+
+            insets
+        }
+
+
+        // Where is the edited text in view coords?
             val r = inkCanvas.getSelectedTextViewRect()
             if (r == null) {
                 inkCanvas.setImeLiftPx(0f)
