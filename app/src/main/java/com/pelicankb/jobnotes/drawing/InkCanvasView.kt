@@ -41,6 +41,9 @@ import android.view.inputmethod.InputMethodManager
 import android.widget.OverScroller
 
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
+
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.DataInputStream
@@ -1352,6 +1355,9 @@ class InkCanvasView @JvmOverloads constructor(
         color = 0x1F2196F3  // translucent blue
     }
     private var imeLiftViewPx: Float = 0f
+    private val imeLiftRecalc = Runnable { recomputeImeLiftForEdit() }
+    private fun dp(px: Float) = px * resources.displayMetrics.density
+
 
     private val selectionOutline = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -1644,6 +1650,8 @@ class InkCanvasView @JvmOverloads constructor(
         bottomEdgePaint.shader= LinearGradient(0f, h - fadeH, 0f, h.toFloat(), clear, dark, Shader.TileMode.CLAMP)
 
         rebuildCommitted() // repaint committed from stroke list
+        post(imeLiftRecalc)
+
     }
 
 
@@ -1822,6 +1830,8 @@ class InkCanvasView @JvmOverloads constructor(
                 n.layoutDirty = true
                 invalidate()
                 pokeCaret()
+                post(imeLiftRecalc)
+
 
                 return true
             }
@@ -1836,7 +1846,10 @@ class InkCanvasView @JvmOverloads constructor(
                     n.selEnd = start
                     n.layoutDirty = true
                     invalidate()
+
                     pokeCaret()
+                    post(imeLiftRecalc)
+
 
                 }
                 return true
@@ -1849,6 +1862,7 @@ class InkCanvasView @JvmOverloads constructor(
                 n.selEnd = max(s, e)
                 invalidate()
                 pokeCaret()
+                post(imeLiftRecalc)
 
                 return true
             }
@@ -2077,6 +2091,23 @@ class InkCanvasView @JvmOverloads constructor(
                 canvas.restore()
 
             }
+            // Recompute the visual IME lift so the edited text (caret line) sits above the keyboard.
+            private fun recomputeImeLiftForEdit() {
+                if (!editingSelectedText || selectedText == null) { setImeLiftPx(0f); return }
+                val imeBottom = ViewCompat.getRootWindowInsets(this)
+                    ?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0
+                if (imeBottom <= 0) { setImeLiftPx(0f); return }
+
+                // Use the text box view-rect (fast, robust). If you have a per-caret rect helper, you can swap it in.
+                val r = getSelectedTextViewRect() ?: run { setImeLiftPx(0f); return }
+                val imeTop = height - imeBottom
+                val margin = dp(24f)
+
+                val targetBottom = imeTop - margin
+                val neededUp = (r.bottom - targetBottom).coerceAtLeast(0f)
+                setImeLiftPx(neededUp)
+            }
+
 
 
 
@@ -2271,11 +2302,8 @@ class InkCanvasView @JvmOverloads constructor(
     }
     override fun onWindowFocusChanged(hasWindowFocus: Boolean) {
         super.onWindowFocusChanged(hasWindowFocus)
-        if (hasWindowFocus && editingSelectedText && selectedText != null) {
-            val imm = context.getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager
-            imm.restartInput(this)
-            post { imm.showSoftInput(this, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT) }
-        }
+        if (hasWindowFocus) post(imeLiftRecalc)
+
     }
 
 
@@ -5434,10 +5462,8 @@ class InkCanvasView @JvmOverloads constructor(
     /** Set absolute IME lift in view px (positive = move content up). Idempotent. */
     fun setImeLiftPx(liftPx: Float) {
         imeLiftViewPx = liftPx
-        // Purely visual; no clamp/pan/zoom touching
+        // Purely visual; no pan/zoom/scroll changes
         postInvalidateOnAnimation()
-
-
     }
 
 
@@ -5573,6 +5599,17 @@ class InkCanvasView @JvmOverloads constructor(
             return
         }
         this.editingSelectedText = editing
+        if (editing) {
+            // Run a few times to catch IME animation settling
+            removeCallbacks(imeLiftRecalc)
+            post(imeLiftRecalc)
+            postDelayed(imeLiftRecalc, 80)
+            postDelayed(imeLiftRecalc, 160)
+        } else {
+            removeCallbacks(imeLiftRecalc)
+            setImeLiftPx(0f)
+        }
+
         if (editing) {
             // Ensure we have a selection and focus
             selectedText?.let { n ->
