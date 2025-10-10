@@ -402,7 +402,8 @@ class MainActivity : AppCompatActivity() {
             // Post to the next frame so caret/layout are up to date after IME animates in
             v.post {
                 // Prefer the *inner* text rect if you have it; fall back to the outer rect.
-                val r = inkCanvas.getSelectedTextInnerViewRect() ?: inkCanvas.getSelectedTextViewRect()
+                val r = inkCanvas.getSelectedTextViewRect()
+
                 if (r == null) {
                     inkCanvas.setImeLiftPx(0f)
                     return@post
@@ -423,23 +424,7 @@ class MainActivity : AppCompatActivity() {
         }
 
 
-        // Where is the edited text in view coords?
-            val r = inkCanvas.getSelectedTextViewRect()
-            if (r == null) {
-                inkCanvas.setImeLiftPx(0f)
-                return@setOnApplyWindowInsetsListener insets
-            }
 
-            // We want r.bottom to sit above IME top with a 24dp margin.
-            val imeTop = v.height - imeBottom
-            val margin = (24 * v.resources.displayMetrics.density).toInt()
-            val targetBottom = imeTop - margin
-
-            val needed = (r.bottom - targetBottom).coerceAtLeast(0)
-            inkCanvas.setImeLiftPx(needed.toFloat())
-
-            insets
-        }
 
 
 
