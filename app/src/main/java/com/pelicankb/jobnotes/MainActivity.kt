@@ -1575,14 +1575,133 @@ class MainActivity : AppCompatActivity() {
 
         val parent = (anchor.rootView as? ViewGroup) ?: window.decorView as ViewGroup
         val content = layoutInflater.inflate(R.layout.popup_text_menu, parent, false)
+        // ---- Text popup wiring (persistent while editing) ----
+        val preview = content.findViewById<TextView>(R.id.previewText)
+        val sizeSeek = content.findViewById<SeekBar>(R.id.sizeSeek)
+        val sizeLabel = content.findViewById<TextView>(R.id.sizeLabel)
+        val chkBold = content.findViewById<CheckBox>(R.id.chkBold)
+        val chkItalic = content.findViewById<CheckBox>(R.id.chkItalic)
+        val rowText = content.findViewById<LinearLayout>(R.id.rowTextColors)
+        val rowBg = content.findViewById<LinearLayout>(R.id.rowBgColors)
+        val cornerSeek = content.findViewById<SeekBar>(R.id.cornerSeek)
+        val cornerLabel = content.findViewById<TextView>(R.id.cornerLabel)
 
-        val seek = content.findViewById<SeekBar>(R.id.seekTextSize)
-        val sizeLbl = content.findViewById<TextView>(R.id.labelTextSize)
-        val cbB = content.findViewById<CheckBox>(R.id.cbBold)
-        val cbI = content.findViewById<CheckBox>(R.id.cbItalic)
-        val btnColor = content.findViewById<ImageButton>(R.id.btnTextColor)
-        val btnInsert = content.findViewById<Button>(R.id.btnInsertText)
-        val tvPreview = content.findViewById<TextView>(R.id.previewPelican)
+        // Helpers
+        fun pxToSp(px: Float): Float = px / resources.displayMetrics.scaledDensity
+        fun spToPx(sp: Float): Float = sp * resources.displayMetrics.scaledDensity
+
+        fun applyPreview(
+            sizeSp: Float? = null,
+            bold: Boolean? = null,
+            italic: Boolean? = null,
+            color: Int? = null,
+            bg: Int? = -1,
+            cornerDp: Int? = null
+        ) {
+            sizeSp?.let { preview.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, it) }
+            val style = when {
+                (bold == true && italic == true) -> android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD_ITALIC)
+                (bold == true) -> android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                (italic == true) -> android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.ITALIC)
+                else -> android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL)
+            }
+            preview.typeface = style
+            color?.let { preview.setTextColor(it) }
+            if (bg == null) {
+                preview.background = null
+            } else if (bg != -1) {
+                val d = android.graphics.drawable.GradientDrawable()
+                d.setColor(bg)
+                val cr = (cornerDp ?: 0) * resources.displayMetrics.density
+                d.cornerRadius = cr
+                preview.background = d
+            } else {
+                // -1 means "no change"
+            }
+        }
+
+        // Initialize from current text box (per-box defaults)
+        inkCanvas.getSelectedTextStyle()?.let { s ->
+            val sizeSp = pxToSp(s.textSizePx).coerceIn(10f, 64f)
+            sizeSeek.progress = sizeSp.toInt()
+            sizeLabel.text = "${sizeSp.toInt()}sp"
+            chkBold.isChecked = s.isBold
+            chkItalic.isChecked = s.isItalic
+            cornerSeek.progress = (s.cornerRadiusPx / resources.displayMetrics.density).toInt()
+            cornerLabel.text = "${cornerSeek.progress}dp"
+            applyPreview(
+                sizeSp = sizeSp,
+                bold = s.isBold,
+                italic = s.isItalic,
+                color = s.color,
+                bg = s.bgColor ?: null,
+                cornerDp = cornerSeek.progress
+            )
+        }
+
+        // Size slider -> live preview + apply
+        sizeSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
+                val sp = value.coerceIn(10, 64).toFloat()
+                sizeLabel.text = "${sp.toInt()}sp"
+                applyPreview(sizeSp = sp)
+                if (fromUser) {
+                    inkCanvas.applySelectedTextStyle(sizePx = spToPx(sp))
+                }
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {}
+        })
+
+        // Bold / Italic toggles
+        chkBold.setOnCheckedChangeListener { _, b ->
+            applyPreview(bold = b)
+            inkCanvas.applySelectedTextStyle(bold = b)
+        }
+        chkItalic.setOnCheckedChangeListener { _, itc ->
+            applyPreview(italic = itc)
+            inkCanvas.applySelectedTextStyle(italic = itc)
+        }
+
+        // Tap any text color chip
+        fun wireColorRow(row: LinearLayout, isText: Boolean) {
+            for (i in 0 until row.childCount) {
+                val v = row.getChildAt(i)
+                v.setOnClickListener {
+                    if (v.id == R.id.c_bg_none) {
+                        applyPreview(bg = null)
+                        inkCanvas.applySelectedTextStyle(bg = null)
+                    } else {
+                        val tag = v.tag as? String ?: return@setOnClickListener
+                        val col = android.graphics.Color.parseColor(tag)
+                        if (isText) {
+                            applyPreview(color = col)
+                            inkCanvas.applySelectedTextStyle(color = col)
+                        } else {
+                            applyPreview(bg = col, cornerDp = cornerSeek.progress)
+                            inkCanvas.applySelectedTextStyle(bg = col)
+                        }
+                    }
+                }
+            }
+        }
+        wireColorRow(rowText, true)
+        wireColorRow(rowBg, false)
+
+        // Corner radius -> live preview + apply
+        cornerSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
+                cornerLabel.text = "${value}dp"
+                // If a bg exists, refresh preview bg with new radius (no change to color)
+                val bgSnapshot = inkCanvas.getSelectedTextStyle()?.bgColor
+                if (bgSnapshot != null) applyPreview(bg = bgSnapshot, cornerDp = value)
+                if (fromUser) inkCanvas.applySelectedTextStyle(cornerRadiusPx = value * resources.displayMetrics.density)
+            }
+            override fun onStartTrackingTouch(sb: SeekBar?) {}
+            override fun onStopTrackingTouch(sb: SeekBar?) {}
+        })
+
+
 
 
         val selDp = inkCanvas.getSelectedTextSizeDp() ?: textSizeDp

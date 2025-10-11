@@ -5482,6 +5482,47 @@ class InkCanvasView @JvmOverloads constructor(
         val rC = RectF(leftC, topC, leftC + n.boxW, topC + n.boxH)
         return contentToViewRect(rC)
     }
+    data class TextStyleSnapshot(
+        val textSizePx: Float,
+        val isBold: Boolean,
+        val isItalic: Boolean,
+        val color: Int,
+        val bgColor: Int?,            // null = no fill
+        val cornerRadiusPx: Float
+    )
+
+    fun getSelectedTextStyle(): TextStyleSnapshot? {
+        val n = selectedText ?: return null
+        return TextStyleSnapshot(
+            textSizePx = n.textSizePx,
+            isBold = n.isBold,
+            isItalic = n.isItalic,
+            color = n.color,
+            bgColor = n.bgColor,
+            cornerRadiusPx = n.cornerRadiusPx
+        )
+    }
+
+    fun applySelectedTextStyle(
+        sizePx: Float? = null,
+        bold: Boolean? = null,
+        italic: Boolean? = null,
+        color: Int? = null,
+        bg: Int? = null,             // pass null to clear fill; use bg = -1 to "no change"
+        cornerRadiusPx: Float? = null
+    ) {
+        val n = selectedText ?: return
+        sizePx?.let { n.textSizePx = it }
+        bold?.let { n.isBold = it }
+        italic?.let { n.isItalic = it }
+        color?.let { n.color = it }
+        if (bg == null) { n.bgColor = null } else if (bg != -1) { n.bgColor = bg }
+        cornerRadiusPx?.let { n.cornerRadiusPx = it }
+        n.layoutDirty = true
+        invalidate()
+        // optional: requestAutosave() can be called on edit-commit; here we keep live updates cheap
+    }
+
     /** Set absolute IME lift in view px (positive = move content up). Idempotent. */
     fun setImeLiftPx(liftPx: Float) {
         imeLiftViewPx = liftPx
