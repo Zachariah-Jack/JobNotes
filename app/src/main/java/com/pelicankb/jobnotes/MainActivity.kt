@@ -1574,132 +1574,121 @@ class MainActivity : AppCompatActivity() {
         dismissAllPopups()
 
         val parent = (anchor.rootView as? ViewGroup) ?: window.decorView as ViewGroup
-        val content = layoutInflater.inflate(R.layout.popup_text_menu, parent, false)
-        // ---- Text popup wiring (persistent while editing) ----
+        val content = layoutInflater.inflate(R.layout.popup_text_menu, null)
+
+        // --- Text popup chip wiring (3 recents + More…) ---
         val preview = content.findViewById<TextView>(R.id.previewText)
         val sizeSeek = content.findViewById<SeekBar>(R.id.sizeSeek)
         val sizeLabel = content.findViewById<TextView>(R.id.sizeLabel)
         val chkBold = content.findViewById<CheckBox>(R.id.chkBold)
         val chkItalic = content.findViewById<CheckBox>(R.id.chkItalic)
-        val rowText = content.findViewById<LinearLayout>(R.id.rowTextColors)
-        val rowBg = content.findViewById<LinearLayout>(R.id.rowBgColors)
         val cornerSeek = content.findViewById<SeekBar>(R.id.cornerSeek)
         val cornerLabel = content.findViewById<TextView>(R.id.cornerLabel)
 
-        // Helpers
-        fun pxToSp(px: Float): Float = px / resources.displayMetrics.scaledDensity
-        fun spToPx(sp: Float): Float = sp * resources.displayMetrics.scaledDensity
+        val chipTxt1 = content.findViewById<ImageView>(R.id.chipTxt1)
+        val chipTxt2 = content.findViewById<ImageView>(R.id.chipTxt2)
+        val chipTxt3 = content.findViewById<ImageView>(R.id.chipTxt3)
+        val btnTxtMore = content.findViewById<ImageButton>(R.id.btnTxtMore)
 
-        fun applyPreview(
-            sizeSp: Float? = null,
-            bold: Boolean? = null,
-            italic: Boolean? = null,
-            color: Int? = null,
-            bg: Int? = -1,
-            cornerDp: Int? = null
-        ) {
-            sizeSp?.let { preview.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, it) }
-            val style = when {
-                (bold == true && italic == true) -> android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD_ITALIC)
-                (bold == true) -> android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-                (italic == true) -> android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.ITALIC)
-                else -> android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL)
+        val chipBgNone = content.findViewById<TextView>(R.id.chipBgNone)
+        val chipBg1 = content.findViewById<ImageView>(R.id.chipBg1)
+        val chipBg2 = content.findViewById<ImageView>(R.id.chipBg2)
+        val chipBg3 = content.findViewById<ImageView>(R.id.chipBg3)
+        val btnBgMore = content.findViewById<ImageButton>(R.id.btnBgMore)
+
+        // Style the round chips same as pen: circular 28dp with 1dp stroke
+        fun styleChip(view: View, color: Int) {
+            val d = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(color)
+                setStroke((1 * resources.displayMetrics.density).toInt(), 0x33000000)
             }
-            preview.typeface = style
-            color?.let { preview.setTextColor(it) }
-            if (bg == null) {
-                preview.background = null
-            } else if (bg != -1) {
-                val d = android.graphics.drawable.GradientDrawable()
-                d.setColor(bg)
-                val cr = (cornerDp ?: 0) * resources.displayMetrics.density
-                d.cornerRadius = cr
-                preview.background = d
-            } else {
-                // -1 means "no change"
+            view.background = d
+        }
+
+// Load & paint recents
+        val textRecents = loadRecentColors("text", intArrayOf(0xFF000000.toInt(), 0xFF1E88E5.toInt(), 0xFFE53935.toInt()))
+        val fillRecents = loadRecentColors("fill", intArrayOf(0xFFFFF59D.toInt(), 0xFFB2EBF2.toInt(), 0xFFF8BBD0.toInt()))
+
+        styleChip(chipTxt1, textRecents[0]); styleChip(chipTxt2, textRecents[1]); styleChip(chipTxt3, textRecents[2])
+        styleChip(chipBg1, fillRecents[0]); styleChip(chipBg2, fillRecents[1]); styleChip(chipBg3, fillRecents[2])
+
+        fun applyTextColor(c: Int) {
+            inkCanvas.applySelectedTextStyle(color = c)
+            saveRecentColor("text", c); // update memory
+        }
+
+        fun applyFillColor(c: Int?) {
+            when (c) {
+                null -> inkCanvas.applySelectedTextStyle(bg = null)
+                else -> inkCanvas.applySelectedTextStyle(bg = c)
+            }
+            if (c != null) saveRecentColor("fill", c)
+        }
+
+// Tap handling
+        chipTxt1.setOnClickListener { applyTextColor(textRecents[0]) }
+        chipTxt2.setOnClickListener { applyTextColor(textRecents[1]) }
+        chipTxt3.setOnClickListener { applyTextColor(textRecents[2]) }
+        chipBgNone.setOnClickListener { applyFillColor(null) }
+        chipBg1.setOnClickListener { applyFillColor(fillRecents[0]) }
+        chipBg2.setOnClickListener { applyFillColor(fillRecents[1]) }
+        chipBg3.setOnClickListener { applyFillColor(fillRecents[2]) }
+
+// “More…” -> open palette; when picked, apply + update chip 1 (MRU)
+        btnTxtMore.setOnClickListener {
+            showTextColorPalette(it, current = inkCanvas.getSelectedTextStyle()?.color ?: textRecents[0]) { picked ->
+                applyTextColor(picked)
+                styleChip(chipTxt1, picked)
+            }
+        }
+        btnBgMore.setOnClickListener {
+            showFillColorPalette(it, current = inkCanvas.getSelectedTextStyle()?.bgColor ?: fillRecents[0]) { pickedOrNull ->
+                if (pickedOrNull == null) {
+                    applyFillColor(null)
+                } else {
+                    applyFillColor(pickedOrNull)
+                    styleChip(chipBg1, pickedOrNull)
+                }
             }
         }
 
-        // Initialize from current text box (per-box defaults)
+        // Size, Bold, Italic, Radius (you already had these; keep live apply)
+        fun pxToSp(px: Float): Float = px / resources.displayMetrics.scaledDensity
+        fun spToPx(sp: Float): Float = sp * resources.displayMetrics.scaledDensity
+
         inkCanvas.getSelectedTextStyle()?.let { s ->
             val sizeSp = pxToSp(s.textSizePx).coerceIn(10f, 64f)
             sizeSeek.progress = sizeSp.toInt()
             sizeLabel.text = "${sizeSp.toInt()}sp"
             chkBold.isChecked = s.isBold
             chkItalic.isChecked = s.isItalic
-            cornerSeek.progress = (s.cornerRadiusPx / resources.displayMetrics.density).toInt()
-            cornerLabel.text = "${cornerSeek.progress}dp"
-            applyPreview(
-                sizeSp = sizeSp,
-                bold = s.isBold,
-                italic = s.isItalic,
-                color = s.color,
-                bg = s.bgColor ?: null,
-                cornerDp = cornerSeek.progress
-            )
+            val cornerDp = (s.cornerRadiusPx / resources.displayMetrics.density).toInt()
+            cornerSeek.progress = cornerDp
+            cornerLabel.text = "${cornerDp}dp"
         }
 
-        // Size slider -> live preview + apply
         sizeSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
                 val sp = value.coerceIn(10, 64).toFloat()
                 sizeLabel.text = "${sp.toInt()}sp"
-                applyPreview(sizeSp = sp)
-                if (fromUser) {
-                    inkCanvas.applySelectedTextStyle(sizePx = spToPx(sp))
-                }
+                if (fromUser) inkCanvas.applySelectedTextStyle(sizePx = spToPx(sp))
+                preview.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, sp)
             }
             override fun onStartTrackingTouch(sb: SeekBar?) {}
             override fun onStopTrackingTouch(sb: SeekBar?) {}
         })
-
-        // Bold / Italic toggles
-        chkBold.setOnCheckedChangeListener { _, b ->
-            applyPreview(bold = b)
-            inkCanvas.applySelectedTextStyle(bold = b)
-        }
-        chkItalic.setOnCheckedChangeListener { _, itc ->
-            applyPreview(italic = itc)
-            inkCanvas.applySelectedTextStyle(italic = itc)
-        }
-
-        // Tap any text color chip
-        fun wireColorRow(row: LinearLayout, isText: Boolean) {
-            for (i in 0 until row.childCount) {
-                val v = row.getChildAt(i)
-                v.setOnClickListener {
-                    if (v.id == R.id.c_bg_none) {
-                        applyPreview(bg = null)
-                        inkCanvas.applySelectedTextStyle(bg = null)
-                    } else {
-                        val tag = v.tag as? String ?: return@setOnClickListener
-                        val col = android.graphics.Color.parseColor(tag)
-                        if (isText) {
-                            applyPreview(color = col)
-                            inkCanvas.applySelectedTextStyle(color = col)
-                        } else {
-                            applyPreview(bg = col, cornerDp = cornerSeek.progress)
-                            inkCanvas.applySelectedTextStyle(bg = col)
-                        }
-                    }
-                }
-            }
-        }
-        wireColorRow(rowText, true)
-        wireColorRow(rowBg, false)
-
-        // Corner radius -> live preview + apply
-        cornerSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+        chkBold.setOnCheckedChangeListener { _: CompoundButton, b: Boolean -> inkCanvas.applySelectedTextStyle(bold = b) }
+        chkItalic.setOnCheckedChangeListener { _: CompoundButton, i: Boolean -> inkCanvas.applySelectedTextStyle(italic = i) }
+        cornerSeek.setOnSeekBarChangeListener(object: SeekBar.OnSeekBarChangeListener{
             override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
                 cornerLabel.text = "${value}dp"
-                // If a bg exists, refresh preview bg with new radius (no change to color)
-                val bgSnapshot = inkCanvas.getSelectedTextStyle()?.bgColor
-                if (bgSnapshot != null) applyPreview(bg = bgSnapshot, cornerDp = value)
-                if (fromUser) inkCanvas.applySelectedTextStyle(cornerRadiusPx = value * resources.displayMetrics.density)
+                inkCanvas.applySelectedTextStyle(cornerRadiusPx = value * resources.displayMetrics.density)
             }
             override fun onStartTrackingTouch(sb: SeekBar?) {}
             override fun onStopTrackingTouch(sb: SeekBar?) {}
         })
+
 
 
 
@@ -2050,6 +2039,102 @@ class MainActivity : AppCompatActivity() {
             "${applicationContext.packageName}.fileprovider",
             tmp
         )
+    }
+    // --- Recents memory (3 slots) ---
+    private fun prefs() = getSharedPreferences("text_popup_prefs", MODE_PRIVATE)
+
+    private fun loadRecentColors(kind: String, defaults: IntArray): IntArray {
+        val p = prefs()
+        return intArrayOf(
+            p.getInt("${kind}_recent_0", defaults[0]),
+            p.getInt("${kind}_recent_1", defaults[1]),
+            p.getInt("${kind}_recent_2", defaults[2])
+        )
+    }
+
+    private fun saveRecentColor(kind: String, color: Int) {
+        // MRU: shift down, put new on [0]
+        val a = loadRecentColors(kind, intArrayOf(color, color, color))
+        val b = intArrayOf(color, a[0], a[1])
+        prefs().edit()
+            .putInt("${kind}_recent_0", b[0])
+            .putInt("${kind}_recent_1", b[1])
+            .putInt("${kind}_recent_2", b[2])
+            .apply()
+    }
+
+    // --- Simple palette “like pen” (grid + custom hex) ---
+    private fun showTextColorPalette(anchor: View, current: Int, onPicked: (Int)->Unit) {
+        showColorPalette(anchor, current, allowNone = false) { c -> onPicked(c!!) }
+    }
+
+    private fun showFillColorPalette(anchor: View, current: Int?, onPicked: (Int?)->Unit) {
+        showColorPalette(anchor, current ?: 0xFFFFF59D.toInt(), allowNone = true, onPicked = onPicked)
+    }
+
+    private fun showColorPalette(anchor: View, current: Int, allowNone: Boolean, onPicked: (Int?)->Unit) {
+        val ctx = anchor.context
+        val container = LinearLayout(ctx).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(24, 24, 24, 12)
+        }
+        val grid = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        val palette = intArrayOf(
+            0xFF000000.toInt(), 0xFF1E88E5.toInt(), 0xFFE53935.toInt(),
+            0xFF43A047.toInt(), 0xFFFB8C00.toInt(), 0xFF8E24AA.toInt()
+        )
+        fun mkChip(color: Int): View {
+            val v = ImageView(ctx)
+            val sz = (28 * resources.displayMetrics.density).toInt()
+            val lp = LinearLayout.LayoutParams(sz, sz); lp.setMargins(8, 8, 8, 8); v.layoutParams = lp
+            val d = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(color)
+                setStroke((1 * resources.displayMetrics.density).toInt(), 0x33000000)
+            }
+            v.background = d
+            v.setOnClickListener { onPicked(color) }
+            return v
+        }
+        palette.forEach { grid.addView(mkChip(it)) }
+        container.addView(grid)
+
+        val btnRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
+        if (allowNone) {
+            val none = TextView(ctx).apply {
+                text = "None"; setPadding(16,8,16,8); setBackgroundColor(0xFFDDDDDD.toInt())
+                setOnClickListener { onPicked(null) }
+            }
+            btnRow.addView(none)
+        }
+        val custom = TextView(ctx).apply {
+            text = "Custom…"; setPadding(16,8,16,8); setBackgroundColor(0xFFE0E0E0.toInt())
+            setOnClickListener {
+                val input = EditText(ctx).apply {
+                    hint = "#RRGGBB"; setText(String.format("#%06X", 0xFFFFFF and current))
+                }
+                AlertDialog.Builder(ctx)
+                    .setTitle("Custom color")
+                    .setView(input)
+                    .setPositiveButton("OK") { d, _ ->
+                        runCatching {
+                            val s = input.text.toString().trim()
+                            val c = android.graphics.Color.parseColor(s)
+                            onPicked(c)
+                        }
+                        d.dismiss()
+                    }
+                    .setNegativeButton("Cancel", null)
+                    .show()
+            }
+        }
+        btnRow.addView(custom)
+        container.addView(btnRow)
+
+        AlertDialog.Builder(ctx)
+            .setView(container)
+            .setOnDismissListener { /* no-op */ }
+            .show()
     }
 
 }
