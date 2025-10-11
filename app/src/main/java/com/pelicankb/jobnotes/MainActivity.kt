@@ -1704,83 +1704,24 @@ class MainActivity : AppCompatActivity() {
 
 
 
-        val selDp = inkCanvas.getSelectedTextSizeDp() ?: textSizeDp
-        seek.progress = selDp.toInt().coerceIn(8, 96)
-        tvPreview.setTextSize(TypedValue.COMPLEX_UNIT_SP, selDp) // initial preview
 
-        sizeLbl.text = getString(R.string.size_dp, seek.progress)
 
-        cbB.isChecked = textBold
-        cbI.isChecked = textItalic
 
-        seek.setOnSeekBarChangeListener(object: SeekBar.OnSeekBarChangeListener{
-            override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
-                val v = value.coerceIn(8, 96)
-                textSizeDp = v.toFloat()
-                sizeLbl.text = getString(R.string.size_dp, v)
-
-                // If a text box is selected, update its size live
-                inkCanvas.setSelectedTextSizeDp(textSizeDp)
-                tvPreview.setTextSize(TypedValue.COMPLEX_UNIT_SP, v.toFloat())
-
-            }
-
-            override fun onStartTrackingTouch(sb: SeekBar?) {}
-            override fun onStopTrackingTouch(sb: SeekBar?) {}
-        })
-
-        cbB.setOnCheckedChangeListener { _, isChecked -> textBold = isChecked }
-        cbI.setOnCheckedChangeListener { _, isChecked -> textItalic = isChecked }
-
-        btnColor.setOnClickListener {
-            // Reuse your color picker
-            showAdvancedColorPicker(textColor) { picked ->
-                textColor = picked
-                btnColor.imageTintList = ColorStateList.valueOf(textColor)
-            }
-        }
-
-        btnInsert.setOnClickListener {
-            // Prompt simple text input
-            val input = EditText(this@MainActivity).apply {
-                setText("")
-                inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
-            }
-            AlertDialog.Builder(this@MainActivity)
-                .setTitle("Enter text")
-                .setView(input)
-                .setPositiveButton("Insert") { d, _ ->
-                    val txt = input.text?.toString().orEmpty()
-                    if (txt.isNotBlank()) {
-                        inkCanvas.insertTextAtCenter(
-                            text = txt,
-                            color = textColor,
-                            textSizeDp = textSizeDp,
-                            isBold = textBold,
-                            isItalic = textItalic
-                        )
-                    }
-                    d.dismiss()
-                    inkCanvas.requestFocus()
-                }
-                .setNegativeButton("Cancel", null)
-                .show()
-        }
-
-        textPopup = PopupWindow(
+        val popup = PopupWindow(
             content,
             ViewGroup.LayoutParams.WRAP_CONTENT,
             ViewGroup.LayoutParams.WRAP_CONTENT,
-            true
+            /* focusable = */ false
         ).apply {
-            setBackgroundDrawable(ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_card_popup))
-            isOutsideTouchable = true
-            elevation = 8f
-            setOnDismissListener { textPopup = null; inkCanvas.requestFocus() }
+            // Keep popup alive during IME show/animation & outside taps on canvas
+            isOutsideTouchable = false
+            inputMethodMode = PopupWindow.INPUT_METHOD_NEEDED
+            softInputMode = android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+            elevation = 8f * resources.displayMetrics.density
         }
+        textPopup = popup
+        popup.showAsDropDown(anchor, 0, 0)
 
-        // Anchor like your other popups
-        showPopupAnchoredWithinScreen(textPopup!!, anchor)
     }
 
 
