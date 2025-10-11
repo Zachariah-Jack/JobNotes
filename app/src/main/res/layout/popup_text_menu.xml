@@ -1,81 +1,155 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/popupTextRoot"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
+    android:id="@+id/textPopupRoot"
     android:orientation="vertical"
-    android:padding="12dp">
+    android:padding="12dp"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content">
 
-    <LinearLayout
-        android:id="@+id/rowSize"
-        android:layout_width="wrap_content"
+    <!-- Live "Pelican" preview -->
+    <TextView
+        android:id="@+id/previewText"
+        android:text="Pelican"
+        android:textSize="18sp"
+        android:padding="10dp"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical">
-        <TextView
-            android:id="@+id/previewPelican"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="Pelican"
-            android:layout_marginTop="4dp"/>
+        android:background="@android:color/transparent" />
 
-
-        <SeekBar
-            android:id="@+id/seekTextSize"
-            android:layout_width="200dp"
-            android:layout_height="wrap_content"
-            android:max="96" />
-
-        <TextView
-            android:id="@+id/labelTextSize"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="8dp"
-            android:text="@string/size_dp" />
-    </LinearLayout>
-
+    <!-- Font size -->
     <LinearLayout
-        android:id="@+id/rowStyle"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:layout_marginTop="8dp">
-
-        <CheckBox
-            android:id="@+id/cbBold"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="@string/bold" />
-
-        <CheckBox
-            android:id="@+id/cbItalic"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginStart="12dp"
-            android:text="@string/italic" />
-    </LinearLayout>
-
-    <LinearLayout
-        android:id="@+id/rowInsert"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:layout_marginTop="8dp"
-        android:gravity="center_vertical">
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
 
-        <ImageButton
-            android:id="@+id/btnTextColor"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:background="@drawable/bg_tool_toggle"
-            android:src="@drawable/ic_tool_color"
-            android:contentDescription="@string/cd_brush_preview" />
-
-        <Button
-            android:id="@+id/btnInsertText"
+        <TextView
+            android:text="Size"
+            android:layout_gravity="center_vertical"
             android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <SeekBar
+            android:id="@+id/sizeSeek"
+            android:layout_marginStart="12dp"
+            android:layout_width="220dp"
             android:layout_height="wrap_content"
-            android:text="@string/insert_text"
-            android:layout_marginStart="12dp" />
+            android:max="64" />
+
+        <TextView
+            android:id="@+id/sizeLabel"
+            android:text="18sp"
+            android:layout_marginStart="8dp"
+            android:layout_gravity="center_vertical"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+    </LinearLayout>
+
+    <!-- Bold / Italic -->
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <CheckBox
+            android:id="@+id/chkBold"
+            android:text="Bold"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <CheckBox
+            android:id="@+id/chkItalic"
+            android:text="Italic"
+            android:layout_marginStart="18dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+    </LinearLayout>
+
+    <!-- Text color chips -->
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <TextView
+            android:text="Text"
+            android:layout_gravity="center_vertical"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <LinearLayout
+            android:id="@+id/rowTextColors"
+            android:orientation="horizontal"
+            android:layout_marginStart="12dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content">
+
+            <!-- Use tag=#RRGGBB; add/remove chips as you like -->
+            <View android:id="@+id/c_txt_black" android:tag="#000000" android:layout_width="24dp" android:layout_height="24dp" android:background="#000000" android:layout_marginEnd="8dp"/>
+            <View android:id="@+id/c_txt_gray"  android:tag="#636A72" android:layout_width="24dp" android:layout_height="24dp" android:background="#636A72" android:layout_marginEnd="8dp"/>
+            <View android:id="@+id/c_txt_blue"  android:tag="#1E88E5" android:layout_width="24dp" android:layout_height="24dp" android:background="#1E88E5" android:layout_marginEnd="8dp"/>
+            <View android:id="@+id/c_txt_red"   android:tag="#E53935" android:layout_width="24dp" android:layout_height="24dp" android:background="#E53935" android:layout_marginEnd="8dp"/>
+            <View android:id="@+id/c_txt_green" android:tag="#43A047" android:layout_width="24dp" android:layout_height="24dp" android:background="#43A047" android:layout_marginEnd="8dp"/>
+            <View android:id="@+id/c_txt_orange" android:tag="#FB8C00" android:layout_width="24dp" android:layout_height="24dp" android:background="#FB8C00"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Background fill chips -->
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <TextView
+            android:text="Fill"
+            android:layout_gravity="center_vertical"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <LinearLayout
+            android:id="@+id/rowBgColors"
+            android:orientation="horizontal"
+            android:layout_marginStart="12dp"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content">
+
+            <TextView android:id="@+id/c_bg_none" android:text="None" android:paddingHorizontal="8dp" android:paddingVertical="2dp" android:background="#DDDDDD" android:layout_marginEnd="8dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
+            <View android:id="@+id/c_bg_yellow" android:tag="#FFF59D" android:layout_width="24dp" android:layout_height="24dp" android:background="#FFF59D" android:layout_marginEnd="8dp"/>
+            <View android:id="@+id/c_bg_cyan"   android:tag="#B2EBF2" android:layout_width="24dp" android:layout_height="24dp" android:background="#B2EBF2" android:layout_marginEnd="8dp"/>
+            <View android:id="@+id/c_bg_pink"   android:tag="#F8BBD0" android:layout_width="24dp" android:layout_height="24dp" android:background="#F8BBD0" android:layout_marginEnd="8dp"/>
+            <View android:id="@+id/c_bg_lime"   android:tag="#E6EE9C" android:layout_width="24dp" android:layout_height="24dp" android:background="#E6EE9C" />
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Corner radius -->
+    <LinearLayout
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content">
+
+        <TextView
+            android:text="Radius"
+            android:layout_gravity="center_vertical"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+
+        <SeekBar
+            android:id="@+id/cornerSeek"
+            android:layout_marginStart="12dp"
+            android:layout_width="220dp"
+            android:layout_height="wrap_content"
+            android:max="32" />
+
+        <TextView
+            android:id="@+id/cornerLabel"
+            android:text="0dp"
+            android:layout_marginStart="8dp"
+            android:layout_gravity="center_vertical"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
     </LinearLayout>
 </LinearLayout>
