@@ -2403,6 +2403,35 @@ class InkCanvasView @JvmOverloads constructor(
 
                 // Pointer index for this DOWN event (shared by this case)
                 val idx = event.actionIndex
+                // EARLY caret placement: if editing and the tap is INSIDE the current text, move caret and CONSUME.
+                run {
+                    if (editingSelectedText && selectedText != null) {
+                        val (cxTap, cyTap) = toContent(event.getX(idx), event.getY(idx))
+                        if (hitTextAtContent(cxTap, cyTap) === selectedText) {
+                            val n = selectedText!!
+                            // map tap to inner text coords (respect rotation)
+                            val s = sin(-n.angleRad); val c = cos(-n.angleRad)
+                            val dx = cxTap - n.center.x; val dy = cyTap - n.center.y
+                            val lx = dx * c - dy * s
+                            val ly = dx * s + dy * c
+                            val innerX = (lx + n.boxW * 0.5f - n.paddingPx).coerceAtLeast(0f)
+                            val innerY = (ly + n.boxH * 0.5f - n.paddingPx).coerceAtLeast(0f)
+
+                            ensureTextLayout(n)
+                            n.layout?.let { lay ->
+                                val line = lay.getLineForVertical(innerY.toInt().coerceAtLeast(0))
+                                val off = lay.getOffsetForHorizontal(line, innerX)
+                                n.selStart = off.coerceIn(0, n.editable.length)
+                                n.selEnd = n.selStart
+                                pokeCaret()
+                                invalidate()
+                            }
+                            // IMPORTANT: consume DOWN so commit-first below never runs for caret taps
+                            return true
+                        }
+                    }
+                }
+
                 // Commit-first on DOWN: only if tap is clearly OUTSIDE current text (not inside, not on border)
                 run {
                     if (editingSelectedText && selectedText != null) {
