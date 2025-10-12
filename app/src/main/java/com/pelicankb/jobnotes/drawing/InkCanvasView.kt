@@ -2403,18 +2403,20 @@ class InkCanvasView @JvmOverloads constructor(
 
                 // Pointer index for this DOWN event (shared by this case)
                 val idx = event.actionIndex
-                // Commit-first on DOWN: only if tap is clearly OUTSIDE the current text (not inside or on its border)
+                // Commit-first on DOWN: only if tap is clearly OUTSIDE current text (not inside, not on border)
                 run {
-                    val (cx0, cy0) = toContent(event.getX(idx), event.getY(idx))
                     if (editingSelectedText && selectedText != null) {
-                        val inside = isInsideSelectedText(cx0, cy0)
+                        val (cx0, cy0) = toContent(event.getX(idx), event.getY(idx))
+                        val hit = hitTextAtContent(cx0, cy0)
+                        val inside = (hit === selectedText) || isInsideSelectedText(cx0, cy0)
                         val onBorder = (detectHandle(cx0, cy0) != Handle.NONE)
                         if (!inside && !onBorder) {
                             setEditingSelectedText(false)
-                            // Do NOT return here; let UP select whatever was tapped.
+                            // Do NOT return; let UP select whatever was tapped.
                         }
                     }
                 }
+
 
 
                 // Single-finger (not stylus): pan or move selection; never draw (finger branch)
