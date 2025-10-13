@@ -57,6 +57,8 @@ import com.skydoves.colorpickerview.ColorPickerDialog
 import com.skydoves.colorpickerview.listeners.ColorEnvelopeListener
 import java.io.File
 import java.io.FileOutputStream
+import kotlin.math.roundToInt
+
 
 
 
