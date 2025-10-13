@@ -10,134 +10,127 @@
     <!-- Bold / Italic -->
     <LinearLayout
         android:orientation="horizontal"
+        android:layout_marginTop="0dp"
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
-
         <CheckBox
             android:id="@+id/chkBold"
             android:text="Bold"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-
+            android:layout_height="wrap_content"/>
         <CheckBox
             android:id="@+id/chkItalic"
             android:text="Italic"
             android:layout_marginStart="18dp"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
+            android:layout_height="wrap_content"/>
     </LinearLayout>
 
-    <!-- Text color chips (3 recents + More…) -->
+    <!-- Text colors: 3 round chips (tap opens palette) -->
     <LinearLayout
         android:orientation="horizontal"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="12dp"
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
-
         <TextView
             android:text="Text"
             android:layout_gravity="center_vertical"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-
+            android:layout_height="wrap_content"/>
         <LinearLayout
             android:id="@+id/rowTextColors"
             android:orientation="horizontal"
             android:layout_marginStart="12dp"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content">
-
-            <ImageView android:id="@+id/chipTxt1" android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="8dp"/>
-            <ImageView android:id="@+id/chipTxt2" android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="8dp"/>
-            <ImageView android:id="@+id/chipTxt3" android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="8dp"/>
-            <ImageButton android:id="@+id/btnTxtMore" android:layout_width="28dp" android:layout_height="28dp" android:background="@android:color/transparent" android:src="@android:drawable/ic_menu_edit"/>
+            <ImageView android:id="@+id/chipTxt1" android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="10dp"/>
+            <ImageView android:id="@+id/chipTxt2" android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="10dp"/>
+            <ImageView android:id="@+id/chipTxt3" android:layout_width="28dp" android:layout_height="28dp"/>
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Fill chips (None + 3 recents + More…) -->
+    <!-- Fill: None + 3 round chips (tap opens palette) -->
     <LinearLayout
         android:orientation="horizontal"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="12dp"
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
-
         <TextView
             android:text="Fill"
             android:layout_gravity="center_vertical"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-
+            android:layout_height="wrap_content"/>
         <LinearLayout
             android:id="@+id/rowBgColors"
             android:orientation="horizontal"
             android:layout_marginStart="12dp"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content">
-
-            <TextView android:id="@+id/chipBgNone" android:text="None" android:paddingHorizontal="8dp" android:paddingVertical="2dp" android:background="#DDDDDD" android:layout_marginEnd="8dp" android:layout_width="wrap_content" android:layout_height="wrap_content"/>
-            <ImageView android:id="@+id/chipBg1" android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="8dp"/>
-            <ImageView android:id="@+id/chipBg2" android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="8dp"/>
-            <ImageView android:id="@+id/chipBg3" android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="8dp"/>
-            <ImageButton android:id="@+id/btnBgMore" android:layout_width="28dp" android:layout_height="28dp" android:background="@android:color/transparent" android:src="@android:drawable/ic_menu_edit"/>
+            <TextView
+                android:id="@+id/chipBgNone"
+                android:text="None"
+                android:paddingHorizontal="10dp"
+                android:paddingVertical="4dp"
+                android:layout_marginEnd="10dp"
+                android:background="#DDDDDD"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"/>
+            <ImageView android:id="@+id/chipBg1" android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="10dp"/>
+            <ImageView android:id="@+id/chipBg2" android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="10dp"/>
+            <ImageView android:id="@+id/chipBg3" android:layout_width="28dp" android:layout_height="28dp"/>
         </LinearLayout>
     </LinearLayout>
 
     <!-- Corner radius -->
     <LinearLayout
         android:orientation="horizontal"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="12dp"
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
-
         <TextView
             android:text="Radius"
             android:layout_gravity="center_vertical"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-
+            android:layout_height="wrap_content"/>
         <SeekBar
             android:id="@+id/cornerSeek"
             android:layout_marginStart="12dp"
             android:layout_width="220dp"
             android:layout_height="wrap_content"
-            android:max="32" />
-
+            android:max="32"/>
         <TextView
             android:id="@+id/cornerLabel"
             android:text="0dp"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="10dp"
             android:layout_gravity="center_vertical"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
+            android:layout_height="wrap_content"/>
     </LinearLayout>
 
     <!-- Size slider AT BOTTOM -->
     <LinearLayout
         android:orientation="horizontal"
-        android:layout_marginTop="8dp"
+        android:layout_marginTop="12dp"
         android:layout_width="match_parent"
         android:layout_height="wrap_content">
-
         <TextView
             android:text="Size"
             android:layout_gravity="center_vertical"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
-
+            android:layout_height="wrap_content"/>
         <SeekBar
             android:id="@+id/sizeSeek"
             android:layout_marginStart="12dp"
             android:layout_width="220dp"
             android:layout_height="wrap_content"
-            android:max="64" />
-
+            android:max="64"/>
         <TextView
             android:id="@+id/sizeLabel"
             android:text="18sp"
-            android:layout_marginStart="8dp"
+            android:layout_marginStart="10dp"
             android:layout_gravity="center_vertical"
             android:layout_width="wrap_content"
-            android:layout_height="wrap_content" />
+            android:layout_height="wrap_content"/>
     </LinearLayout>
 
     <!-- Pelican preview UNDER the size slider -->
@@ -145,7 +138,7 @@
         android:id="@+id/previewText"
         android:text="Pelican"
         android:textSize="18sp"
-        android:paddingTop="10dp"
+        android:paddingTop="8dp"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content" />
+        android:layout_height="wrap_content"/>
 </LinearLayout>

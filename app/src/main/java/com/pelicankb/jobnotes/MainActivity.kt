@@ -1588,16 +1588,67 @@ class MainActivity : AppCompatActivity() {
         val cornerSeek = content.findViewById<SeekBar>(R.id.cornerSeek)
         val cornerLabel = content.findViewById<TextView>(R.id.cornerLabel)
 
-        val chipTxt1 = content.findViewById<ImageView>(R.id.chipTxt1)
-        val chipTxt2 = content.findViewById<ImageView>(R.id.chipTxt2)
-        val chipTxt3 = content.findViewById<ImageView>(R.id.chipTxt3)
-        val btnTxtMore = content.findViewById<ImageButton>(R.id.btnTxtMore)
+        chipTxt1.setOnClickListener {
+            showTextColorPalette(it, current = (inkCanvas.getSelectedTextStyle()?.color ?: textRecents[0])) { picked ->
+                // apply + MRU
+                inkCanvas.applySelectedTextStyle(color = picked)
+                saveRecentColor("text", picked)
+                styleChip(chipTxt1, picked) // put newest on chip1 visually
+            }
+        }
+        chipTxt2.setOnClickListener {
+            showTextColorPalette(it, current = (inkCanvas.getSelectedTextStyle()?.color ?: textRecents[1])) { picked ->
+                inkCanvas.applySelectedTextStyle(color = picked)
+                saveRecentColor("text", picked)
+                styleChip(chipTxt1, picked)
+            }
+        }
+        chipTxt3.setOnClickListener {
+            showTextColorPalette(it, current = (inkCanvas.getSelectedTextStyle()?.color ?: textRecents[2])) { picked ->
+                inkCanvas.applySelectedTextStyle(color = picked)
+                saveRecentColor("text", picked)
+                styleChip(chipTxt1, picked)
+            }
+        }
 
-        val chipBgNone = content.findViewById<TextView>(R.id.chipBgNone)
-        val chipBg1 = content.findViewById<ImageView>(R.id.chipBg1)
-        val chipBg2 = content.findViewById<ImageView>(R.id.chipBg2)
-        val chipBg3 = content.findViewById<ImageView>(R.id.chipBg3)
-        val btnBgMore = content.findViewById<ImageButton>(R.id.btnBgMore)
+        chipBgNone.setOnClickListener {
+            inkCanvas.applySelectedTextStyle(bg = null)
+        }
+        chipBg1.setOnClickListener {
+            showFillColorPalette(it, current = (inkCanvas.getSelectedTextStyle()?.bgColor ?: fillRecents[0])) { pickedOrNull ->
+                if (pickedOrNull == null) {
+                    inkCanvas.applySelectedTextStyle(bg = null)
+                } else {
+                    inkCanvas.applySelectedTextStyle(bg = pickedOrNull)
+                    saveRecentColor("fill", pickedOrNull)
+                    styleChip(chipBg1, pickedOrNull)
+                }
+            }
+        }
+        chipBg2.setOnClickListener {
+            showFillColorPalette(it, current = (inkCanvas.getSelectedTextStyle()?.bgColor ?: fillRecents[1])) { pickedOrNull ->
+                if (pickedOrNull == null) {
+                    inkCanvas.applySelectedTextStyle(bg = null)
+                } else {
+                    inkCanvas.applySelectedTextStyle(bg = pickedOrNull)
+                    saveRecentColor("fill", pickedOrNull)
+                    styleChip(chipBg1, pickedOrNull)
+                }
+            }
+        }
+        chipBg3.setOnClickListener {
+            showFillColorPalette(it, current = (inkCanvas.getSelectedTextStyle()?.bgColor ?: fillRecents[2])) { pickedOrNull ->
+                if (pickedOrNull == null) {
+                    inkCanvas.applySelectedTextStyle(bg = null)
+                } else {
+                    inkCanvas.applySelectedTextStyle(bg = pickedOrNull)
+                    saveRecentColor("fill", pickedOrNull)
+                    styleChip(chipBg1, pickedOrNull)
+                }
+            }
+        }
+
+
 
         // Style the round chips same as pen: circular 28dp with 1dp stroke
         fun styleChip(view: View, color: Int) {
@@ -1629,32 +1680,7 @@ class MainActivity : AppCompatActivity() {
             if (c != null) saveRecentColor("fill", c)
         }
 
-// Tap handling
-        chipTxt1.setOnClickListener { applyTextColor(textRecents[0]) }
-        chipTxt2.setOnClickListener { applyTextColor(textRecents[1]) }
-        chipTxt3.setOnClickListener { applyTextColor(textRecents[2]) }
-        chipBgNone.setOnClickListener { applyFillColor(null) }
-        chipBg1.setOnClickListener { applyFillColor(fillRecents[0]) }
-        chipBg2.setOnClickListener { applyFillColor(fillRecents[1]) }
-        chipBg3.setOnClickListener { applyFillColor(fillRecents[2]) }
 
-// “More…” -> open palette; when picked, apply + update chip 1 (MRU)
-        btnTxtMore.setOnClickListener {
-            showTextColorPalette(it, current = inkCanvas.getSelectedTextStyle()?.color ?: textRecents[0]) { picked ->
-                applyTextColor(picked)
-                styleChip(chipTxt1, picked)
-            }
-        }
-        btnBgMore.setOnClickListener {
-            showFillColorPalette(it, current = inkCanvas.getSelectedTextStyle()?.bgColor ?: fillRecents[0]) { pickedOrNull ->
-                if (pickedOrNull == null) {
-                    applyFillColor(null)
-                } else {
-                    applyFillColor(pickedOrNull)
-                    styleChip(chipBg1, pickedOrNull)
-                }
-            }
-        }
 
         // Size, Bold, Italic, Radius (you already had these; keep live apply)
         fun pxToSp(px: Float): Float = px / resources.displayMetrics.scaledDensity
