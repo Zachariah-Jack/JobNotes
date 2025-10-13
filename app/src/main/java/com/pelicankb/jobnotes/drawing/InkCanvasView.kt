@@ -1275,6 +1275,8 @@ class InkCanvasView @JvmOverloads constructor(
     private var placingGhost = false
     // Pending tap that may become a caret set (tap) or a move (drag past slop)
     private var pendingCaretTap = false
+    private var suppressNextSingleTapUp = false
+
     private var pendingCaretPointerId = -1
     private var pendingDownViewX = 0f
     private var pendingDownViewY = 0f
@@ -2403,12 +2405,15 @@ class InkCanvasView @JvmOverloads constructor(
 
                 // Pointer index for this DOWN event (shared by this case)
                 val idx = event.actionIndex
-                // EARLY caret placement: if editing and the tap is INSIDE the current text, move caret and CONSUME.
+                // EARLY caret placement: if editing and tap is INSIDE (and NOT on border), move caret and CONSUME.
                 run {
                     if (editingSelectedText && selectedText != null) {
                         val (cxTap, cyTap) = toContent(event.getX(idx), event.getY(idx))
-                        if (hitTextAtContent(cxTap, cyTap) === selectedText) {
-                            val n = selectedText!!
+                        val n = selectedText!!
+                        val onBorder = isNearTextBorder(n, cxTap, cyTap, 8f)
+
+                        val inside = isInsideTextBox(n, cxTap, cyTap)
+                        if (inside && !onBorder) {
                             // map tap to inner text coords (respect rotation)
                             val s = sin(-n.angleRad); val c = cos(-n.angleRad)
                             val dx = cxTap - n.center.x; val dy = cyTap - n.center.y
@@ -2426,25 +2431,29 @@ class InkCanvasView @JvmOverloads constructor(
                                 pokeCaret()
                                 invalidate()
                             }
-                            // IMPORTANT: consume DOWN so commit-first below never runs for caret taps
-                            return true
+                            suppressNextSingleTapUp = true   // block UP from exiting
+                            return true                       // CONSUME
                         }
                     }
                 }
+
+
 
                 // Commit-first on DOWN: only if tap is clearly OUTSIDE current text (not inside, not on border)
                 run {
                     if (editingSelectedText && selectedText != null) {
                         val (cx0, cy0) = toContent(event.getX(idx), event.getY(idx))
-                        val hit = hitTextAtContent(cx0, cy0)
-                        val inside = (hit === selectedText) || isInsideSelectedText(cx0, cy0)
-                        val onBorder = (detectHandle(cx0, cy0) != Handle.NONE)
+                        val n = selectedText!!
+                        val inside = isInsideTextBox(n, cx0, cy0)
+                        val onBorder = isNearTextBorder(n, cx0, cy0, 8f)
+
                         if (!inside && !onBorder) {
                             setEditingSelectedText(false)
-                            // Do NOT return; let UP select whatever was tapped.
+                            // do NOT return; let UP select whatever was tapped
                         }
                     }
                 }
+
 
 
 
@@ -2455,7 +2464,8 @@ class InkCanvasView @JvmOverloads constructor(
                     // TAP-TO-CARET (FINGER) while editing inside the same text box
                     if (editingSelectedText && selectedText != null) {
                         val n = selectedText!!
-                        if (hitTextAtContent(cx, cy) === n) {
+                        if (isInsideTextBox(n, cx, cy)) {
+
                             // If finger is actually on a handle, let the later handle path take it
                             val hProbe = detectHandle(cx, cy)
                             if (!isTransformHandle(hProbe)) {
@@ -2579,6 +2589,16 @@ class InkCanvasView @JvmOverloads constructor(
 
 
                     // Otherwise, start finger panning
+                    // While editing, never start finger panning
+                    if (editingSelectedText) {
+                        activePointerId = -1
+                        fingerPanning = false
+                        drawing = false
+                        selectingGesture = false
+                        transforming = false
+                        return true
+                    }
+
                     activePointerId = event.getPointerId(idx)
                     lastPanFocusX = event.getX(idx)
                     lastPanFocusY = event.getY(idx)
@@ -2648,7 +2668,8 @@ class InkCanvasView @JvmOverloads constructor(
 // (but ONLY if we are not on a handle; handles must win)
                     val hPre = detectHandle(cx, cy)
 // Stylus caret while editing (only if not on a transform handle)
-                    if (editingSelectedText && selectedText != null && !isTransformHandle(hPre) && hitTextAtContent(cx, cy) === selectedText) {
+                    if (editingSelectedText && selectedText != null && !isTransformHandle(hPre) && isInsideTextBox(selectedText!!, cx, cy)) {
+
                         val n = selectedText!!
                         val s = sin(-n.angleRad); val c = cos(-n.angleRad)
                         val dx = cx - n.center.x; val dy = cy - n.center.y
@@ -2767,7 +2788,8 @@ class InkCanvasView @JvmOverloads constructor(
                         }
                     }
                     // If a text is selected and tap was outside, drop text selection
-                    if (selectedText != null && hitTextAtContent(cx, cy) == null) {
+                    if (!editingSelectedText && selectedText != null && hitTextAtContent(cx, cy) == null) {
+
                         selectedText = null
                         selectionInteractive = false
                         invalidate()
@@ -2782,7 +2804,8 @@ class InkCanvasView @JvmOverloads constructor(
                     }
 
                     // Stylus hand/pan tool (or hold-to-pan when it triggers)
-                    if (panMode || tempPanActive) {
+                    if ((panMode || tempPanActive) && !editingSelectedText) {
+
                         activePointerId = event.getPointerId(idx)
                         lastPanFocusX = event.getX(idx)
                         lastPanFocusY = event.getY(idx)
@@ -3701,12 +3724,14 @@ class InkCanvasView @JvmOverloads constructor(
 
             when (transformKind) {
                 TransformKind.TRANSLATE -> {
+                    if (editingSelectedText) return@let  // hard block moves while editing
                     val dx = cx - downX
                     val dy = cy - downY
                     n.center.x += dx
                     n.center.y += dy
                     downX = cx; downY = cy
                     clampTextToDocument(n)
+
 
                 }
                 TransformKind.SCALE_X -> {
@@ -5209,6 +5234,17 @@ class InkCanvasView @JvmOverloads constructor(
 
         return nearTop || nearBottom || nearLeft || nearRight
     }
+    // Geometric inside test for the SELECTED text box; ignores z-order/overlaps.
+    private fun isInsideTextBox(n: TextNode, x: Float, y: Float): Boolean {
+        val s = sin(-n.angleRad); val c = cos(-n.angleRad)
+        val dx = x - n.center.x;  val dy = y - n.center.y
+        val lx = dx * c - dy * s
+        val ly = dx * s + dy * c
+        val halfW = n.boxW * 0.5f
+        val halfH = n.boxH * 0.5f
+        return (abs(lx) <= halfW && abs(ly) <= halfH)
+    }
+
 
 
     private fun hitTextAtContent(cx: Float, cy: Float): TextNode? {
@@ -5496,13 +5532,13 @@ class InkCanvasView @JvmOverloads constructor(
 
     // ===== Dirty-rect helpers (content -> view) =====
 
-    /** Convert a content-space rect to a clamped view-space Rect (ints). */
+    // Content → View rect (used by getSelectedTextViewRect / getSelectedTextInnerViewRect)
     private fun contentToViewRect(src: RectF): Rect {
         val left   = (translationX + src.left   * scaleFactor).roundToInt()
-        val top    = (translationY + src.top    * scaleFactor).roundToInt()
+        val top    = (translationY + src.top    * scaleFactor - imeLiftViewPx).roundToInt()
         val right  = (translationX + src.right  * scaleFactor).roundToInt()
-        val bottom = (translationY + src.bottom * scaleFactor).roundToInt()
-        // Clamp to view bounds so we never request out-of-range redraws
+        val bottom = (translationY + src.bottom * scaleFactor - imeLiftViewPx).roundToInt()
+
         val clampedLeft   = left.coerceIn(0, width)
         val clampedTop    = top.coerceIn(0, height)
         val clampedRight  = right.coerceIn(clampedLeft, width)
@@ -5543,7 +5579,8 @@ class InkCanvasView @JvmOverloads constructor(
         bold: Boolean? = null,
         italic: Boolean? = null,
         color: Int? = null,
-        bg: Int? = null,             // pass null to clear fill; use bg = -1 to "no change"
+        bg: Int? = (-1),             // -1 = no change; null = clear; {color} = set
+
         cornerRadiusPx: Float? = null
     ) {
         val n = selectedText ?: return
@@ -5551,7 +5588,12 @@ class InkCanvasView @JvmOverloads constructor(
         bold?.let { n.isBold = it }
         italic?.let { n.isItalic = it }
         color?.let { n.color = it }
-        if (bg == null) { n.bgColor = null } else if (bg != -1) { n.bgColor = bg }
+        when (bg) {
+            -1   -> {}                 // no change
+            null -> n.bgColor = null   // explicit clear
+            else -> n.bgColor = bg
+        }
+
         cornerRadiusPx?.let { n.cornerRadiusPx = it }
         n.layoutDirty = true
         invalidate()
@@ -5599,7 +5641,9 @@ class InkCanvasView @JvmOverloads constructor(
 
 
     private fun contentToViewX(cx: Float): Float = translationX + cx * scaleFactor
-    private fun contentToViewY(cy: Float): Float = translationY + cy * scaleFactor
+    // Content → View (Y only): mirror the visual lift from onDraw
+    private fun contentToViewY(cy: Float): Float =
+        translationY + cy * scaleFactor - imeLiftViewPx
 
 
     /**
@@ -5668,9 +5712,11 @@ class InkCanvasView @JvmOverloads constructor(
 
 
 
+    // View → Content: undo BOTH the IME lift (view space) and the pan/zoom.
     private fun toContent(viewX: Float, viewY: Float): Pair<Float, Float> {
+        val vy = viewY + imeLiftViewPx      // undo the visual lift we add in onDraw
         val cx = (viewX - translationX) / scaleFactor
-        val cy = (viewY - translationY) / scaleFactor
+        val cy = (vy    - translationY) / scaleFactor
         return cx to cy
     }
 
@@ -5862,6 +5908,12 @@ class InkCanvasView @JvmOverloads constructor(
         override fun onSingleTapUp(e: MotionEvent): Boolean {
             // If tapping on the selected IMAGE, commit it (drop selection)
             val (cx, cy) = toContent(e.x, e.y)
+            // If we just handled a caret tap on DOWN, swallow this UP to avoid exiting edit.
+            if (suppressNextSingleTapUp) {
+                suppressNextSingleTapUp = false
+                return true
+            }
+
             // Edit mode: single tap on the *border* (not inside) exits to Move mode
             if (editingSelectedText && selectedText != null) {
                 val n = selectedText!!
@@ -5882,11 +5934,17 @@ class InkCanvasView @JvmOverloads constructor(
                 return true
             }
 
-            // Commit-first: if we are editing and the tap is NOT inside the current text, end edit and swallow
-            if (editingSelectedText && (selectedText == null || hitTextAtContent(cx, cy) !== selectedText)) {
-                setEditingSelectedText(false)
-                return true
+            // Commit-first (UP): only if clearly outside (not inside & not on border)
+            if (editingSelectedText && selectedText != null) {
+                val n = selectedText!!
+                val inside = isInsideTextBox(n, cx, cy)
+                val onBorder = isNearTextBorder(n, cx, cy, 8f)
+                if (!inside && !onBorder) {
+                    setEditingSelectedText(false)
+                    return true
+                }
             }
+
 
 
             if (selectedImage != null && isInsideSelectedImage(cx, cy)) {
