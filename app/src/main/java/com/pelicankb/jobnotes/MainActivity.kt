@@ -1698,11 +1698,13 @@ class MainActivity : AppCompatActivity() {
         sizeSeek.max = 96
         sizeSeek.progress = initSizeDp.roundToInt().coerceIn(8, 96)
         sizeLabel.text = getString(R.string.size_dp, sizeSeek.progress)
+        var lastAppliedSize = -1
+
 
         chkBold.isChecked = initBold
         chkItalic.isChecked = initItalic
 
-        cornerSeek.max = 32
+        cornerSeek.max = 256
         cornerSeek.progress = initCornerDp.coerceIn(0, 32)
         cornerLabel.text = "${cornerSeek.progress}dp"
 
@@ -1742,15 +1744,20 @@ class MainActivity : AppCompatActivity() {
 // Listeners (live-apply to selected text)
         sizeSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
-                val dp = value.coerceIn(8, 96).toFloat()
-                sizeLabel.text = getString(R.string.size_dp, dp.toInt())
-                textSizeDp = dp
-                // Canvas wants DP for size via this API
-                inkCanvas.setSelectedTextSizeDp(dp)
-                updatePreviewSize(dp)
+                val dpInt = value.coerceIn(8, 96)
+                if (dpInt == lastAppliedSize) return
+                lastAppliedSize = dpInt
+                sizeLabel.text = getString(R.string.size_dp, dpInt)
+                // Smooth live update (no autosave while dragging)
+                inkCanvas.setSelectedTextSizeDpLive(dpInt.toFloat())
+                preview?.setTextSize(TypedValue.COMPLEX_UNIT_SP, dpInt.toFloat())
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
-            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {
+                val dpInt = sizeSeek.progress.coerceIn(8, 96)
+                // One autosave when the user lets go
+                inkCanvas.finalizeSelectedTextSizeDp(dpInt.toFloat())
+            }
         })
 
         chkBold.setOnCheckedChangeListener { _, isChecked ->
@@ -1766,10 +1773,21 @@ class MainActivity : AppCompatActivity() {
 
         cornerSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
             override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
-                cornerLabel.text = "${value}dp"
-                // Canvas API expects PX for corner radius
-                inkCanvas.applySelectedTextStyle(cornerRadiusPx = value * density)
-                updatePreviewRadius(value)
+                val dp = value.coerceIn(0, 256)
+                cornerLabel.text = "${dp}dp"
+                // NEW: let InkCanvasView convert DP → content px; stays consistent across zoom
+                inkCanvas.applySelectedTextCornerRadiusDp(dp)
+                // Preview background if selection has a fill
+                val bg = inkCanvas.getSelectedTextStyle()?.bgColor
+                if (bg != null) {
+                    preview?.background = GradientDrawable().apply {
+                        shape = GradientDrawable.RECTANGLE
+                        cornerRadius = dp * resources.displayMetrics.density
+                        setColor(bg)
+                    }
+                } else {
+                    preview?.background = null
+                }
             }
             override fun onStartTrackingTouch(seekBar: SeekBar?) {}
             override fun onStopTrackingTouch(seekBar: SeekBar?) {}

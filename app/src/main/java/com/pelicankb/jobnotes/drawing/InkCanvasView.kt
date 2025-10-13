@@ -1757,6 +1757,43 @@ class InkCanvasView @JvmOverloads constructor(
     }
     fun setSelectedTextSizeDp(dp: Float) { selectedText?.let { it.textSizePx = dpToPx(dp); it.layoutDirty = true; invalidate(); requestAutosave() }    }
     fun getSelectedTextSizeDp(): Float? = selectedText?.let { it.textSizePx / resources.displayMetrics.density }
+    /**
+     * Live update during slider drag: update size WITHOUT autosave to avoid jank.
+     * Converts DP to CONTENT px so visuals are zoom-invariant.
+     */
+    fun setSelectedTextSizeDpLive(dp: Float) {
+        val n = selectedText ?: return
+        val contentPx = dpToPx(dp) / max(1f, scaleFactor)
+        if (abs(n.textSizePx - contentPx) < 0.75f) return  // coalesce noisy deltas
+        n.textSizePx = contentPx
+        n.layoutDirty = true
+        invalidate()
+    }
+
+    /**
+     * Finalize size change (on slider release): wraps + autosaves once.
+     */
+    fun finalizeSelectedTextSizeDp(dp: Float) {
+        val n = selectedText ?: return
+        val contentPx = dpToPx(dp) / max(1f, scaleFactor)
+        if (abs(n.textSizePx - contentPx) < 0.1f) { requestAutosave(); return }
+        n.textSizePx = contentPx
+        n.layoutDirty = true
+        invalidate()
+        requestAutosave()
+    }
+
+    /**
+     * Corner radius in DP → CONTENT px (zoom-invariant). No autosave here; caller can batch.
+     */
+    fun applySelectedTextCornerRadiusDp(dp: Int) {
+        val n = selectedText ?: return
+        val contentPx = dpToPx(dp.toFloat()) / max(1f, scaleFactor)
+        if (abs(n.cornerRadiusPx - contentPx) < 0.5f) return
+        n.cornerRadiusPx = contentPx
+        n.layoutDirty = true
+        invalidate()
+    }
 
 
 
