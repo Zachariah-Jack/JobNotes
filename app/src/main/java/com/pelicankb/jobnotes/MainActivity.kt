@@ -1587,13 +1587,42 @@ class MainActivity : AppCompatActivity() {
         val chkItalic = content.findViewById<CheckBox>(R.id.chkItalic)
         val cornerSeek = content.findViewById<SeekBar>(R.id.cornerSeek)
         val cornerLabel = content.findViewById<TextView>(R.id.cornerLabel)
+        // Text/Fill chips inside the popup content
+        val chipTxt1   = content.findViewById<ImageView>(R.id.chipTxt1)
+        val chipTxt2   = content.findViewById<ImageView>(R.id.chipTxt2)
+        val chipTxt3   = content.findViewById<ImageView>(R.id.chipTxt3)
+        val chipBgNone = content.findViewById<TextView>(R.id.chipBgNone)
+        val chipBg1    = content.findViewById<ImageView>(R.id.chipBg1)
+        val chipBg2    = content.findViewById<ImageView>(R.id.chipBg2)
+        val chipBg3    = content.findViewById<ImageView>(R.id.chipBg3)
 
+
+
+
+
+
+        // Style the round chips same as pen: circular 28dp with 1dp stroke
+        fun styleChip(view: View, color: Int) {
+            val d = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(color)
+                setStroke((1 * resources.displayMetrics.density).toInt(), 0x33000000)
+            }
+            view.background = d
+        }
+        // Load & paint recents
+        val textRecents = loadRecentColors("text", intArrayOf(0xFF000000.toInt(), 0xFF1E88E5.toInt(), 0xFFE53935.toInt()))
+        val fillRecents = loadRecentColors("fill", intArrayOf(0xFFFFF59D.toInt(), 0xFFB2EBF2.toInt(), 0xFFF8BBD0.toInt()))
+
+        styleChip(chipTxt1, textRecents[0]); styleChip(chipTxt2, textRecents[1]); styleChip(chipTxt3, textRecents[2])
+        styleChip(chipBg1, fillRecents[0]); styleChip(chipBg2, fillRecents[1]); styleChip(chipBg3, fillRecents[2])
+
+        // Open the stylus-style palette on chip taps; apply + MRU on pick
         chipTxt1.setOnClickListener {
             showTextColorPalette(it, current = (inkCanvas.getSelectedTextStyle()?.color ?: textRecents[0])) { picked ->
-                // apply + MRU
                 inkCanvas.applySelectedTextStyle(color = picked)
                 saveRecentColor("text", picked)
-                styleChip(chipTxt1, picked) // put newest on chip1 visually
+                styleChip(chipTxt1, picked)
             }
         }
         chipTxt2.setOnClickListener {
@@ -1611,9 +1640,8 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        chipBgNone.setOnClickListener {
-            inkCanvas.applySelectedTextStyle(bg = null)
-        }
+        chipBgNone.setOnClickListener { inkCanvas.applySelectedTextStyle(bg = null) }
+
         chipBg1.setOnClickListener {
             showFillColorPalette(it, current = (inkCanvas.getSelectedTextStyle()?.bgColor ?: fillRecents[0])) { pickedOrNull ->
                 if (pickedOrNull == null) {
@@ -1649,23 +1677,6 @@ class MainActivity : AppCompatActivity() {
         }
 
 
-
-        // Style the round chips same as pen: circular 28dp with 1dp stroke
-        fun styleChip(view: View, color: Int) {
-            val d = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(color)
-                setStroke((1 * resources.displayMetrics.density).toInt(), 0x33000000)
-            }
-            view.background = d
-        }
-
-// Load & paint recents
-        val textRecents = loadRecentColors("text", intArrayOf(0xFF000000.toInt(), 0xFF1E88E5.toInt(), 0xFFE53935.toInt()))
-        val fillRecents = loadRecentColors("fill", intArrayOf(0xFFFFF59D.toInt(), 0xFFB2EBF2.toInt(), 0xFFF8BBD0.toInt()))
-
-        styleChip(chipTxt1, textRecents[0]); styleChip(chipTxt2, textRecents[1]); styleChip(chipTxt3, textRecents[2])
-        styleChip(chipBg1, fillRecents[0]); styleChip(chipBg2, fillRecents[1]); styleChip(chipBg3, fillRecents[2])
 
         fun applyTextColor(c: Int) {
             inkCanvas.applySelectedTextStyle(color = c)
