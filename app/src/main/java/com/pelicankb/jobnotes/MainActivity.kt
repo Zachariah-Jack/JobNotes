@@ -916,6 +916,100 @@ class MainActivity : AppCompatActivity() {
         // Persist latest pen color
         prefs.edit().putInt(PREF_PEN_COLOR, penFamilyColor).apply()
     }
+    /**
+     * Generic color palette dialog used by Text/Fill chips.
+     * - If allowNone=true, shows a "None" action that returns null.
+     * - Otherwise returns the picked color via onPicked.
+     */
+    private fun showColorPalette(anchor: View, current: Int, allowNone: Boolean, onPicked: (Int?) -> Unit) {
+        val dialogView = LayoutInflater.from(this)
+            .inflate(R.layout.dialog_color_palette, null, false)
+        val container = dialogView.findViewById<LinearLayout>(R.id.paletteContainer)
+
+        val columns = 5
+        val tileSize = 48.dp()
+        val tileMargin = 8.dp()
+
+        var tempColor = current
+        var selectedTile: View? = null
+
+        fun makeRow() = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+        }
+        fun makeTile() = ImageButton(this).apply {
+            layoutParams = LinearLayout.LayoutParams(tileSize, tileSize).apply {
+                setMargins(tileMargin, tileMargin, tileMargin, tileMargin)
+            }
+            setImageResource(R.drawable.ic_tool_color)
+            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_color_chip_selector)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            isSelected = false
+        }
+
+        var row = makeRow()
+        PRESET_COLORS.forEachIndexed { index, color ->
+            if (index % columns == 0) {
+                if (index != 0) container.addView(row)
+                row = makeRow()
+            }
+            val tile = makeTile().apply {
+                imageTintList = ColorStateList.valueOf(color)
+                setOnClickListener {
+                    selectedTile?.isSelected = false
+                    isSelected = true
+                    selectedTile = this
+                    tempColor = color
+                }
+            }
+            if (color == tempColor) { tile.isSelected = true; selectedTile = tile }
+            row.addView(tile)
+        }
+        container.addView(row)
+
+        // Custom color tile
+        val customRow = makeRow()
+        val customTile = ImageButton(this).apply {
+            layoutParams = LinearLayout.LayoutParams(tileSize, tileSize).apply {
+                setMargins(tileMargin, tileMargin, tileMargin, tileMargin)
+            }
+            setImageResource(R.drawable.ic_tool_palette)
+            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_color_chip_selector)
+            setOnClickListener {
+                showAdvancedColorPicker(tempColor) { picked ->
+                    tempColor = picked
+                    selectedTile?.isSelected = false
+                    isSelected = true
+                    selectedTile = this
+                }
+            }
+        }
+        customRow.addView(customTile)
+        container.addView(customRow)
+
+        val builder = AlertDialog.Builder(this)
+            .setTitle("Pick a color")
+            .setView(dialogView)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("OK") { d, _ ->
+                onPicked(tempColor)
+                d.dismiss()
+                inkCanvas.requestFocus()
+            }
+
+        if (allowNone) {
+            builder.setNeutralButton("None") { d, _ ->
+                onPicked(null)
+                d.dismiss()
+                inkCanvas.requestFocus()
+            }
+        }
+
+        builder.show()
+    }
 
     private fun showColorPaletteDialog(targetChip: ImageButton) {
         val dialogView = LayoutInflater.from(this)
