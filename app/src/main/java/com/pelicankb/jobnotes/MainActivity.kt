@@ -2071,68 +2071,92 @@ class MainActivity : AppCompatActivity() {
         showColorPalette(anchor, current ?: 0xFFFFF59D.toInt(), allowNone = true, onPicked = onPicked)
     }
 
-    private fun showColorPalette(anchor: View, current: Int, allowNone: Boolean, onPicked: (Int?)->Unit) {
-        val ctx = anchor.context
-        val container = LinearLayout(ctx).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(24, 24, 24, 12)
-        }
-        val grid = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-        val palette = intArrayOf(
-            0xFF000000.toInt(), 0xFF1E88E5.toInt(), 0xFFE53935.toInt(),
-            0xFF43A047.toInt(), 0xFFFB8C00.toInt(), 0xFF8E24AA.toInt()
-        )
-        fun mkChip(color: Int): View {
-            val v = ImageView(ctx)
-            val sz = (28 * resources.displayMetrics.density).toInt()
-            val lp = LinearLayout.LayoutParams(sz, sz); lp.setMargins(8, 8, 8, 8); v.layoutParams = lp
-            val d = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(color)
-                setStroke((1 * resources.displayMetrics.density).toInt(), 0x33000000)
-            }
-            v.background = d
-            v.setOnClickListener { onPicked(color) }
-            return v
-        }
-        palette.forEach { grid.addView(mkChip(it)) }
-        container.addView(grid)
+    // NEW signature: optional onPicked lambda; stylus callers can omit it.
+    private fun showColorPaletteDialog(targetChip: ImageButton, onPicked: ((Int) -> Unit)? = null) {
+        val dialogView = LayoutInflater.from(this)
+            .inflate(R.layout.dialog_color_palette, null, false)
+        val container = dialogView.findViewById<LinearLayout>(R.id.paletteContainer)
 
-        val btnRow = LinearLayout(ctx).apply { orientation = LinearLayout.HORIZONTAL }
-        if (allowNone) {
-            val none = TextView(ctx).apply {
-                text = "None"; setPadding(16,8,16,8); setBackgroundColor(0xFFDDDDDD.toInt())
-                setOnClickListener { onPicked(null) }
-            }
-            btnRow.addView(none)
+        val columns = 5
+        val tileSize = 48.dp()
+        val tileMargin = 8.dp()
+
+        var tempColor = targetChip.imageTintList?.defaultColor ?: Color.BLACK
+        var selectedTile: View? = null
+
+        fun makeRow() = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
         }
-        val custom = TextView(ctx).apply {
-            text = "Custom…"; setPadding(16,8,16,8); setBackgroundColor(0xFFE0E0E0.toInt())
-            setOnClickListener {
-                val input = EditText(ctx).apply {
-                    hint = "#RRGGBB"; setText(String.format("#%06X", 0xFFFFFF and current))
+        fun makeTile() = ImageButton(this).apply {
+            layoutParams = LinearLayout.LayoutParams(tileSize, tileSize).apply {
+                setMargins(tileMargin, tileMargin, tileMargin, tileMargin)
+            }
+            setImageResource(R.drawable.ic_tool_color)
+            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_color_chip_selector)
+            scaleType = ImageView.ScaleType.CENTER_INSIDE
+            isSelected = false
+        }
+
+        var row = makeRow()
+        PRESET_COLORS.forEachIndexed { index, color ->
+            if (index % columns == 0) {
+                if (index != 0) container.addView(row)
+                row = makeRow()
+            }
+            val tile = makeTile().apply {
+                imageTintList = ColorStateList.valueOf(color)
+                setOnClickListener {
+                    selectedTile?.isSelected = false
+                    isSelected = true
+                    selectedTile = this
+                    tempColor = color
                 }
-                AlertDialog.Builder(ctx)
-                    .setTitle("Custom color")
-                    .setView(input)
-                    .setPositiveButton("OK") { d, _ ->
-                        runCatching {
-                            val s = input.text.toString().trim()
-                            val c = android.graphics.Color.parseColor(s)
-                            onPicked(c)
-                        }
-                        d.dismiss()
-                    }
-                    .setNegativeButton("Cancel", null)
-                    .show()
+            }
+            if (color == tempColor) { tile.isSelected = true; selectedTile = tile }
+            row.addView(tile)
+        }
+        container.addView(row)
+
+        // Custom color (unchanged)
+        val customRow = makeRow()
+        val customTile = ImageButton(this).apply {
+            layoutParams = LinearLayout.LayoutParams(tileSize, tileSize).apply {
+                setMargins(tileMargin, tileMargin, tileMargin, tileMargin)
+            }
+            setImageResource(R.drawable.ic_tool_palette)
+            background = ContextCompat.getDrawable(this@MainActivity, R.drawable.bg_color_chip_selector)
+            setOnClickListener {
+                showAdvancedColorPicker(tempColor) { picked ->
+                    tempColor = picked
+                    selectedTile?.isSelected = false
+                    isSelected = true
+                    selectedTile = this
+                }
             }
         }
-        btnRow.addView(custom)
-        container.addView(btnRow)
+        customRow.addView(customTile)
+        container.addView(customRow)
 
-        AlertDialog.Builder(ctx)
-            .setView(container)
-            .setOnDismissListener { /* no-op */ }
+        AlertDialog.Builder(this)
+            .setTitle("Pick a color")
+            .setView(dialogView)
+            .setNegativeButton("Cancel", null)
+            .setPositiveButton("OK") { d, _ ->
+                // NEW: call back for text/fill chips; stylus path stays intact if onPicked == null
+                targetChip.imageTintList = ColorStateList.valueOf(tempColor)
+                onPicked?.invoke(tempColor)
+                if (onPicked == null && targetChip.id == selectedChipId) {
+                    // stylus: apply to pen color if this chip is the selected one
+                    penFamilyColor = tempColor
+                    if (toolFamily == ToolFamily.PEN_FAMILY) inkCanvas.setColor(tempColor)
+                }
+                d.dismiss()
+                inkCanvas.requestFocus()
+            }
             .show()
     }
 
