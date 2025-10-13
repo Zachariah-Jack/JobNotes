@@ -1588,14 +1588,99 @@ class MainActivity : AppCompatActivity() {
         val cornerSeek = content.findViewById<SeekBar>(R.id.cornerSeek)
         val cornerLabel = content.findViewById<TextView>(R.id.cornerLabel)
         // Text/Fill chips inside the popup content
-        val chipTxt1   = content.findViewById<ImageView>(R.id.chipTxt1)
-        val chipTxt2   = content.findViewById<ImageView>(R.id.chipTxt2)
-        val chipTxt3   = content.findViewById<ImageView>(R.id.chipTxt3)
-        val chipBgNone = content.findViewById<TextView>(R.id.chipBgNone)
-        val chipBg1    = content.findViewById<ImageView>(R.id.chipBg1)
-        val chipBg2    = content.findViewById<ImageView>(R.id.chipBg2)
-        val chipBg3    = content.findViewById<ImageView>(R.id.chipBg3)
+        val chipTxt1 = content.findViewById<ImageButton>(R.id.chipTxt1)
+        val chipTxt2 = content.findViewById<ImageButton>(R.id.chipTxt2)
+        val chipTxt3 = content.findViewById<ImageButton>(R.id.chipTxt3)
+        val chipBg1  = content.findViewById<ImageButton>(R.id.chipBg1)
+        val chipBg2  = content.findViewById<ImageButton>(R.id.chipBg2)
+        val chipBg3  = content.findViewById<ImageButton>(R.id.chipBg3)
 
+        val chipBgNone = content.findViewById<TextView>(R.id.chipBgNone)
+        fun setChipVisual(btn: ImageButton, @ColorInt color: Int) {
+            btn.setImageResource(R.drawable.ic_tool_color)
+            btn.background = ContextCompat.getDrawable(this, R.drawable.bg_color_chip_selector)
+            btn.imageTintList = ColorStateList.valueOf(color)
+        }
+        @ColorInt fun getChipColor(btn: ImageButton): Int =
+            btn.imageTintList?.defaultColor ?: Color.BLACK
+
+        // Default palettes (Text = bold; Fill = lighter)
+        val textDefaults = intArrayOf(
+            0xFF000000.toInt(), // black
+            0xFF1E88E5.toInt(), // blue 600
+            0xFFE53935.toInt()  // red 600
+        )
+        val fillDefaults = intArrayOf(
+            0xFFFFF59D.toInt(), // light yellow
+            0xFFB2EBF2.toInt(), // light cyan
+            0xFFF8BBD0.toInt()  // light pink
+        )
+
+// MRU recents (or defaults if none yet)
+        var textRecents = loadRecentColors("text", textDefaults)
+        var fillRecents = loadRecentColors("fill", fillDefaults)
+
+// Paint chips
+        setChipVisual(chipTxt1, textRecents[0]); setChipVisual(chipTxt2, textRecents[1]); setChipVisual(chipTxt3, textRecents[2])
+        setChipVisual(chipBg1,  fillRecents[0]); setChipVisual(chipBg2,  fillRecents[1]); setChipVisual(chipBg3,  fillRecents[2])
+// Track which chip is "selected" in this popup session (stylus semantics)
+        var selTextChipId = R.id.chipTxt1
+        var selFillChipId = R.id.chipBg1
+
+// Text chips: tap selects; tap again opens the big palette; apply to canvas
+        val onTextChipClick = View.OnClickListener { v ->
+            val chip = v as ImageButton
+            if (chip.id != selTextChipId) {
+                selTextChipId = chip.id
+                // Apply this chip's color immediately
+                inkCanvas.applySelectedTextStyle(color = getChipColor(chip))
+                // Promote to MRU: move selected color to slot 0 and repaint first chip
+                val picked = getChipColor(chip)
+                saveRecentColor("text", picked)
+                textRecents = loadRecentColors("text", textDefaults)
+                setChipVisual(chipTxt1, textRecents[0])
+            } else {
+                // Same chip tapped again -> open palette like stylus chips
+                showColorPaletteDialog(chip) { picked ->
+                    setChipVisual(chip, picked)
+                    selTextChipId = chip.id
+                    inkCanvas.applySelectedTextStyle(color = picked)
+                    saveRecentColor("text", picked)
+                    textRecents = loadRecentColors("text", textDefaults)
+                    setChipVisual(chipTxt1, textRecents[0])
+                }
+            }
+        }
+        chipTxt1.setOnClickListener(onTextChipClick)
+        chipTxt2.setOnClickListener(onTextChipClick)
+        chipTxt3.setOnClickListener(onTextChipClick)
+
+// Fill chips: same behavior; "None" clears fill
+        chipBgNone.setOnClickListener { inkCanvas.applySelectedTextStyle(bg = null) }
+
+        val onFillChipClick = View.OnClickListener { v ->
+            val chip = v as ImageButton
+            if (chip.id != selFillChipId) {
+                selFillChipId = chip.id
+                val picked = getChipColor(chip)
+                inkCanvas.applySelectedTextStyle(bg = picked)
+                saveRecentColor("fill", picked)
+                fillRecents = loadRecentColors("fill", fillDefaults)
+                setChipVisual(chipBg1, fillRecents[0])
+            } else {
+                showColorPaletteDialog(chip) { picked ->
+                    setChipVisual(chip, picked)
+                    selFillChipId = chip.id
+                    inkCanvas.applySelectedTextStyle(bg = picked)
+                    saveRecentColor("fill", picked)
+                    fillRecents = loadRecentColors("fill", fillDefaults)
+                    setChipVisual(chipBg1, fillRecents[0])
+                }
+            }
+        }
+        chipBg1.setOnClickListener(onFillChipClick)
+        chipBg2.setOnClickListener(onFillChipClick)
+        chipBg3.setOnClickListener(onFillChipClick)
 
 
 
