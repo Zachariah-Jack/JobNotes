@@ -43,9 +43,27 @@
             android:layout_marginStart="12dp"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content">
-            <ImageView android:id="@+id/chipTxt1" android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="10dp"/>
-            <ImageView android:id="@+id/chipTxt2" android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="10dp"/>
-            <ImageView android:id="@+id/chipTxt3" android:layout_width="28dp" android:layout_height="28dp"/>
+            <ImageButton android:id="@+id/chipTxt1" android:layout_width="28dp" android:layout_height="28dp"
+                android:background="@drawable/bg_color_chip_selector"
+                android:src="@drawable/ic_tool_color"
+                android:padding="0dp"
+                android:layout_marginEnd="10dp"
+                android:contentDescription="@string/app_name"/>
+
+            <ImageButton android:id="@+id/chipTxt2" android:layout_width="28dp" android:layout_height="28dp"
+                android:background="@drawable/bg_color_chip_selector"
+                android:src="@drawable/ic_tool_color"
+                android:padding="0dp"
+                android:layout_marginEnd="10dp"
+                android:contentDescription="@string/app_name"/>
+
+            <ImageButton android:id="@+id/chipTxt3" android:layout_width="28dp" android:layout_height="28dp"
+                android:background="@drawable/bg_color_chip_selector"
+                android:src="@drawable/ic_tool_color"
+                android:padding="0dp"
+                android:layout_marginEnd="10dp"
+                android:contentDescription="@string/app_name"/>
+
         </LinearLayout>
     </LinearLayout>
 
@@ -75,9 +93,27 @@
                 android:background="#DDDDDD"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"/>
-            <ImageView android:id="@+id/chipBg1" android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="10dp"/>
-            <ImageView android:id="@+id/chipBg2" android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="10dp"/>
-            <ImageView android:id="@+id/chipBg3" android:layout_width="28dp" android:layout_height="28dp"/>
+            <ImageButton android:id="@+id/chipBg1" android:layout_width="28dp" android:layout_height="28dp"
+                android:background="@drawable/bg_color_chip_selector"
+                android:src="@drawable/ic_tool_color"
+                android:padding="0dp"
+                android:layout_marginEnd="10dp"
+                android:contentDescription="@string/app_name"/>
+
+            <ImageButton android:id="@+id/chipBg2" android:layout_width="28dp" android:layout_height="28dp"
+                android:background="@drawable/bg_color_chip_selector"
+                android:src="@drawable/ic_tool_color"
+                android:padding="0dp"
+                android:layout_marginEnd="10dp"
+                android:contentDescription="@string/app_name"/>
+
+            <ImageButton android:id="@+id/chipBg3" android:layout_width="28dp" android:layout_height="28dp"
+                android:background="@drawable/bg_color_chip_selector"
+                android:src="@drawable/ic_tool_color"
+                android:padding="0dp"
+                android:layout_marginEnd="10dp"
+                android:contentDescription="@string/app_name"/>
+
         </LinearLayout>
     </LinearLayout>
 
