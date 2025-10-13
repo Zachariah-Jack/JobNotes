@@ -1683,6 +1683,96 @@ class MainActivity : AppCompatActivity() {
         val chkItalic = content.findViewById<CheckBox>(R.id.chkItalic)
         val cornerSeek = content.findViewById<SeekBar>(R.id.cornerSeek)
         val cornerLabel = content.findViewById<TextView>(R.id.cornerLabel)
+        // Seed state from selection (or current defaults)
+        val styleNow = inkCanvas.getSelectedTextStyle()
+        val density = resources.displayMetrics.density
+
+        val initSizeDp = styleNow?.let { (it.textSizePx / density) } ?: textSizeDp
+        val initBold   = styleNow?.isBold   ?: textBold
+        val initItalic = styleNow?.isItalic ?: textItalic
+        val initCornerDp = styleNow?.cornerRadiusPx?.let { (it / density).toInt() } ?: 0
+
+// Initialize controls
+        sizeSeek.max = 96
+        sizeSeek.progress = initSizeDp.roundToInt().coerceIn(8, 96)
+        sizeLabel.text = getString(R.string.size_dp, sizeSeek.progress)
+
+        chkBold.isChecked = initBold
+        chkItalic.isChecked = initItalic
+
+        cornerSeek.max = 32
+        cornerSeek.progress = initCornerDp.coerceIn(0, 32)
+        cornerLabel.text = "${cornerSeek.progress}dp"
+
+        // Preview helper
+        fun updatePreviewSize(dp: Float) {
+            preview?.setTextSize(TypedValue.COMPLEX_UNIT_SP, dp)
+        }
+        fun updatePreviewTypeface(bold: Boolean, italic: Boolean) {
+            val style = when {
+                bold && italic -> Typeface.BOLD_ITALIC
+                bold -> Typeface.BOLD
+                italic -> Typeface.ITALIC
+                else -> Typeface.NORMAL
+            }
+            preview?.setTypeface(Typeface.DEFAULT, style)
+        }
+        fun updatePreviewRadius(dp: Int) {
+            val bg = (inkCanvas.getSelectedTextStyle()?.bgColor)
+            if (bg != null) {
+                val shape = GradientDrawable().apply {
+                    shape = GradientDrawable.RECTANGLE
+                    cornerRadius = dp * density
+                    setColor(bg)
+                }
+                preview?.background = shape
+            } else {
+                // No fill -> clear preview background; radius still applied in canvas
+                preview?.background = null
+            }
+        }
+
+// Apply initial preview
+        updatePreviewSize(initSizeDp)
+        updatePreviewTypeface(initBold, initItalic)
+        updatePreviewRadius(cornerSeek.progress)
+
+// Listeners (live-apply to selected text)
+        sizeSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
+                val dp = value.coerceIn(8, 96).toFloat()
+                sizeLabel.text = getString(R.string.size_dp, dp.toInt())
+                textSizeDp = dp
+                // Canvas wants DP for size via this API
+                inkCanvas.setSelectedTextSizeDp(dp)
+                updatePreviewSize(dp)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
+        chkBold.setOnCheckedChangeListener { _, isChecked ->
+            textBold = isChecked
+            inkCanvas.applySelectedTextStyle(bold = isChecked)
+            updatePreviewTypeface(isChecked, chkItalic.isChecked)
+        }
+        chkItalic.setOnCheckedChangeListener { _, isChecked ->
+            textItalic = isChecked
+            inkCanvas.applySelectedTextStyle(italic = isChecked)
+            updatePreviewTypeface(chkBold.isChecked, isChecked)
+        }
+
+        cornerSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(sb: SeekBar?, value: Int, fromUser: Boolean) {
+                cornerLabel.text = "${value}dp"
+                // Canvas API expects PX for corner radius
+                inkCanvas.applySelectedTextStyle(cornerRadiusPx = value * density)
+                updatePreviewRadius(value)
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) {}
+            override fun onStopTrackingTouch(seekBar: SeekBar?) {}
+        })
+
         // Text/Fill chips inside the popup content
         val chipTxt1 = content.findViewById<ImageButton>(R.id.chipTxt1)
         val chipTxt2 = content.findViewById<ImageButton>(R.id.chipTxt2)
