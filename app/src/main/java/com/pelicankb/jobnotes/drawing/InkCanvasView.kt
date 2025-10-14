@@ -222,6 +222,23 @@ class InkCanvasView @JvmOverloads constructor(
                             postInvalidateOnAnimation()
                             return
                         }
+                        is TextOp.Style -> {
+                            // Revert to BEFORE
+                            op.node.textSizePx    = op.beforeSizePx
+                            op.node.isBold        = op.beforeBold
+                            op.node.isItalic      = op.beforeItalic
+                            op.node.color         = op.beforeColor
+                            op.node.bgColor       = op.beforeBgColor
+                            op.node.cornerRadiusPx= op.beforeCornerPx
+                            op.node.layoutDirty   = true
+
+                            textRedoStack.add(op)
+                            actionRedoStack.add(ActionKind.TEXT_OP)
+                            rebuildCommitted()
+                            postInvalidateOnAnimation()
+                            return
+                        }
+
                     }
                 }
 
@@ -321,6 +338,23 @@ class InkCanvasView @JvmOverloads constructor(
                         postInvalidateOnAnimation()
                         return
                     }
+                    is TextOp.Style -> {
+                        // Re-apply AFTER
+                        op.node.textSizePx     = op.afterSizePx
+                        op.node.isBold         = op.afterBold
+                        op.node.isItalic       = op.afterItalic
+                        op.node.color          = op.afterColor
+                        op.node.bgColor        = op.afterBgColor
+                        op.node.cornerRadiusPx = op.afterCornerPx
+                        op.node.layoutDirty    = true
+
+                        actionUndoStack.add(ActionKind.TEXT_OP)
+                        textUndoStack.add(op)
+                        rebuildCommitted()
+                        postInvalidateOnAnimation()
+                        return
+                    }
+
                 }
             }
 
@@ -1070,6 +1104,22 @@ class InkCanvasView @JvmOverloads constructor(
             val afterW: Float, val afterH: Float,
             val afterAngle: Float
         ) : TextOp()
+        data class Style(
+            val node: TextNode,
+            val beforeSizePx: Float,
+            val beforeBold: Boolean,
+            val beforeItalic: Boolean,
+            val beforeColor: Int,
+            val beforeBgColor: Int?,      // nullable
+            val beforeCornerPx: Float,
+            val afterSizePx: Float,
+            val afterBold: Boolean,
+            val afterItalic: Boolean,
+            val afterColor: Int,
+            val afterBgColor: Int?,       // nullable
+            val afterCornerPx: Float
+        ) : TextOp()
+
     }
     private val textUndoStack = mutableListOf<TextOp>()
     private val textRedoStack = mutableListOf<TextOp>()
@@ -5616,25 +5666,64 @@ class InkCanvasView @JvmOverloads constructor(
         bold: Boolean? = null,
         italic: Boolean? = null,
         color: Int? = null,
-        bg: Int? = (-1),             // -1 = no change; null = clear; {color} = set
-
+        bg: Int? = (-1),             // -1 = no change; null = clear; else = set color
         cornerRadiusPx: Float? = null
     ) {
         val n = selectedText ?: return
-        sizePx?.let { n.textSizePx = it }
-        bold?.let { n.isBold = it }
-        italic?.let { n.isItalic = it }
-        color?.let { n.color = it }
+
+        // BEFORE snapshot
+        val bSize   = n.textSizePx
+        val bBold   = n.isBold
+        val bItalic = n.isItalic
+        val bColor  = n.color
+        val bBg     = n.bgColor
+        val bCorner = n.cornerRadiusPx
+
+        // Apply requested changes
+        var changed = false
+        sizePx?.let   { if (it != n.textSizePx)      { n.textSizePx = it;        changed = true } }
+        bold?.let     { if (it != n.isBold)          { n.isBold = it;            changed = true } }
+        italic?.let   { if (it != n.isItalic)        { n.isItalic = it;          changed = true } }
+        color?.let    { if (it != n.color)           { n.color = it;             changed = true } }
         when (bg) {
-            -1   -> {}                 // no change
-            null -> n.bgColor = null   // explicit clear
-            else -> n.bgColor = bg
+            -1   -> {} // no change
+            null -> if (n.bgColor != null)           { n.bgColor = null;         changed = true }
+            else -> if (bg != n.bgColor)             { n.bgColor = bg;           changed = true }
+        }
+        cornerRadiusPx?.let {
+            if (it != n.cornerRadiusPx)              { n.cornerRadiusPx = it;    changed = true }
         }
 
-        cornerRadiusPx?.let { n.cornerRadiusPx = it }
+        if (!changed) return
+
+        // AFTER snapshot
+        val aSize   = n.textSizePx
+        val aBold   = n.isBold
+        val aItalic = n.isItalic
+        val aColor  = n.color
+        val aBg     = n.bgColor
+        val aCorner = n.cornerRadiusPx
+
+        // Mark dirty & redraw
         n.layoutDirty = true
         invalidate()
-        // optional: requestAutosave() can be called on edit-commit; here we keep live updates cheap
+
+        // History: push style change (clears redo branch)
+        textRedoStack.clear()
+        actionRedoStack.clear()
+        textUndoStack.add(
+            TextOp.Style(
+                node = n,
+                beforeSizePx = bSize, beforeBold = bBold, beforeItalic = bItalic, beforeColor = bColor,
+                beforeBgColor = bBg, beforeCornerPx = bCorner,
+                afterSizePx = aSize,  afterBold = aBold,  afterItalic = aItalic,  afterColor = aColor,
+                afterBgColor = aBg,   afterCornerPx = aCorner
+            )
+        )
+        actionUndoStack.add(ActionKind.TEXT_OP)
+
+        // Persist soon after a style change
+        requestAutosave()
     }
 
     /** Set absolute IME lift in view px (positive = move content up). Idempotent. */
@@ -6399,27 +6488,23 @@ class InkCanvasView @JvmOverloads constructor(
 
 
     }
-    /** Clamp a text box so its bounding box stays within the current page. */
+    /** Clamp a text box so its bounding box stays within the full document (all pages). */
     private fun clampTextToDocument(n: TextNode) {
         val docW = width.toFloat()
-        // Find the section this text center currently lives in (or nearest)
-        var secIdx = sectionIndexAtDocY(n.center.y)
-        if (secIdx < 0) secIdx = if (n.center.y < 0f) 0 else max(0, sections.lastIndex)
-        val s = sections.getOrNull(secIdx) ?: return
-        val secTop = s.yOffsetPx
-        val secBot = s.yOffsetPx + s.heightPx
+        val docH = contentHeightPx()  // includes all sections/pages
 
+        // Bounds in document space so the node can cross section boundaries while dragging
         val minCx = n.boxW * 0.5f
         val maxCx = docW - n.boxW * 0.5f
-        val minCy = secTop + n.boxH * 0.5f
-        val maxCy = secBot - n.boxH * 0.5f
+        val minCy = n.boxH * 0.5f
+        val maxCy = docH - n.boxH * 0.5f
 
-        // If ranges are empty (box bigger than doc/page), center in that dimension
+        // If ranges are empty (box bigger than doc in a dimension), center that dimension
         n.center.x = if (minCx <= maxCx) n.center.x.coerceIn(minCx, maxCx) else docW * 0.5f
-        val secMidY = (secTop + secBot) * 0.5f
-        n.center.y = if (minCy <= maxCy) n.center.y.coerceIn(minCy, maxCy) else secMidY
-
+        val docMidY = docH * 0.5f
+        n.center.y = if (minCy <= maxCy) n.center.y.coerceIn(minCy, maxCy) else docMidY
     }
+
 
 
     // Paste centered at (cx, cy) in doc-space, then immediately enter translate
