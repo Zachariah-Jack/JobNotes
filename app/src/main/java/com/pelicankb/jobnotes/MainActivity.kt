@@ -15,6 +15,9 @@ import android.graphics.Typeface
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+
 import android.text.InputType
 import android.util.TypedValue
 import android.view.*
@@ -217,7 +220,48 @@ class MainActivity : AppCompatActivity() {
     private var textBold: Boolean = false
     private var textItalic: Boolean = false
     private var textPopup: PopupWindow? = null
-    // Floating editor overlay for immediate typing into a text box
+    // Keep Text popup pinned while a text node is selected (edit or move/resize)
+    private val textPopupHandler = Handler(Looper.getMainLooper())
+    private var textPopupWatchRunning = false
+    private var suppressTextPopupUntilSelectionClears = false
+
+    private val textPopupWatchdog = object : Runnable {
+        override fun run() {
+            // Heuristic: if there's a text selection, InkCanvasView exposes style for it.
+            val hasTextSelection = inkCanvas.getSelectedTextStyle() != null
+
+            if (hasTextSelection) {
+                // Only (re)show if not suppressed and not already showing
+                if (!suppressTextPopupUntilSelectionClears && textPopup == null) {
+                    // Anchor to the Text tool button so we have a stable position
+                    findViewById<View>(R.id.btnText)?.let { anchor ->
+                        toggleTextPopup(anchor)
+                    }
+                }
+            } else {
+                // Selection cleared → drop suppression and dismiss any lingering popup
+                if (suppressTextPopupUntilSelectionClears) suppressTextPopupUntilSelectionClears = false
+                textPopup?.dismiss()
+            }
+
+            if (textPopupWatchRunning) {
+                textPopupHandler.postDelayed(this, 250L)
+            }
+        }
+    }
+
+    private fun startTextPopupWatchdog() {
+        if (textPopupWatchRunning) return
+        textPopupWatchRunning = true
+        textPopupHandler.post(textPopupWatchdog)
+    }
+
+    private fun stopTextPopupWatchdog() {
+        textPopupWatchRunning = false
+        textPopupHandler.removeCallbacks(textPopupWatchdog)
+    }
+
+
 
 
 
@@ -708,6 +752,8 @@ class MainActivity : AppCompatActivity() {
         btnOverflowKbd.setOnClickListener { showOverflowMenu(it) }
 
         updateToolbarActiveStates()
+        startTextPopupWatchdog()
+
 
 
     }
@@ -718,6 +764,11 @@ class MainActivity : AppCompatActivity() {
             autosaveFile.outputStream().use { it.write(bytes) }
         } catch (_: Throwable) { /* ignore */ }
     }
+    override fun onDestroy() {
+        super.onDestroy()
+        stopTextPopupWatchdog()
+    }
+
 
 
 
@@ -1912,6 +1963,15 @@ class MainActivity : AppCompatActivity() {
             inputMethodMode = PopupWindow.INPUT_METHOD_NEEDED
             softInputMode = android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
             elevation = 8f * resources.displayMetrics.density
+            setOnDismissListener {
+                textPopup = null
+                // If a text node is still selected, suppress auto-reopen until selection clears once
+                if (inkCanvas.getSelectedTextStyle() != null) {
+                    suppressTextPopupUntilSelectionClears = true
+                }
+                inkCanvas.requestFocus()
+            }
+
         }
         textPopup = popup
         popup.showAsDropDown(anchor, 0, 0)
