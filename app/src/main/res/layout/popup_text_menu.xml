@@ -100,11 +100,12 @@
                 android:layout_height="28dp"
                 android:background="@drawable/bg_color_chip_selector"
                 android:src="@drawable/ic_tool_color"
-                android:tint="#FFFFFFFF"           <!-- White -->
-            android:tag="#FFFFFFFF"
-            android:padding="0dp"
-            android:layout_marginEnd="10dp"
-            android:contentDescription="@string/app_name"/>
+                android:tint="#FFFFFFFF"
+                android:tag="#FFFFFFFF"
+                android:padding="0dp"
+                android:layout_marginEnd="10dp"
+                android:contentDescription="@string/app_name"/>
+
 
             <ImageButton
                 android:id="@+id/chipBg2"
@@ -112,11 +113,12 @@
                 android:layout_height="28dp"
                 android:background="@drawable/bg_color_chip_selector"
                 android:src="@drawable/ic_tool_color"
-                android:tint="#FFF8E1"             <!-- Light Cream 50 -->
-            android:tag="#FFF8E1"
-            android:padding="0dp"
-            android:layout_marginEnd="10dp"
-            android:contentDescription="@string/app_name"/>
+                android:tint="#FFF8E1"
+                android:tag="#FFF8E1"
+                android:padding="0dp"
+                android:layout_marginEnd="10dp"
+                android:contentDescription="@string/app_name"/>
+
 
             <ImageButton
                 android:id="@+id/chipBg3"
@@ -124,11 +126,12 @@
                 android:layout_height="28dp"
                 android:background="@drawable/bg_color_chip_selector"
                 android:src="@drawable/ic_tool_color"
-                android:tint="#E3F2FD"             <!-- Light Blue 50 -->
-            android:tag="#E3F2FD"
-            android:padding="0dp"
-            android:layout_marginEnd="10dp"
-            android:contentDescription="@string/app_name"/>
+                android:tint="#E3F2FD"
+                android:tag="#E3F2FD"
+                android:padding="0dp"
+                android:layout_marginEnd="10dp"
+                android:contentDescription="@string/app_name"/>
+
 
 
         </LinearLayout>
@@ -150,7 +153,7 @@
             android:layout_marginStart="12dp"
             android:layout_width="220dp"
             android:layout_height="wrap_content"
-            android:max="32"/>
+            android:max="256"/>
         <TextView
             android:id="@+id/cornerLabel"
             android:text="0dp"
