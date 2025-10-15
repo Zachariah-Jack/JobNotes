@@ -4856,6 +4856,10 @@ class InkCanvasView @JvmOverloads constructor(
     private fun ensureTextLayout(n: TextNode) {
         if (!n.layoutDirty && n.layout != null) return
 
+
+        // If boxW not set yet, pick a sane default from canvas width (~60%), clamped
+        val canvasW = width.toFloat().coerceAtLeast(1f)
+
         val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = n.color
             textSize = n.textSizePx
@@ -4863,30 +4867,48 @@ class InkCanvasView @JvmOverloads constructor(
             textSkewX = if (n.isItalic) -0.25f else 0f
         }
 
-        // If boxW not set yet, pick a sane default from canvas width (~60%), clamped
-        val canvasW = width.toFloat().coerceAtLeast(1f)
-        val effPad = computeDynamicTextInnerPadPx(n)
+// Layout padding: tiny AA pad only; radius handled via per-line indents (+ rounded clip)
+        val pad = max(n.paddingPx, aaPadPx())
+
+// Inner box (content px) available to StaticLayout before indents
         val defaultInner = (canvasW * 0.6f)
-            .coerceIn(dpToPx(200f), dpToPx(640f)) - 2f * effPad
-        val innerW = max(1f, (if (n.boxW > 0f) (n.boxW - 2f * effPad) else defaultInner)).toInt()
+            .coerceIn(dpToPx(200f), dpToPx(640f)) - 2f * pad
+        val innerW = max(1f, (if (n.boxW > 0f) (n.boxW - 2f * pad) else defaultInner))
+        val innerH = max(1f, (if (n.boxH > 0f) (n.boxH - 2f * pad) else dpToPx(200f)))
 
+// === Pill/Circle indents per line ===
+        val r = n.cornerRadiusPx.coerceAtMost(min(innerW, innerH) * 0.5f)
+        val fm = tp.fontMetricsInt
+        val lineH = max(dpToPx(12f), (fm.bottom - fm.top).toFloat())
 
-        val layout = buildWrappedLayout(n.editable.toString(), tp, innerW)
+        val estLines = max(1, kotlin.math.ceil(innerH / lineH).toInt() + 4)
+        val (leftInd, rightInd) = computePillIndents(innerW, innerH, r, lineH, estLines)
 
+// === Build StaticLayout (with indents on API 23+) ===
+        val layout: StaticLayout = if (android.os.Build.VERSION.SDK_INT >= 23) {
+            StaticLayout.Builder.obtain(n.editable, 0, n.editable.length, tp, innerW.toInt())
+                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                .setIncludePad(false)
+                .setLineSpacing(0f, 1f)
+                .setIndents(leftInd, rightInd)
+                .build()
+        } else {
+            // Legacy: no setIndents; still works for rounded-rects, and clip keeps containment
+            @Suppress("DEPRECATION")
+            StaticLayout(n.editable, tp, innerW.toInt(), Layout.Alignment.ALIGN_NORMAL, 1f, 0f, false)
+        }
 
-        // Initialize box from layout if not set
-        if (n.boxW <= 0f) n.boxW = layout.width.toFloat() + 2f * effPad
+// Initialize outer box from layout if not set yet (use AA pad here, NOT radius)
+        if (n.boxW <= 0f) n.boxW = layout.width.toFloat() + 2f * pad
 
         val minH = dpToPx(48f)
         if (n.boxH <= 0f) {
-            n.boxH = max(minH, layout.height.toFloat() + 2f * effPad)
-
+            n.boxH = max(minH, layout.height.toFloat() + 2f * pad)
         }
 
-        // While editing, let height auto-grow downward; width remains fixed
+// While editing, let height auto-grow downward; width remains fixed
         if (editingSelectedText && selectedText === n) {
-            val desiredH = max(minH, layout.height.toFloat() + 2f * effPad)
-
+            val desiredH = max(minH, layout.height.toFloat() + 2f * pad)
             if (desiredH > n.boxH + 0.5f) {
                 // Keep top edge fixed; grow downward
                 val oldTop = n.center.y - n.boxH * 0.5f
@@ -4895,12 +4917,57 @@ class InkCanvasView @JvmOverloads constructor(
                 clampTextToDocument(n)
             }
         }
-        n.cachedInnerPadPx = effPad
 
+// Keep draw step in sync (translate by cachedInnerPadPx, rounded-clip already uses it)
+        n.cachedInnerPadPx = pad
         n.layout = layout
-        n.layoutInnerW = innerW
+        n.layoutInnerW = innerW.toInt()
         n.layoutDirty = false
+
     }
+    // Small AA pad only (do NOT include radius here). Keep layout roomy; clip handles containment.
+    private fun aaPadPx(): Float = dpToPx(2f).coerceAtMost(dpToPx(8f))
+
+    /**
+     * Compute per-line left/right indents so text wraps before the pill/circle wall.
+     * innerW/H: content-space size of the text box (minus outer padding you apply elsewhere).
+     * r: corner radius in content px (for a circle, r ≈ innerH/2 and also ≤ innerW/2).
+     * lines: estimated visible line count (we over-provision; extras reuse last indent).
+     */
+    private fun computePillIndents(innerW: Float, innerH: Float, r: Float, lineH: Float, lines: Int): Pair<IntArray, IntArray> {
+        val left = IntArray(lines) { 0 }
+        val right = IntArray(lines) { 0 }
+        if (r <= 0f) return left to right
+
+        val topCap = r
+        val botCapStart = innerH - r
+
+        for (i in 0 until lines) {
+            val yMid = i * lineH + lineH * 0.5f  // line center from top, content px
+            var inset = 0f
+
+            when {
+                yMid < topCap -> {
+                    // Top quarter-circle: inset = r - sqrt(r^2 - (r - y)^2)
+                    val dy = r - yMid
+                    inset = r - kotlin.math.sqrt((r * r - dy * dy).coerceAtLeast(0f))
+                }
+                yMid > botCapStart -> {
+                    // Bottom quarter-circle (mirror)
+                    val dy = yMid - (innerH - r)
+                    inset = r - kotlin.math.sqrt((r * r - dy * dy).coerceAtLeast(0f))
+                }
+                else -> inset = 0f // Rect middle: no inset
+            }
+
+            // Keep at most half width to avoid negative space
+            val insetInt = inset.coerceIn(0f, innerW * 0.5f).toInt()
+            left[i] = insetInt
+            right[i] = insetInt
+        }
+        return left to right
+    }
+
     private fun computeDynamicTextInnerPadPx(n: TextNode): Float {
         // Small AA pad plus "shape-aware" pad = at least the corner radius.
 // Result: text never flows under rounded arcs; still keeps a bit of breathing room.
