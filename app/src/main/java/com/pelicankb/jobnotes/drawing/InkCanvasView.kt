@@ -4882,7 +4882,8 @@ class InkCanvasView @JvmOverloads constructor(
         val lineH = max(dpToPx(12f), (fm.bottom - fm.top).toFloat())
 
         val estLines = max(1, kotlin.math.ceil(innerH / lineH).toInt() + 4)
-        val (leftInd, rightInd) = computePillIndents(innerW, innerH, r, lineH, estLines)
+        val (leftInd, rightInd) = computePillIndents(innerW, innerH, r, lineH, estLines, fm.ascent, fm.descent)
+
 
 // === Build StaticLayout (with indents on API 23+) ===
         val layout: StaticLayout = if (android.os.Build.VERSION.SDK_INT >= 23) {
@@ -4891,6 +4892,9 @@ class InkCanvasView @JvmOverloads constructor(
                 .setIncludePad(false)
                 .setLineSpacing(0f, 1f)
                 .setIndents(leftInd, rightInd)
+                .setBreakStrategy(Layout.BREAK_STRATEGY_BALANCED)
+                .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NORMAL)
+
                 .build()
         } else {
             // Legacy: no setIndents; still works for rounded-rects, and clip keeps containment
@@ -4929,44 +4933,75 @@ class InkCanvasView @JvmOverloads constructor(
     private fun aaPadPx(): Float = dpToPx(2f).coerceAtMost(dpToPx(8f))
 
     /**
-     * Compute per-line left/right indents so text wraps before the pill/circle wall.
-     * innerW/H: content-space size of the text box (minus outer padding you apply elsewhere).
-     * r: corner radius in content px (for a circle, r ≈ innerH/2 and also ≤ innerW/2).
-     * lines: estimated visible line count (we over-provision; extras reuse last indent).
+     * Compute per-line left/right indents so text wraps just before the circle/pill wall.
+     * Insets are based on the actual glyph box: we use baseline + ascent/descent rather than line center.
+     *
+     * @param innerW  content-space width available to StaticLayout (after AA pad)
+     * @param innerH  content-space height available to StaticLayout (after AA pad)
+     * @param r       corner radius (content px). For a circle, r ≈ innerH/2 and ≤ innerW/2.
+     * @param lineH   line height (content px)
+     * @param lines   number of lines to provision for
+     * @param ascent  font ascent (negative); baseline + ascent = glyph top
+     * @param descent font descent (positive); baseline + descent = glyph bottom
      */
-    private fun computePillIndents(innerW: Float, innerH: Float, r: Float, lineH: Float, lines: Int): Pair<IntArray, IntArray> {
+    private fun computePillIndents(
+        innerW: Float,
+        innerH: Float,
+        r: Float,
+        lineH: Float,
+        lines: Int,
+        ascent: Int,
+        descent: Int
+    ): Pair<IntArray, IntArray> {
         val left = IntArray(lines) { 0 }
         val right = IntArray(lines) { 0 }
         if (r <= 0f) return left to right
 
-        val topCap = r
-        val botCapStart = innerH - r
+        // Small anti-aliasing pad so edges don't look shaved on the curve
+        val aa = aaPadPx()
+
+        // First baseline sits -ascent below the top of the inner box
+        val baseline0 = -ascent.toFloat()
+
+        // Helper: chord inset at a vertical Y from the top of inner box
+        fun chordInsetAt(y: Float): Float {
+            // Top cap origin: center at (r, r); y measured from top
+            // inset = r - sqrt(r^2 - (r - y)^2)
+            val dy = r - y
+            val under = (r * r - dy * dy).coerceAtLeast(0f)
+            return (r - kotlin.math.sqrt(under))
+        }
+
+        val bottomCapStart = innerH - r
 
         for (i in 0 until lines) {
-            val yMid = i * lineH + lineH * 0.5f  // line center from top, content px
+            val baseline = baseline0 + i * lineH
+            val yTop = baseline + ascent   // ascent < 0, so this is above baseline
+            val yBot = baseline + descent  // descent ≥ 0, below baseline
+
             var inset = 0f
 
-            when {
-                yMid < topCap -> {
-                    // Top quarter-circle: inset = r - sqrt(r^2 - (r - y)^2)
-                    val dy = r - yMid
-                    inset = r - kotlin.math.sqrt((r * r - dy * dy).coerceAtLeast(0f))
-                }
-                yMid > botCapStart -> {
-                    // Bottom quarter-circle (mirror)
-                    val dy = yMid - (innerH - r)
-                    inset = r - kotlin.math.sqrt((r * r - dy * dy).coerceAtLeast(0f))
-                }
-                else -> inset = 0f // Rect middle: no inset
+            // Top cap: ensure glyph TOP stays inside the circle
+            if (yTop < r) {
+                inset = max(inset, chordInsetAt(yTop))
             }
 
-            // Keep at most half width to avoid negative space
-            val insetInt = inset.coerceIn(0f, innerW * 0.5f).toInt()
+            // Bottom cap: ensure glyph BOTTOM stays inside the circle
+            if (yBot > bottomCapStart) {
+                // mirror by feeding yBot directly (formula symmetric around bottom cap, since y measured from top)
+                inset = max(inset, chordInsetAt(yBot))
+            }
+
+            // Clamp and add AA pad; never exceed half width
+            val insetPx = (inset + aa).coerceIn(0f, innerW * 0.5f)
+            val insetInt = insetPx.toInt()
             left[i] = insetInt
             right[i] = insetInt
         }
+
         return left to right
     }
+
 
     private fun computeDynamicTextInnerPadPx(n: TextNode): Float {
         // Small AA pad plus "shape-aware" pad = at least the corner radius.
@@ -4990,7 +5025,8 @@ class InkCanvasView @JvmOverloads constructor(
         n: TextNode,
         left: Float, top: Float, right: Float, bottom: Float
     ): Pair<RectF, Path> {
-        val pad = max(n.paddingPx, computeDynamicTextInnerPadPx(n))
+        val pad = max(n.paddingPx, aaPadPx())  // draw-time inset = tiny AA pad only (no radius)
+
         val r = (n.cachedClipRect ?: RectF()).apply {
             set(left + pad, top + pad, right - pad, bottom - pad)
         }
