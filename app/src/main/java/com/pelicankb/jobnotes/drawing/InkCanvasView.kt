@@ -4865,23 +4865,28 @@ class InkCanvasView @JvmOverloads constructor(
 
         // If boxW not set yet, pick a sane default from canvas width (~60%), clamped
         val canvasW = width.toFloat().coerceAtLeast(1f)
+        val effPad = computeDynamicTextInnerPadPx(n)
         val defaultInner = (canvasW * 0.6f)
-            .coerceIn(dpToPx(200f), dpToPx(640f)) - 2f * n.paddingPx
-        val innerW = max(1f, (if (n.boxW > 0f) (n.boxW - 2f * n.paddingPx) else defaultInner)).toInt()
+            .coerceIn(dpToPx(200f), dpToPx(640f)) - 2f * effPad
+        val innerW = max(1f, (if (n.boxW > 0f) (n.boxW - 2f * effPad) else defaultInner)).toInt()
+
 
         val layout = buildWrappedLayout(n.editable.toString(), tp, innerW)
 
 
         // Initialize box from layout if not set
-        if (n.boxW <= 0f) n.boxW = layout.width.toFloat() + 2f * n.paddingPx
+        if (n.boxW <= 0f) n.boxW = layout.width.toFloat() + 2f * effPad
+
         val minH = dpToPx(48f)
         if (n.boxH <= 0f) {
-            n.boxH = max(minH, layout.height.toFloat() + 2f * n.paddingPx)
+            n.boxH = max(minH, layout.height.toFloat() + 2f * effPad)
+
         }
 
         // While editing, let height auto-grow downward; width remains fixed
         if (editingSelectedText && selectedText === n) {
-            val desiredH = max(minH, layout.height.toFloat() + 2f * n.paddingPx)
+            val desiredH = max(minH, layout.height.toFloat() + 2f * effPad)
+
             if (desiredH > n.boxH + 0.5f) {
                 // Keep top edge fixed; grow downward
                 val oldTop = n.center.y - n.boxH * 0.5f
@@ -4890,18 +4895,24 @@ class InkCanvasView @JvmOverloads constructor(
                 clampTextToDocument(n)
             }
         }
+        n.cachedInnerPadPx = effPad
 
         n.layout = layout
         n.layoutInnerW = innerW
         n.layoutDirty = false
     }
     private fun computeDynamicTextInnerPadPx(n: TextNode): Float {
-        // Small padding so AA edges don’t get “shaved” by the clip; scales with radius.
-        // 2dp min, 8dp max, ~20% of radius in between.
-        val pMin = dpToPx(2f)
-        val pMax = dpToPx(8f)
-        val pRad = n.cornerRadiusPx * 0.2f
-        return pRad.coerceIn(pMin, pMax)
+        // Small AA pad plus "shape-aware" pad = at least the corner radius.
+// Result: text never flows under rounded arcs; still keeps a bit of breathing room.
+        val pMinAA = dpToPx(2f)
+        val pMaxAA = dpToPx(8f)
+        val pAA = (n.cornerRadiusPx * 0.2f).coerceIn(pMinAA, pMaxAA)
+
+// Key change: inner pad must be at least the visual radius, and not less than caller's padding.
+        val pShape = max(n.paddingPx, n.cornerRadiusPx)
+
+        return max(pShape, pAA)
+
     }
 
     /**
