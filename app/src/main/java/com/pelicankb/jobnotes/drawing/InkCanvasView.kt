@@ -6,12 +6,16 @@ import android.content.Context
 
 import android.graphics.*
 import android.graphics.Bitmap
+import android.graphics.RectF
+
 import android.graphics.PointF
 
 import android.graphics.drawable.Drawable
 
 
 import android.graphics.LinearGradient
+import android.graphics.Path
+
 import android.graphics.Shader
 
 import android.os.SystemClock
@@ -1207,6 +1211,11 @@ class InkCanvasView @JvmOverloads constructor(
         var paddingPx: Float = 0f,
         var bgColor: Int? = null,
         var cornerRadiusPx: Float = 0f,
+        // Hybrid containment cache (computed at draw time)
+        var cachedInnerPadPx: Float = 0f,
+        var cachedClipRect: RectF? = null,
+        var cachedClipPath: Path? = null,
+
 
         // Layout cache (rebuilt only when text/size/boxW changes)
         var layout: StaticLayout? = null,
@@ -2135,10 +2144,14 @@ class InkCanvasView @JvmOverloads constructor(
                     canvas.drawRoundRect(r, n.cornerRadiusPx, n.cornerRadiusPx, bgPaint)
                 }
 
-                // Clip and draw wrapped text
+                // Clip and draw wrapped text (HYBRID: small inner pad + rounded clip)
                 canvas.save()
-                canvas.clipRect(left, top, right, bottom)
-                canvas.translate(left + n.paddingPx, top + n.paddingPx)
+                val (_, clipPath) = ensureRoundedClipCache(n, left, top, right, bottom)
+                canvas.clipPath(clipPath)
+                val pad = n.cachedInnerPadPx
+                canvas.translate(left + pad, top + pad)
+
+
                 // Selection highlight (draw under glyphs)
                 if (n === selectedText && editingSelectedText && n.selStart != n.selEnd) {
                     n.layout?.let { lay ->
@@ -4882,6 +4895,38 @@ class InkCanvasView @JvmOverloads constructor(
         n.layoutInnerW = innerW
         n.layoutDirty = false
     }
+    private fun computeDynamicTextInnerPadPx(n: TextNode): Float {
+        // Small padding so AA edges don’t get “shaved” by the clip; scales with radius.
+        // 2dp min, 8dp max, ~20% of radius in between.
+        val pMin = dpToPx(2f)
+        val pMax = dpToPx(8f)
+        val pRad = n.cornerRadiusPx * 0.2f
+        return pRad.coerceIn(pMin, pMax)
+    }
+
+    /**
+     * Prepares inner rounded-rect clip for a text node.
+     * Returns the RectF and Path; also updates node cache + chosen inner pad.
+     */
+    private fun ensureRoundedClipCache(
+        n: TextNode,
+        left: Float, top: Float, right: Float, bottom: Float
+    ): Pair<RectF, Path> {
+        val pad = max(n.paddingPx, computeDynamicTextInnerPadPx(n))
+        val r = (n.cachedClipRect ?: RectF()).apply {
+            set(left + pad, top + pad, right - pad, bottom - pad)
+        }
+        val innerR = max(0f, n.cornerRadiusPx - pad) // inner corner after accounting for pad
+        val p = (n.cachedClipPath ?: Path()).apply {
+            reset()
+            addRoundRect(r, innerR, innerR, Path.Direction.CW)
+        }
+        n.cachedInnerPadPx = pad
+        n.cachedClipRect = r
+        n.cachedClipPath = p
+        return r to p
+    }
+
 
     // Return [start,end) word range around offset; letters/digits/underscore are "word"
     private fun wordRangeAt(n: TextNode, offset: Int): Pair<Int, Int> {
