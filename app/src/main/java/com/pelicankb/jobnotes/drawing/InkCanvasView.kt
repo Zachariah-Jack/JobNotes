@@ -4886,21 +4886,35 @@ class InkCanvasView @JvmOverloads constructor(
 
 
 // === Build StaticLayout (with indents on API 23+) ===
-        val layout: StaticLayout = if (android.os.Build.VERSION.SDK_INT >= 23) {
-            StaticLayout.Builder.obtain(n.editable, 0, n.editable.length, tp, innerW.toInt())
+        var layout: StaticLayout
+        if (android.os.Build.VERSION.SDK_INT >= 23) {
+            // Initial layout with SIMPLE breaks and hyphenation OFF (preserves your word→letters fallback)
+            val builder = StaticLayout.Builder.obtain(n.editable, 0, n.editable.length, tp, innerW.toInt())
                 .setAlignment(Layout.Alignment.ALIGN_NORMAL)
                 .setIncludePad(false)
                 .setLineSpacing(0f, 1f)
+                .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
+                .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
                 .setIndents(leftInd, rightInd)
-                .setBreakStrategy(Layout.BREAK_STRATEGY_BALANCED)
-                .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NORMAL)
 
-                .build()
+            layout = builder.build()
+
+            // One promotion pass: if a cap line starts with a broken first word but it fits next line → push it
+            if (promoteLeadingWordIfFits(tp, n.editable, innerW.toInt(), leftInd, rightInd, layout)) {
+                layout = StaticLayout.Builder.obtain(n.editable, 0, n.editable.length, tp, innerW.toInt())
+                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setIncludePad(false)
+                    .setLineSpacing(0f, 1f)
+                    .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
+                    .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
+                    .setIndents(leftInd, rightInd)
+                    .build()
+            }
         } else {
-            // Legacy: no setIndents; still works for rounded-rects, and clip keeps containment
             @Suppress("DEPRECATION")
-            StaticLayout(n.editable, tp, innerW.toInt(), Layout.Alignment.ALIGN_NORMAL, 1f, 0f, false)
+            layout = StaticLayout(n.editable, tp, innerW.toInt(), Layout.Alignment.ALIGN_NORMAL, 1f, 0f, false)
         }
+
 
 // Initialize outer box from layout if not set yet (use AA pad here, NOT radius)
         if (n.boxW <= 0f) n.boxW = layout.width.toFloat() + 2f * pad
@@ -5001,6 +5015,58 @@ class InkCanvasView @JvmOverloads constructor(
 
         return left to right
     }
+    /**
+     * If a line starts with a broken first word and that full word would fit on the *next* line,
+     * promote it by making the current line's usable width zero (bump left indent).
+     * Returns true if any indents were changed.
+     */
+    private fun promoteLeadingWordIfFits(
+        tp: TextPaint,
+        text: CharSequence,
+        innerW: Int,
+        leftInd: IntArray,
+        rightInd: IntArray,
+        layout: StaticLayout
+    ): Boolean {
+        val lineCount = layout.lineCount
+        var changed = false
+        val lastIdx = min(lineCount - 1, leftInd.size - 1) // arrays may be longer than lines
+
+        fun avail(i: Int): Int = (innerW - leftInd[i] - rightInd[i]).coerceAtLeast(0)
+
+        for (i in 0 until lastIdx) {
+            // Consider only cap-affected lines
+            if (leftInd[i] == 0 && rightInd[i] == 0) continue
+            val start = layout.getLineStart(i)
+            val end = layout.getLineEnd(i)
+            if (start >= end) continue
+
+            // Skip leading whitespace on this line
+            var s = start
+            while (s < end && Character.isWhitespace(text[s])) s++
+            if (s >= end) continue // empty after whitespace
+
+            // Find the end of the first token (treat whitespace as delimiter)
+            var e = s
+            while (e < text.length && !Character.isWhitespace(text[e])) e++
+
+            // If first word doesn't fully fit on this line (i.e., it continues past 'end')
+            if (e > end) {
+                // Can the whole word fit on the NEXT line width?
+                val nextWidth = if (i + 1 <= lastIdx) avail(i + 1) else 0
+                if (nextWidth > 0) {
+                    val wordWidth = tp.measureText(text, s, e).toInt()
+                    if (wordWidth <= nextWidth) {
+                        // Promote: make line i unusable so the word moves intact to line i+1
+                        leftInd[i] = innerW - rightInd[i]
+                        changed = true
+                    }
+                }
+            }
+        }
+        return changed
+    }
+
 
 
     private fun computeDynamicTextInnerPadPx(n: TextNode): Float {
