@@ -4994,6 +4994,19 @@ class InkCanvasView @JvmOverloads constructor(
         }
         return left to right
     }
+    // Left overhang of the first glyph on a line (px, >= 0). Accounts for italic skew.
+    private fun firstGlyphOverhangPx(tp: TextPaint, text: CharSequence, start: Int): Int {
+        if (start >= text.length) return 0
+        val end = (start + 1).coerceAtMost(text.length)
+        val r = android.graphics.Rect()
+        return try {
+            tp.getTextBounds(text, start, end, r)
+            if (r.left < 0) -r.left else 0
+        } catch (_: Throwable) {
+            0
+        }
+    }
+
     /**
      * If a line starts with a broken first word and that full word would fit on the *next* line,
      * promote it by making the current line's usable width zero (bump left indent).
@@ -5016,15 +5029,18 @@ class InkCanvasView @JvmOverloads constructor(
         fun avail(i: Int): Int = (innerW - leftInd[i] - rightInd[i]).coerceAtLeast(0)
 
         for (i in 0 until capLast) {
-            if (leftInd[i] == 0 && rightInd[i] == 0) continue // not a cap-affected line
+            // Only consider cap-affected lines (non-zero inset)
+            if (leftInd[i] == 0 && rightInd[i] == 0) continue
 
             val start = layout.getLineStart(i)
-            val visEnd = layout.getLineVisibleEnd(i)
+            val visEnd = layout.getLineVisibleEnd(i)  // ignores trailing '\n'
 
+            // Skip leading whitespace
             var s = start
             while (s < visEnd && Character.isWhitespace(text[s])) s++
             if (s >= text.length || s >= visEnd) continue
 
+            // First token on this line [s, e)
             var e = s
             while (e < text.length && !Character.isWhitespace(text[e])) e++
 
@@ -5032,8 +5048,12 @@ class InkCanvasView @JvmOverloads constructor(
             val here  = avail(i)
             val next  = avail(i + 1)
 
-            if (wordW > here && next > 0 && wordW <= next) {
-                // Force line i to zero usable width so the word moves intact to line i+1
+            // NEW: require the first glyph's left overhang to fit as well
+            val overhang = firstGlyphOverhangPx(tp, text, s)
+
+            // If word won't fit on this narrow cap line, but DOES fit fully on the next wider line → promote
+            if (wordW > here && next > 0 && (wordW + overhang) <= next) {
+                // Force current line to zero usable width so the word moves intact to line i+1
                 leftInd[i] = innerW
                 changed = true
             }
