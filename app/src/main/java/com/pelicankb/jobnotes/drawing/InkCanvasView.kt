@@ -4912,6 +4912,31 @@ class InkCanvasView @JvmOverloads constructor(
             @Suppress("DEPRECATION")
             layout = StaticLayout(n.editable, tp, innerW.toInt(), Layout.Alignment.ALIGN_NORMAL, 1f, 0f, false)
         }
+        // Second pass: if the first glyph’s left overhang on a cap line still risks clipping,
+// bump that line’s left indent enough to cover the overhang and rebuild once.
+        if (fixLeadingOverhangOnCapLines(tp, n.editable, innerW.toInt(), leftInd, rightInd, layout)) {
+            layout = StaticLayout.Builder.obtain(n.editable, 0, n.editable.length, tp, innerW.toInt())
+                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                .setIncludePad(false)
+                .setLineSpacing(0f, 1f)
+                .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
+                .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
+                .setIndents(leftInd, rightInd)
+                .build()
+        }
+        // Final safety: if a cap line still shows a singleton first letter, zero its width and rebuild once
+        if (removeSingletonFirstLetterOnCapLines(n.editable, innerW.toInt(), leftInd, rightInd, layout)) {
+            layout = StaticLayout.Builder.obtain(n.editable, 0, n.editable.length, tp, innerW.toInt())
+                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                .setIncludePad(false)
+                .setLineSpacing(0f, 1f)
+                .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
+                .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
+                .setIndents(leftInd, rightInd)
+                .build()
+        }
+
+
 
 // Initialize outer box if needed (use AA pad here, NOT radius)
         if (n.boxW <= 0f) n.boxW = layout.width.toFloat() + 2f * pad
@@ -4994,6 +5019,59 @@ class InkCanvasView @JvmOverloads constructor(
         }
         return left to right
     }
+    /**
+     * Ensure the first glyph on each cap-affected line isn’t clipped by the rounded left wall.
+     * If its left overhang exceeds the current left indent, bump that indent and return true.
+     */
+    private fun fixLeadingOverhangOnCapLines(
+        tp: TextPaint,
+        text: CharSequence,
+        innerW: Int,
+        leftInd: IntArray,
+        rightInd: IntArray,
+        layout: StaticLayout
+    ): Boolean {
+        val lines = layout.lineCount
+        var changed = false
+
+        fun avail(i: Int) = (innerW - leftInd[i] - rightInd[i]).coerceAtLeast(0)
+
+        fun firstGlyphOverhangPx(start: Int): Int {
+            if (start >= text.length) return 0
+            val end = (start + 1).coerceAtMost(text.length)
+            val r = android.graphics.Rect()
+            return try {
+                tp.getTextBounds(text.toString(), start, end, r)
+                if (r.left < 0) -r.left else 0
+            } catch (_: Throwable) { 0 }
+        }
+
+        val lastIdx = min(lines - 1, min(leftInd.size, rightInd.size) - 1)
+        for (i in 0..lastIdx) {
+            if (leftInd[i] == 0 && rightInd[i] == 0) continue  // not a cap-affected line
+            val start = layout.getLineStart(i)
+            val visEnd = layout.getLineVisibleEnd(i)
+            var s = start
+            while (s < visEnd && Character.isWhitespace(text[s])) s++
+            if (s >= text.length || s >= visEnd) continue
+
+            val over = firstGlyphOverhangPx(s)
+            if (over > 0 && leftInd[i] < over) {
+                // Increase left indent just enough to cover the overhang, leave at least 1px usable width.
+                val target = over
+                val maxLeft = (innerW - rightInd[i] - 1).coerceAtLeast(0)
+                val newLeft = target.coerceAtMost(maxLeft)
+                if (newLeft > leftInd[i]) {
+                    leftInd[i] = newLeft
+                    // ensure line still has some usable width (prevent degenerate)
+                    if (avail(i) <= 0) leftInd[i] = (innerW - rightInd[i] - 1).coerceAtLeast(0)
+                    changed = true
+                }
+            }
+        }
+        return changed
+    }
+
     // Left overhang of the first glyph on a line (px, >= 0). Accounts for italic skew.
     private fun firstGlyphOverhangPx(tp: TextPaint, text: CharSequence, start: Int): Int {
         if (start >= text.length) return 0
@@ -5008,9 +5086,9 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     /**
-     * If a line starts with a broken first word and that full word would fit on the *next* line,
-     * promote it by making the current line's usable width zero (bump left indent).
-     * Returns true if any indents were changed.
+     * If a cap-affected line begins with a word that does NOT fit there but DOES fit on the next line,
+     * promote it by making the current line’s usable width ~1px so it moves intact to the next line.
+     * Uses ceil() + a 1px safety margin and accounts for the first glyph’s left overhang (italic).
      */
     private fun promoteLeadingWordIfFits(
         tp: TextPaint,
@@ -5028,12 +5106,24 @@ class InkCanvasView @JvmOverloads constructor(
 
         fun avail(i: Int): Int = (innerW - leftInd[i] - rightInd[i]).coerceAtLeast(0)
 
+        // Helper: left overhang (px>=0) of first glyph on the line
+        fun firstGlyphOverhangPx(start: Int): Int {
+            if (start >= text.length) return 0
+            val end = (start + 1).coerceAtMost(text.length)
+            val r = android.graphics.Rect()
+            return try {
+                // Paint#getTextBounds(String, start, end, Rect) is most consistent; use substring
+                tp.getTextBounds(text.toString(), start, end, r)
+                if (r.left < 0) -r.left else 0
+            } catch (_: Throwable) { 0 }
+        }
+
         for (i in 0 until capLast) {
-            // Only consider cap-affected lines (non-zero inset)
+            // Only consider cap-affected lines
             if (leftInd[i] == 0 && rightInd[i] == 0) continue
 
             val start = layout.getLineStart(i)
-            val visEnd = layout.getLineVisibleEnd(i)  // ignores trailing '\n'
+            val visEnd = layout.getLineVisibleEnd(i)
 
             // Skip leading whitespace
             var s = start
@@ -5044,22 +5134,69 @@ class InkCanvasView @JvmOverloads constructor(
             var e = s
             while (e < text.length && !Character.isWhitespace(text[e])) e++
 
-            val wordW = tp.measureText(text, s, e).toInt()
-            val here  = avail(i)
-            val next  = avail(i + 1)
+            val wordWf = tp.measureText(text, s, e)           // float width
+            val wordW  = ceil(wordWf).toInt()                  // conservative
+            val here   = avail(i)
+            val next   = avail(i + 1)
+            if (next <= 0) continue
 
-            // NEW: require the first glyph's left overhang to fit as well
-            val overhang = firstGlyphOverhangPx(tp, text, s)
+            val over   = firstGlyphOverhangPx(s).toFloat()
+            // Require the word + overhang to CLEARLY fit the next line (1px safety)
+            if (wordWf + over + 1f <= next.toFloat() && wordW > here) {
+                // Don’t zero the line (bug-prone). Leave a 1px usable width instead.
+                leftInd[i] = (innerW - rightInd[i]).coerceAtLeast(0)   // force 0 usable px on line i
 
-            // If word won't fit on this narrow cap line, but DOES fit fully on the next wider line → promote
-            if (wordW > here && next > 0 && (wordW + overhang) <= next) {
-                // Force current line to zero usable width so the word moves intact to line i+1
-                leftInd[i] = innerW
                 changed = true
             }
         }
         return changed
     }
+    /**
+     * If a cap-affected line still shows exactly one visible non-space char at the start
+     * (singleton first letter) and the remainder of that word begins on the next line,
+     * force that line to 0 usable width so the whole word moves intact; return true if changed.
+     */
+    private fun removeSingletonFirstLetterOnCapLines(
+        text: CharSequence,
+        innerW: Int,
+        leftInd: IntArray,
+        rightInd: IntArray,
+        layout: StaticLayout
+    ): Boolean {
+        val last = min(layout.lineCount - 1, min(leftInd.size, rightInd.size) - 1)
+        var changed = false
+
+        fun avail(i: Int) = (innerW - leftInd[i] - rightInd[i]).coerceAtLeast(0)
+
+        for (i in 0 until last) {
+            if (leftInd[i] == 0 && rightInd[i] == 0) continue // not a cap line
+            val start = layout.getLineStart(i)
+            val visEnd = layout.getLineVisibleEnd(i)
+
+            var s = start
+            while (s < visEnd && Character.isWhitespace(text[s])) s++
+            if (s >= visEnd) continue
+
+            // Count run of non-space from s (first word fragment on this line)
+            var p = s
+            var count = 0
+            while (p < visEnd && !Character.isWhitespace(text[p])) { count++; p++ }
+
+            if (count == 1) {
+                // Next line should start at or before the remainder of the same word
+                val nextStart = layout.getLineStart(i + 1)
+                if (nextStart <= p) {
+                    // Force zero usable width on this line to move the whole word
+                    leftInd[i] = (innerW - rightInd[i]).coerceAtLeast(0)
+                    if (avail(i) != 0) leftInd[i] = innerW - rightInd[i]
+                    changed = true
+                }
+            }
+        }
+        return changed
+    }
+
+
 
 
 
