@@ -21,6 +21,7 @@ import android.graphics.Shader
 import android.os.SystemClock
 import android.text.TextPaint
 import android.text.Layout
+
 import android.text.StaticLayout
 import android.text.Editable
 import android.text.SpannableStringBuilder
@@ -55,6 +56,7 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.nio.ByteBuffer
 import android.graphics.pdf.PdfDocument
+import android.graphics.text.LineBreaker
 import java.io.OutputStream
 
 import kotlin.math.*
@@ -4867,28 +4869,25 @@ class InkCanvasView @JvmOverloads constructor(
             textSkewX = if (n.isItalic) -0.25f else 0f
         }
 
-// Layout padding: tiny AA pad only; radius handled via per-line indents (+ rounded clip)
+// Layout padding: tiny AA pad only; shape is handled via per-line indents (+ rounded clip)
         val pad = max(n.paddingPx, aaPadPx())
 
-// Inner box (content px) available to StaticLayout before indents
+// Inner box (CONTENT px) available to StaticLayout before indents
         val defaultInner = (canvasW * 0.6f)
             .coerceIn(dpToPx(200f), dpToPx(640f)) - 2f * pad
         val innerW = max(1f, (if (n.boxW > 0f) (n.boxW - 2f * pad) else defaultInner))
         val innerH = max(1f, (if (n.boxH > 0f) (n.boxH - 2f * pad) else dpToPx(200f)))
 
-// === Pill/Circle indents per line ===
-        val r = n.cornerRadiusPx.coerceAtMost(min(innerW, innerH) * 0.5f)
+// Pill/Circle indents per line (ascent/descent aware)
         val fm = tp.fontMetricsInt
         val lineH = max(dpToPx(12f), (fm.bottom - fm.top).toFloat())
-
         val estLines = max(1, kotlin.math.ceil(innerH / lineH).toInt() + 4)
+        val r = n.cornerRadiusPx.coerceAtMost(min(innerW, innerH) * 0.5f)
         val (leftInd, rightInd) = computePillIndents(innerW, innerH, r, lineH, estLines, fm.ascent, fm.descent)
 
-
-// === Build StaticLayout (with indents on API 23+) ===
+// Build StaticLayout; one optional promotion pass for orphan letters at the cap
         var layout: StaticLayout
         if (android.os.Build.VERSION.SDK_INT >= 23) {
-            // Initial layout with SIMPLE breaks and hyphenation OFF (preserves your word→letters fallback)
             val builder = StaticLayout.Builder.obtain(n.editable, 0, n.editable.length, tp, innerW.toInt())
                 .setAlignment(Layout.Alignment.ALIGN_NORMAL)
                 .setIncludePad(false)
@@ -4899,7 +4898,6 @@ class InkCanvasView @JvmOverloads constructor(
 
             layout = builder.build()
 
-            // One promotion pass: if a cap line starts with a broken first word but it fits next line → push it
             if (promoteLeadingWordIfFits(tp, n.editable, innerW.toInt(), leftInd, rightInd, layout)) {
                 layout = StaticLayout.Builder.obtain(n.editable, 0, n.editable.length, tp, innerW.toInt())
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL)
@@ -4915,8 +4913,7 @@ class InkCanvasView @JvmOverloads constructor(
             layout = StaticLayout(n.editable, tp, innerW.toInt(), Layout.Alignment.ALIGN_NORMAL, 1f, 0f, false)
         }
 
-
-// Initialize outer box from layout if not set yet (use AA pad here, NOT radius)
+// Initialize outer box if needed (use AA pad here, NOT radius)
         if (n.boxW <= 0f) n.boxW = layout.width.toFloat() + 2f * pad
 
         val minH = dpToPx(48f)
@@ -4928,7 +4925,6 @@ class InkCanvasView @JvmOverloads constructor(
         if (editingSelectedText && selectedText === n) {
             val desiredH = max(minH, layout.height.toFloat() + 2f * pad)
             if (desiredH > n.boxH + 0.5f) {
-                // Keep top edge fixed; grow downward
                 val oldTop = n.center.y - n.boxH * 0.5f
                 n.boxH = desiredH
                 n.center.y = oldTop + desiredH * 0.5f
@@ -4936,11 +4932,12 @@ class InkCanvasView @JvmOverloads constructor(
             }
         }
 
-// Keep draw step in sync (translate by cachedInnerPadPx, rounded-clip already uses it)
+// Keep draw step in sync (translate by cachedInnerPadPx; rounded-clip already uses it)
         n.cachedInnerPadPx = pad
         n.layout = layout
         n.layoutInnerW = innerW.toInt()
         n.layoutDirty = false
+
 
     }
     // Small AA pad only (do NOT include radius here). Keep layout roomy; clip handles containment.
@@ -4971,48 +4968,30 @@ class InkCanvasView @JvmOverloads constructor(
         val right = IntArray(lines) { 0 }
         if (r <= 0f) return left to right
 
-        // Small anti-aliasing pad so edges don't look shaved on the curve
         val aa = aaPadPx()
-
-        // First baseline sits -ascent below the top of the inner box
         val baseline0 = -ascent.toFloat()
+        val bottomCapStart = innerH - r
 
-        // Helper: chord inset at a vertical Y from the top of inner box
         fun chordInsetAt(y: Float): Float {
-            // Top cap origin: center at (r, r); y measured from top
-            // inset = r - sqrt(r^2 - (r - y)^2)
             val dy = r - y
             val under = (r * r - dy * dy).coerceAtLeast(0f)
             return (r - kotlin.math.sqrt(under))
         }
 
-        val bottomCapStart = innerH - r
-
         for (i in 0 until lines) {
             val baseline = baseline0 + i * lineH
-            val yTop = baseline + ascent   // ascent < 0, so this is above baseline
-            val yBot = baseline + descent  // descent ≥ 0, below baseline
+            val yTop = baseline + ascent   // ascent < 0
+            val yBot = baseline + descent  // descent ≥ 0
 
             var inset = 0f
+            if (yTop < r) inset = max(inset, chordInsetAt(yTop))
+            if (yBot > bottomCapStart) inset = max(inset, chordInsetAt(yBot))
 
-            // Top cap: ensure glyph TOP stays inside the circle
-            if (yTop < r) {
-                inset = max(inset, chordInsetAt(yTop))
-            }
-
-            // Bottom cap: ensure glyph BOTTOM stays inside the circle
-            if (yBot > bottomCapStart) {
-                // mirror by feeding yBot directly (formula symmetric around bottom cap, since y measured from top)
-                inset = max(inset, chordInsetAt(yBot))
-            }
-
-            // Clamp and add AA pad; never exceed half width
             val insetPx = (inset + aa).coerceIn(0f, innerW * 0.5f)
             val insetInt = insetPx.toInt()
             left[i] = insetInt
             right[i] = insetInt
         }
-
         return left to right
     }
     /**
@@ -5029,43 +5008,41 @@ class InkCanvasView @JvmOverloads constructor(
         layout: StaticLayout
     ): Boolean {
         val lineCount = layout.lineCount
+        if (lineCount <= 0) return false
+
+        val capLast = min(lineCount - 1, min(leftInd.size, rightInd.size) - 1)
         var changed = false
-        val lastIdx = min(lineCount - 1, leftInd.size - 1) // arrays may be longer than lines
 
         fun avail(i: Int): Int = (innerW - leftInd[i] - rightInd[i]).coerceAtLeast(0)
 
-        for (i in 0 until lastIdx) {
-            // Consider only cap-affected lines
-            if (leftInd[i] == 0 && rightInd[i] == 0) continue
+        for (i in 0 until capLast) {
+            if (leftInd[i] == 0 && rightInd[i] == 0) continue // not a cap-affected line
+
             val start = layout.getLineStart(i)
-            val end = layout.getLineEnd(i)
-            if (start >= end) continue
+            val visEnd = layout.getLineVisibleEnd(i)
 
-            // Skip leading whitespace on this line
             var s = start
-            while (s < end && Character.isWhitespace(text[s])) s++
-            if (s >= end) continue // empty after whitespace
+            while (s < visEnd && Character.isWhitespace(text[s])) s++
+            if (s >= text.length || s >= visEnd) continue
 
-            // Find the end of the first token (treat whitespace as delimiter)
             var e = s
             while (e < text.length && !Character.isWhitespace(text[e])) e++
 
-            // If first word doesn't fully fit on this line (i.e., it continues past 'end')
-            if (e > end) {
-                // Can the whole word fit on the NEXT line width?
-                val nextWidth = if (i + 1 <= lastIdx) avail(i + 1) else 0
-                if (nextWidth > 0) {
-                    val wordWidth = tp.measureText(text, s, e).toInt()
-                    if (wordWidth <= nextWidth) {
-                        // Promote: make line i unusable so the word moves intact to line i+1
-                        leftInd[i] = innerW - rightInd[i]
-                        changed = true
-                    }
-                }
+            val wordW = tp.measureText(text, s, e).toInt()
+            val here  = avail(i)
+            val next  = avail(i + 1)
+
+            if (wordW > here && next > 0 && wordW <= next) {
+                // Force line i to zero usable width so the word moves intact to line i+1
+                leftInd[i] = innerW
+                changed = true
             }
         }
         return changed
     }
+
+
+}
 
 
 
@@ -5091,7 +5068,8 @@ class InkCanvasView @JvmOverloads constructor(
         n: TextNode,
         left: Float, top: Float, right: Float, bottom: Float
     ): Pair<RectF, Path> {
-        val pad = max(n.paddingPx, aaPadPx())  // draw-time inset = tiny AA pad only (no radius)
+        val pad = max(n.paddingPx, aaPadPx())  // draw-time pad = tiny AA pad only
+
 
         val r = (n.cachedClipRect ?: RectF()).apply {
             set(left + pad, top + pad, right - pad, bottom - pad)
@@ -6059,6 +6037,8 @@ class InkCanvasView @JvmOverloads constructor(
     // ===== Utilities & gestures =====
 
     fun dpToPx(dp: Float): Float = dp * resources.displayMetrics.density
+    private fun aaPadPx(): Float = dpToPx(2f).coerceAtMost(dpToPx(8f))
+
 
 
 
