@@ -5042,23 +5042,10 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
 
-}
 
 
 
-    private fun computeDynamicTextInnerPadPx(n: TextNode): Float {
-        // Small AA pad plus "shape-aware" pad = at least the corner radius.
-// Result: text never flows under rounded arcs; still keeps a bit of breathing room.
-        val pMinAA = dpToPx(2f)
-        val pMaxAA = dpToPx(8f)
-        val pAA = (n.cornerRadiusPx * 0.2f).coerceIn(pMinAA, pMaxAA)
 
-// Key change: inner pad must be at least the visual radius, and not less than caller's padding.
-        val pShape = max(n.paddingPx, n.cornerRadiusPx)
-
-        return max(pShape, pAA)
-
-    }
 
     /**
      * Prepares inner rounded-rect clip for a text node.
@@ -5069,6 +5056,7 @@ class InkCanvasView @JvmOverloads constructor(
         left: Float, top: Float, right: Float, bottom: Float
     ): Pair<RectF, Path> {
         val pad = max(n.paddingPx, aaPadPx())  // draw-time pad = tiny AA pad only
+
 
 
         val r = (n.cachedClipRect ?: RectF()).apply {
@@ -6037,7 +6025,7 @@ class InkCanvasView @JvmOverloads constructor(
     // ===== Utilities & gestures =====
 
     fun dpToPx(dp: Float): Float = dp * resources.displayMetrics.density
-    private fun aaPadPx(): Float = dpToPx(2f).coerceAtMost(dpToPx(8f))
+
 
 
 
