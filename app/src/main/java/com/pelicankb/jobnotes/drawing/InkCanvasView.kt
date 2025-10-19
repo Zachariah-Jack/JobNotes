@@ -5065,90 +5065,27 @@ class InkCanvasView @JvmOverloads constructor(
 
         fun avail(i: Int) = (innerW - leftInd[i] - rightInd[i]).coerceAtLeast(0)
 
-        fun firstGlyphOverhangPx(start: Int): Int {
-            if (start >= text.length) return 0
-            val end = (start + 1).coerceAtMost(text.length)
-            val r = android.graphics.Rect()
-            return try {
-                tp.getTextBounds(text.toString(), start, end, r)
-                if (r.left < 0) -r.left else 0
-            } catch (_: Throwable) { 0 }
-        }
-        /**
-         * If line 1 (cap‑affected) would end with a 1–2 char fragment of the very first word,
-         * and the full word fits on line 2, collapse line 1 by reducing its usable width to 0.
-         * Returns true if indents were changed (caller must rebuild the layout).
-         */
-        private fun promoteFirstWordFragmentOnCap(
-            tp: TextPaint,
-            text: CharSequence,
-            innerW: Int,
-            leftInd: IntArray,
-            rightInd: IntArray,
-            layout: StaticLayout
-        ): Boolean {
-            if (leftInd.isEmpty() || rightInd.isEmpty()) return false
-            if (layout.lineCount <= 0) return false
-            // Only act when line 1 is cap‑affected.
-            if (leftInd[0] == 0 && rightInd[0] == 0) return false
-
-            val len = text.length
-            var s = 0
-            while (s < len && Character.isWhitespace(text[s])) s++
-            if (s >= len) return false
-
-            var e = s
-            while (e < len && !Character.isWhitespace(text[e])) e++
-
-            // Range for line 1
-            val ls0 = layout.getLineStart(0)
-            val le0 = layout.getLineVisibleEnd(0)
-
-            // Intersection of line 1 and the first word
-            val is0 = kotlin.math.max(ls0, s)
-            val ie0 = kotlin.math.min(le0, e)
-            val fragLen = (ie0 - is0).coerceAtLeast(0)
-
-            // If line 1 holds 1–2 chars of that first word and line 2 can fit the whole word, promote it.
-            if (fragLen in 1..2 && layout.lineCount >= 2) {
-                val avail2 = (innerW - leftInd[1] - rightInd[1]).coerceAtLeast(0)
-                // Include leading overhang like italics.
-                val r = android.graphics.Rect()
-                var overhang = 0
-                try {
-                    tp.getTextBounds(text.toString(), s, (s + 1).coerceAtMost(len), r)
-                    if (r.left < 0) overhang = -r.left
-                } catch (_: Throwable) { /* ignore */ }
-
-                val need = kotlin.math.ceil(tp.measureText(text, s, e).toDouble()).toInt() + overhang + 1
-                if (need <= avail2) {
-                    // Zero usable width on line 1 by maximizing left indent (right indent unchanged).
-                    leftInd[0] = (innerW - rightInd[0]).coerceAtLeast(0)
-                    return true
-                }
-            }
-            return false
-        }
-
-
         val lastIdx = min(lines - 1, min(leftInd.size, rightInd.size) - 1)
         for (i in 0..lastIdx) {
-            if (leftInd[i] == 0 && rightInd[i] == 0) continue  // not a cap-affected line
+            // only cap-affected lines
+            if (leftInd[i] == 0 && rightInd[i] == 0) continue
+
             val start = layout.getLineStart(i)
             val visEnd = layout.getLineVisibleEnd(i)
+
+            // skip leading whitespace on this line
             var s = start
             while (s < visEnd && Character.isWhitespace(text[s])) s++
             if (s >= text.length || s >= visEnd) continue
 
-            val over = firstGlyphOverhangPx(s)
+            // first glyph’s left overhang (italic/skew)
+            val over = firstGlyphOverhangPx(tp, text, s)
             if (over > 0 && leftInd[i] < over) {
-                // Increase left indent just enough to cover the overhang, leave at least 1px usable width.
-                val target = over
+                // bump just enough to cover overhang; keep at least 1px usable width
                 val maxLeft = (innerW - rightInd[i] - 1).coerceAtLeast(0)
-                val newLeft = target.coerceAtMost(maxLeft)
+                val newLeft = min(over, maxLeft)
                 if (newLeft > leftInd[i]) {
                     leftInd[i] = newLeft
-                    // ensure line still has some usable width (prevent degenerate)
                     if (avail(i) <= 0) leftInd[i] = (innerW - rightInd[i] - 1).coerceAtLeast(0)
                     changed = true
                 }
@@ -5156,6 +5093,65 @@ class InkCanvasView @JvmOverloads constructor(
         }
         return changed
     }
+    /**
+     * If line 1 (cap-affected) would end with a 1–2 char fragment of the very first word,
+     * and the full word fits on line 2, collapse line 1’s usable width to 0 so the word moves intact.
+     * Returns true if indents were changed (caller must rebuild once).
+     */
+    private fun promoteFirstWordFragmentOnCap(
+        tp: TextPaint,
+        text: CharSequence,
+        innerW: Int,
+        leftInd: IntArray,
+        rightInd: IntArray,
+        layout: StaticLayout
+    ): Boolean {
+        if (leftInd.isEmpty() || rightInd.isEmpty()) return false
+        if (layout.lineCount <= 0) return false
+        // Only when line 1 is cap-affected.
+        if (leftInd[0] == 0 && rightInd[0] == 0) return false
+
+        val len = text.length
+        var s = 0
+        while (s < len && Character.isWhitespace(text[s])) s++
+        if (s >= len) return false
+
+        var e = s
+        while (e < len && !Character.isWhitespace(text[e])) e++
+
+        // Range for line 1
+        val ls0 = layout.getLineStart(0)
+        val le0 = layout.getLineVisibleEnd(0)
+
+        // Intersection of line 1 and the first word
+        val is0 = kotlin.math.max(ls0, s)
+        val ie0 = kotlin.math.min(le0, e)
+        val fragLen = (ie0 - is0).coerceAtLeast(0)
+
+        if (fragLen in 1..2 && layout.lineCount >= 2) {
+            val avail2 = (innerW - leftInd[1] - rightInd[1]).coerceAtLeast(0)
+
+            // Include leading overhang of first glyph (italic/metrics)
+            val r = android.graphics.Rect()
+            var overhang = 0
+            try {
+                tp.getTextBounds(text.toString(), s, (s + 1).coerceAtMost(len), r)
+                if (r.left < 0) overhang = -r.left
+            } catch (_: Throwable) { /* ignore */ }
+
+            val need = kotlin.math.ceil(tp.measureText(text, s, e).toDouble()).toInt() + overhang + 1
+            if (need <= avail2) {
+                // Zero usable width on line 1 by maximizing left indent (keep right as-is)
+                leftInd[0] = (innerW - rightInd[0]).coerceAtLeast(0)
+                return true
+            }
+        }
+        return false
+    }
+
+
+
+
 
     // Left overhang of the first glyph on a line (px, >= 0). Accounts for italic skew.
     private fun firstGlyphOverhangPx(tp: TextPaint, text: CharSequence, start: Int): Int {
