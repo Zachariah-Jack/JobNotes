@@ -4896,9 +4896,13 @@ class InkCanvasView @JvmOverloads constructor(
                 return StaticLayout.Builder
                     .obtain(n.editable, 0, n.editable.length, tp, innerW.toInt())
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                    .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)
+
                     .setIncludePad(false)
                     .setLineSpacing(0f, 1f)
-                    .setBreakStrategy(Layout.BREAK_STRATEGY_BALANCED)
+                    .setBreakStrategy(LineBreaker.BREAK_STRATEGY_SIMPLE)
+
+
                     .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)
                     .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
                     .setIndents(leftInd, rightInd)
@@ -4906,6 +4910,10 @@ class InkCanvasView @JvmOverloads constructor(
             }
             layout = buildWithIndents()
 
+            // Pass A: bump left indents on cap-affected lines if the first glyph would overhang the wall.
+            if (fixLeadingOverhangOnCapLines(tp, n.editable, innerW.toInt(), leftInd, rightInd, layout)) {
+                layout = buildWithIndents()
+            }
 
             // Pass B: avoid orphaned 1–2 letter fragment of the first word on the top cap line.
             if (promoteFirstWordFragmentOnCap(tp, n.editable, innerW.toInt(), leftInd, rightInd, layout)) {
