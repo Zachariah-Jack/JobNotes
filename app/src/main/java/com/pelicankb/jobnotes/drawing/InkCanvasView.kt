@@ -5088,12 +5088,12 @@ class InkCanvasView @JvmOverloads constructor(
             // first glyph’s left overhang (italic/skew)
             val over = firstGlyphOverhangPx(tp, text, s)
             if (over > 0 && leftInd[i] < over) {
-                // bump just enough to cover overhang; keep at least 1px usable width
-                val maxLeft = (innerW - rightInd[i] - 1).coerceAtLeast(0)
+                // bump just enough to cover overhang; allow zero usable width
+                val maxLeft = (innerW - rightInd[i]).coerceAtLeast(0)
                 val newLeft = min(over, maxLeft)
                 if (newLeft > leftInd[i]) {
                     leftInd[i] = newLeft
-                    if (avail(i) <= 0) leftInd[i] = (innerW - rightInd[i] - 1).coerceAtLeast(0)
+                    if (avail(i) <= 0) leftInd[i] = (innerW - rightInd[i]).coerceAtLeast(0)
                     changed = true
                 }
             }
@@ -5115,7 +5115,7 @@ class InkCanvasView @JvmOverloads constructor(
         val lineCount = layout.lineCount
         if (lineCount <= 0 || leftInd.isEmpty() || rightInd.isEmpty()) return false
 
-        // We'll only consider lines that are actually cap‑affected (rounded walls),
+        // We'll only consider lines that are actually cap-affected (rounded walls),
         // and where there *is* a following line to move the word to.
         val capLast = kotlin.math.min(lineCount - 1, kotlin.math.min(leftInd.size, rightInd.size) - 1)
         var changed = false
@@ -5134,9 +5134,9 @@ class InkCanvasView @JvmOverloads constructor(
             } catch (_: Throwable) { 0 }
         }
 
-        // Walk each cap‑affected line i that has a next line i+1
+        // Walk each cap-affected line i that has a next line i+1
         for (i in 0 until capLast) {
-            // Skip lines that aren't cap‑affected
+            // Skip lines that aren't cap-affected
             if (leftInd[i] == 0 && rightInd[i] == 0) continue
 
             val start = layout.getLineStart(i)
@@ -5155,20 +5155,20 @@ class InkCanvasView @JvmOverloads constructor(
             val wordWf = tp.measureText(text, s, e)               // float for precise compare
             val wordW = kotlin.math.ceil(wordWf).toInt()           // conservative int for capacity checks
 
-            val here = avail(i)            // usable width on this (cap) line
-            val next = avail(i + 1)        // usable width on the next line
+            val here = avail(i)           // usable width on this line
+            val next = avail(i + 1)       // usable width on the next line
             if (next <= 0) continue
 
-            // Include first‑glyph overhang (italic/skew) to avoid visual clipping
+            // Include first-glyph overhang (italic/skew) to avoid visual clipping
             val over = firstGlyphOverhangPx(s).toFloat()
 
             // Deterministic rule:
-            // If the whole first word CLEARLY fits on next line (with 1px safety),
-            // but does NOT fit on this line, collapse this line’s usable width to ~1px
+            // If the whole first word CLEARLY fits on next line (with a small safety margin),
+            // but does NOT fit on this line, collapse this line’s usable width to 0
             // so StaticLayout moves the entire word to the next line intact.
             if (wordWf + over + 1f <= next.toFloat() && wordW > here) {
-                // Don't fully zero the line; leave 1px usable width to keep layout stable
-                leftInd[i] = (innerW - rightInd[i] - 1).coerceAtLeast(0)
+                // Make this line zero-usable-width so the entire word moves down intact
+                leftInd[i] = (innerW - rightInd[i]).coerceAtLeast(0)
                 changed = true
             }
         }
