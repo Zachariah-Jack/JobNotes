@@ -5111,67 +5111,65 @@ class InkCanvasView @JvmOverloads constructor(
         rightInd: IntArray,
         layout: StaticLayout
     ): Boolean {
-        // Nothing to do if we have no lines or no indent arrays
-        val lineCount = layout.lineCount
-        if (lineCount <= 0 || leftInd.isEmpty() || rightInd.isEmpty()) return false
 
-        // We'll only consider lines that are actually cap-affected (rounded walls),
-        // and where there *is* a following line to move the word to.
-        val capLast = kotlin.math.min(lineCount - 1, kotlin.math.min(leftInd.size, rightInd.size) - 1)
+        // Local span class that forces the wrapped run to move as a unit (no internal line breaks).
+        // Using fully-qualified types avoids import changes.
+        class NoBreakSpan : android.text.style.CharacterStyle(),
+            android.text.style.UpdateLayout,
+            android.text.style.WrapTogetherSpan {
+            override fun updateDrawState(tp: TextPaint) { /* no-op */ }
+        }
+
+        val editable = text as? android.text.Editable ?: return false
+
+        // Clear any previous spans from a prior layout pass.
+        editable.getSpans(0, editable.length, NoBreakSpan::class.java).forEach { editable.removeSpan(it) }
+
+        val lineCount = layout.lineCount
+        if (lineCount <= 0) return false
+
         var changed = false
 
-        fun avail(line: Int): Int = (innerW - leftInd[line] - rightInd[line]).coerceAtLeast(0)
+        fun avail(line: Int): Int =
+            (innerW - leftInd[line] - rightInd[line]).coerceAtLeast(0)
 
-        // Left overhang (>=0) of the first glyph on a given line; protects italic/skew metrics.
-        fun firstGlyphOverhangPx(start: Int): Int {
-            if (start >= text.length) return 0
-            val end = (start + 1).coerceAtMost(text.length)
-            val r = android.graphics.Rect()
-            return try {
-                // Use substring path of getTextBounds for consistent metrics
-                tp.getTextBounds(text.toString(), start, end, r)
-                if (r.left < 0) -r.left else 0
-            } catch (_: Throwable) { 0 }
-        }
+        val lastCandidate = kotlin.math.min(lineCount - 1, kotlin.math.min(leftInd.size, rightInd.size) - 1)
 
-        // Walk each cap-affected line i that has a next line i+1
-        for (i in 0 until capLast) {
-            // Skip lines that aren't cap-affected
+        // Examine each cap-affected line that has a following line to receive the word.
+        for (i in 0 until lastCandidate) {
             if (leftInd[i] == 0 && rightInd[i] == 0) continue
-
-            val start = layout.getLineStart(i)
+            val s0 = layout.getLineStart(i)
             val visEnd = layout.getLineVisibleEnd(i)
 
-            // Find first token start s on this line, skipping whitespace
-            var s = start
+            // Skip leading whitespace on this line.
+            var s = s0
             while (s < visEnd && Character.isWhitespace(text[s])) s++
-            if (s >= text.length || s >= visEnd) continue
+            if (s >= visEnd || s >= text.length) continue
 
-            // Find end of that token e
+            // Find end of the first token on this line.
             var e = s
             while (e < text.length && !Character.isWhitespace(text[e])) e++
+            if (e <= s) continue
 
-            // Width of the whole word at [s, e)
-            val wordWf = tp.measureText(text, s, e)               // float for precise compare
-            val wordW = kotlin.math.ceil(wordWf).toInt()           // conservative int for capacity checks
-
-            val here = avail(i)           // usable width on this line
-            val next = avail(i + 1)       // usable width on the next line
+            // Widths and capacity on the current and next lines.
+            val wordWf = tp.measureText(text, s, e)  // precise width of the whole word
+            val here = avail(i)
+            val next = avail(i + 1)
             if (next <= 0) continue
 
-            // Include first-glyph overhang (italic/skew) to avoid visual clipping
-            val over = firstGlyphOverhangPx(s).toFloat()
+            // Account for visual left overhang of the first glyph (italic/skew).
+            val overhang = firstGlyphOverhangPx(tp, text, s).toFloat()
 
-            // Deterministic rule:
-            // If the whole first word CLEARLY fits on next line (with a small safety margin),
-            // but does NOT fit on this line, collapse this line’s usable width to 0
-            // so StaticLayout moves the entire word to the next line intact.
-            if (wordWf + over + 1f <= next.toFloat() && wordW > here) {
-                // Make this line zero-usable-width so the entire word moves down intact
-                leftInd[i] = (innerW - rightInd[i]).coerceAtLeast(0)
+            // If the word won't fit on this line (cap pinch), but clearly fits on the next line,
+            // prevent a character-level break inside the word by wrapping it with NoBreakSpan.
+            if (wordWf + overhang + 1f <= next.toFloat() && wordWf > here.toFloat()) {
+                editable.setSpan(NoBreakSpan(), s, e, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
                 changed = true
+                // One promotion per pass is enough; we'll rebuild right after this.
+                break
             }
         }
+
         return changed
     }
 
