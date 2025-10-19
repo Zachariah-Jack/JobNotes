@@ -5112,62 +5112,91 @@ class InkCanvasView @JvmOverloads constructor(
         layout: StaticLayout
     ): Boolean {
 
-        // Local span class that forces the wrapped run to move as a unit (no internal line breaks).
-        // Using fully-qualified types avoids import changes.
-        class NoBreakSpan : android.text.style.CharacterStyle(),
-            android.text.style.UpdateLayout,
-            android.text.style.WrapTogetherSpan {
-            override fun updateDrawState(tp: TextPaint) { /* no-op */ }
+        // Draw-and-measure as one unit so the word cannot break across lines.
+        class UnbreakableWordSpan : android.text.style.ReplacementSpan(),
+            android.text.style.UpdateLayout {
+            override fun getSize(
+                paint: android.graphics.Paint,
+                text: CharSequence,
+                start: Int,
+                end: Int,
+                fm: android.graphics.Paint.FontMetricsInt?
+            ): Int {
+                val w = paint.measureText(text, start, end)
+                return kotlin.math.ceil(w.toDouble()).toInt()
+            }
+            override fun draw(
+                canvas: android.graphics.Canvas,
+                text: CharSequence,
+                start: Int,
+                end: Int,
+                x: Float,
+                top: Int,
+                y: Int,
+                bottom: Int,
+                paint: android.graphics.Paint
+            ) {
+                canvas.drawText(text, start, end, x, y.toFloat(), paint)
+            }
         }
 
         val editable = text as? android.text.Editable ?: return false
 
-        // Clear any previous spans from a prior layout pass.
-        editable.getSpans(0, editable.length, NoBreakSpan::class.java).forEach { editable.removeSpan(it) }
+        // Clean any leftovers from prior passes (old no-break or our own span).
+        editable.getSpans(0, editable.length, UnbreakableWordSpan::class.java).forEach {
+            editable.removeSpan(it)
+        }
+        editable.getSpans(0, editable.length, android.text.style.CharacterStyle::class.java)
+            .forEach { if (it is android.text.style.WrapTogetherSpan) editable.removeSpan(it) }
 
         val lineCount = layout.lineCount
-        if (lineCount <= 0) return false
+        if (lineCount <= 0 || leftInd.isEmpty() || rightInd.isEmpty()) return false
 
         var changed = false
 
-        fun avail(line: Int): Int =
-            (innerW - leftInd[line] - rightInd[line]).coerceAtLeast(0)
+        fun avail(line: Int): Int = (innerW - leftInd[line] - rightInd[line]).coerceAtLeast(0)
+        val lastIdx = kotlin.math.min(lineCount - 1, kotlin.math.min(leftInd.size, rightInd.size) - 1)
 
-        val lastCandidate = kotlin.math.min(lineCount - 1, kotlin.math.min(leftInd.size, rightInd.size) - 1)
+        // Walk cap-affected lines; if the first word won't fit here, keep it intact
+        // until the first downstream line that *can* hold it.
+        for (i in 0 until lastIdx) {
+            if (leftInd[i] == 0 && rightInd[i] == 0) continue  // not cap-affected
 
-        // Examine each cap-affected line that has a following line to receive the word.
-        for (i in 0 until lastCandidate) {
-            if (leftInd[i] == 0 && rightInd[i] == 0) continue
-            val s0 = layout.getLineStart(i)
+            val start = layout.getLineStart(i)
             val visEnd = layout.getLineVisibleEnd(i)
 
-            // Skip leading whitespace on this line.
-            var s = s0
+            // Find first token [s, e)
+            var s = start
             while (s < visEnd && Character.isWhitespace(text[s])) s++
             if (s >= visEnd || s >= text.length) continue
-
-            // Find end of the first token on this line.
             var e = s
             while (e < text.length && !Character.isWhitespace(text[e])) e++
             if (e <= s) continue
 
-            // Widths and capacity on the current and next lines.
-            val wordWf = tp.measureText(text, s, e)  // precise width of the whole word
-            val here = avail(i)
-            val next = avail(i + 1)
-            if (next <= 0) continue
+            val wordWf = tp.measureText(text, s, e)
+            val here = avail(i).toFloat()
+            if (wordWf <= here) continue
 
-            // Account for visual left overhang of the first glyph (italic/skew).
-            val overhang = firstGlyphOverhangPx(tp, text, s).toFloat()
+            // Small safety + italic/skew overhang so it won't clip at the cap.
+            val need = wordWf + firstGlyphOverhangPx(tp, text, s).toFloat() + 1f
 
-            // If the word won't fit on this line (cap pinch), but clearly fits on the next line,
-            // prevent a character-level break inside the word by wrapping it with NoBreakSpan.
-            if (wordWf + overhang + 1f <= next.toFloat() && wordWf > here.toFloat()) {
-                editable.setSpan(NoBreakSpan(), s, e, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
-                changed = true
-                // One promotion per pass is enough; we'll rebuild right after this.
-                break
+            // Is there any later line that can fit the *entire* word?
+            var fitsLater = false
+            var j = i + 1
+            while (j <= lastIdx) {
+                if (avail(j).toFloat() >= need) { fitsLater = true; break }
+                j++
             }
+            if (!fitsLater) continue
+
+            // Make the word unbreakable so it "rides down" to the first line that fits.
+            editable.setSpan(
+                UnbreakableWordSpan(),
+                s, e,
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE
+            )
+            changed = true
+            break
         }
 
         return changed
