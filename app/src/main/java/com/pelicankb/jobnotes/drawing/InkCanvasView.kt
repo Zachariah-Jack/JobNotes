@@ -4855,14 +4855,9 @@ class InkCanvasView @JvmOverloads constructor(
         }
     }
 
-    // Ensure selected TextNode has a valid layout and sane boxW/boxH.
-// Rebuild only when text/size/boxW changed (n.layoutDirty = true).
+    // REPLACE the current ensureTextLayout(...) with this version.
     private fun ensureTextLayout(n: TextNode) {
         if (!n.layoutDirty && n.layout != null) return
-
-
-        // If boxW not set yet, pick a sane default from canvas width (~60%), clamped
-        val canvasW = width.toFloat().coerceAtLeast(1f)
 
         val tp = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
             color = n.color
@@ -4871,88 +4866,95 @@ class InkCanvasView @JvmOverloads constructor(
             textSkewX = if (n.isItalic) -0.25f else 0f
         }
 
-// Layout padding: tiny AA pad only; shape is handled via per-line indents (+ rounded clip)
         val pad = max(n.paddingPx, aaPadPx())
-
-// Inner box (CONTENT px) available to StaticLayout before indents
+        val canvasW = width.toFloat().coerceAtLeast(1f)
         val defaultInner = (canvasW * 0.6f)
             .coerceIn(dpToPx(200f), dpToPx(640f)) - 2f * pad
-        val innerW = max(1f, (if (n.boxW > 0f) (n.boxW - 2f * pad) else defaultInner))
-        val innerH = max(1f, (if (n.boxH > 0f) (n.boxH - 2f * pad) else dpToPx(200f)))
 
-// Pill/Circle indents per line (ascent/descent aware)
+        fun innerW(): Float = max(1f, if (n.boxW > 0f) n.boxW - 2f * pad else defaultInner)
+        fun innerH(): Float = max(1f, if (n.boxH > 0f) n.boxH - 2f * pad else dpToPx(200f))
+
         val fm = tp.fontMetricsInt
         val lineH = max(dpToPx(12f), (fm.bottom - fm.top).toFloat())
-        val estLines = max(1, kotlin.math.ceil(innerH / lineH).toInt() + 4)
-        val r = n.cornerRadiusPx.coerceAtMost(min(innerW, innerH) * 0.5f)
-        val (leftInd, rightInd) = computePillIndents(innerW, innerH, r, lineH, estLines, fm.ascent, fm.descent)
 
-        reserveFirstLineForFirstWordIfNarrowRect(tp, n.editable, innerW.toInt(), leftInd, rightInd)
+        fun computeIndents(w: Float, h: Float, lines: Int): Pair<IntArray, IntArray> {
+            val r = n.cornerRadiusPx.coerceAtMost(min(w, h) * 0.5f)
+            return computePillIndents(w, h, r, lineH, lines, fm.ascent, fm.descent)
+        }
 
-// Build StaticLayout; one optional promotion pass for orphan letters at the cap
-        var layout: StaticLayout
-        if (android.os.Build.VERSION.SDK_INT >= 23) {
-            fun buildWithIndents(): StaticLayout {
-                return StaticLayout.Builder
-                    .obtain(n.editable, 0, n.editable.length, tp, innerW.toInt())
+        fun build(wPx: Int, left: IntArray, right: IntArray): StaticLayout {
+            return if (android.os.Build.VERSION.SDK_INT >= 23) {
+                StaticLayout.Builder
+                    .obtain(n.editable, 0, n.editable.length, tp, wPx)
                     .setAlignment(Layout.Alignment.ALIGN_NORMAL)
                     .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)
-
                     .setIncludePad(false)
-                    .setLineSpacing(0f, 1f)
                     .setBreakStrategy(LineBreaker.BREAK_STRATEGY_SIMPLE)
-
-
-                    .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)
                     .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
-                    .setIndents(leftInd, rightInd)
+                    .setIndents(left, right)
                     .build()
-            }
-            layout = buildWithIndents()
-
-            // Pass A: bump left indents on cap-affected lines if the first glyph would overhang the wall.
-            if (fixLeadingOverhangOnCapLines(tp, n.editable, innerW.toInt(), leftInd, rightInd, layout)) {
-                layout = buildWithIndents()
-            }
-
-            // Pass B: avoid orphaned 1–2 letter fragment of the first word on the top cap line.
-            if (promoteFirstWordFragmentOnCap(tp, n.editable, innerW.toInt(), leftInd, rightInd, layout)) {
-                layout = buildWithIndents()
-            }
-        } else {
-            @Suppress("DEPRECATION")
-            layout = StaticLayout(n.editable, tp, innerW.toInt(), Layout.Alignment.ALIGN_NORMAL, 1f, 0f, false)
-        }
-
-
-
-
-// Initialize outer box if needed (use AA pad here, NOT radius)
-        if (n.boxW <= 0f) n.boxW = layout.width.toFloat() + 2f * pad
-
-        val minH = dpToPx(48f)
-        if (n.boxH <= 0f) {
-            n.boxH = max(minH, layout.height.toFloat() + 2f * pad)
-        }
-
-// While editing, let height auto-grow downward; width remains fixed
-        if (editingSelectedText && selectedText === n) {
-            val desiredH = max(minH, layout.height.toFloat() + 2f * pad)
-            if (desiredH > n.boxH + 0.5f) {
-                val oldTop = n.center.y - n.boxH * 0.5f
-                n.boxH = desiredH
-                n.center.y = oldTop + desiredH * 0.5f
-                clampTextToDocument(n)
+            } else {
+                @Suppress("DEPRECATION")
+                StaticLayout(n.editable, tp, wPx, Layout.Alignment.ALIGN_NORMAL, 1f, 0f, false)
             }
         }
 
-// Keep draw step in sync (translate by cachedInnerPadPx; rounded-clip already uses it)
+        var w = innerW()
+        var h = innerH()
+        var lines = kotlin.math.ceil(h / lineH).toInt() + 8  // generous headroom
+
+        var (leftInd, rightInd) = computeIndents(w, h, max(1, lines))
+
+        // Rect-only early guard: zero usable width on line 1 if the first word won't fit.
+        reserveFirstLineForFirstWordIfNarrowRect(tp, n.editable, w.toInt(), leftInd, rightInd)
+
+        var layout = build(w.toInt(), leftInd, rightInd)
+
+        // Cap overhang + tiny-fragment guards; rebuild if tweaked.
+        if (fixLeadingOverhangOnCapLines(tp, n.editable, w.toInt(), leftInd, rightInd, layout)) {
+            layout = build(w.toInt(), leftInd, rightInd)
+        }
+        if (promoteFirstWordFragmentOnCap(tp, n.editable, w.toInt(), leftInd, rightInd, layout)) {
+            layout = build(w.toInt(), leftInd, rightInd)
+        }
+
+        // If we underestimated lines OR the box auto-grew during edit, recompute once more.
+        var needsRebuild = false
+
+        if (layout.lineCount > leftInd.size || layout.lineCount > rightInd.size) {
+            lines = layout.lineCount + 8
+            needsRebuild = true
+        }
+
+        val desiredH = layout.height.toFloat() + 2f * pad
+        if (editingSelectedText && selectedText === n && desiredH > n.boxH + 0.5f) {
+            val oldTop = n.center.y - n.boxH * 0.5f
+            n.boxH = desiredH
+            n.center.y = oldTop + desiredH * 0.5f
+            h = innerH()
+            needsRebuild = true
+        }
+
+        if (needsRebuild) {
+            val (l2, r2) = computeIndents(w, h, max(lines, layout.lineCount + 8))
+            leftInd = l2; rightInd = r2
+
+            // Re-apply the guards on the fresh arrays.
+            reserveFirstLineForFirstWordIfNarrowRect(tp, n.editable, w.toInt(), leftInd, rightInd)
+            layout = build(w.toInt(), leftInd, rightInd)
+            if (fixLeadingOverhangOnCapLines(tp, n.editable, w.toInt(), leftInd, rightInd, layout)) {
+                layout = build(w.toInt(), leftInd, rightInd)
+            }
+            if (promoteFirstWordFragmentOnCap(tp, n.editable, w.toInt(), leftInd, rightInd, layout)) {
+                layout = build(w.toInt(), leftInd, rightInd)
+            }
+        }
+
+        // Commit caches
         n.cachedInnerPadPx = pad
         n.layout = layout
-        n.layoutInnerW = innerW.toInt()
+        n.layoutInnerW = w.toInt()
         n.layoutDirty = false
-
-
     }
     // Small AA pad only (do NOT include radius here). Keep layout roomy; clip handles containment.
     private fun aaPadPx(): Float = dpToPx(2f).coerceAtMost(dpToPx(8f))
@@ -5098,11 +5100,9 @@ class InkCanvasView @JvmOverloads constructor(
         }
         return changed
     }
-    /**
-     * If line 1 (cap-affected) would end with a 1–2 char fragment of the very first word,
-     * and the full word fits on line 2, collapse line 1’s usable width to 0 so the word moves intact.
-     * Returns true if indents were changed (caller must rebuild once).
-     */
+
+
+    // REPLACE promoteFirstWordFragmentOnCap(...) with this version.
     private fun promoteFirstWordFragmentOnCap(
         tp: TextPaint,
         text: CharSequence,
@@ -5111,46 +5111,60 @@ class InkCanvasView @JvmOverloads constructor(
         rightInd: IntArray,
         layout: StaticLayout
     ): Boolean {
-        if (leftInd.isEmpty() || rightInd.isEmpty()) return false
-        if (layout.lineCount <= 0) return false
-        // Only when line 1 is cap-affected.
+        if (leftInd.isEmpty() || rightInd.isEmpty() || layout.lineCount <= 0) return false
+        // Only when line 1 is cap-affected (rounded)
         if (leftInd[0] == 0 && rightInd[0] == 0) return false
 
+        // --- First word [s,e) ---
         val len = text.length
         var s = 0
         while (s < len && Character.isWhitespace(text[s])) s++
         if (s >= len) return false
-
         var e = s
         while (e < len && !Character.isWhitespace(text[e])) e++
 
-        // Range for line 1
+        // How much width the whole first word needs (incl. italic overhang safety)?
+        val r = android.graphics.Rect()
+        var overhang = 0
+        try {
+            tp.getTextBounds(text.toString(), s, (s + 1).coerceAtMost(len), r)
+            if (r.left < 0) overhang = -r.left
+        } catch (_: Throwable) { }
+        val need = kotlin.math.ceil(tp.measureText(text, s, e).toDouble()).toInt() + overhang + 1
+
+        // --- What is currently on line 0? Is it a tiny fragment? ---
         val ls0 = layout.getLineStart(0)
         val le0 = layout.getLineVisibleEnd(0)
-
-        // Intersection of line 1 and the first word
         val is0 = kotlin.math.max(ls0, s)
         val ie0 = kotlin.math.min(le0, e)
-        val fragLen = (ie0 - is0).coerceAtLeast(0)
+        val fragCount = (ie0 - is0).coerceAtLeast(0)
+        val fragPx = if (fragCount > 0) kotlin.math.ceil(tp.measureText(text, is0, ie0).toDouble()).toInt() else 0
+        val em = kotlin.math.ceil(tp.measureText("M")).toInt()
+        val tinyFragment = fragCount > 0 && (fragCount <= 3 || fragPx <= (1.6f * em).toInt())
 
-        if (fragLen in 1..2 && layout.lineCount >= 2) {
-            val avail2 = (innerW - leftInd[1] - rightInd[1]).coerceAtLeast(0)
+        // If line 0 already fits the whole word, do nothing.
+        val avail0 = (innerW - leftInd[0] - rightInd[0]).coerceAtLeast(0)
+        if (avail0 >= need) return false
 
-            // Include leading overhang of first glyph (italic/metrics)
-            val r = android.graphics.Rect()
-            var overhang = 0
-            try {
-                tp.getTextBounds(text.toString(), s, (s + 1).coerceAtMost(len), r)
-                if (r.left < 0) overhang = -r.left
-            } catch (_: Throwable) { /* ignore */ }
-
-            val need = kotlin.math.ceil(tp.measureText(text, s, e).toDouble()).toInt() + overhang + 1
-            if (need <= avail2) {
-                // Zero usable width on line 1 by maximizing left indent (keep right as-is)
-                leftInd[0] = (innerW - rightInd[0]).coerceAtLeast(0)
-                return true
-            }
+        // Find earliest line j >= 1 that can fit the whole first word with its indents.
+        var target = -1
+        val lim = kotlin.math.min(layout.lineCount, kotlin.math.min(leftInd.size, rightInd.size))
+        for (i in 1 until lim) {
+            val avail = (innerW - leftInd[i] - rightInd[i]).coerceAtLeast(0)
+            if (avail >= need) { target = i; break }
         }
+
+        // If we have a tiny fragment on line 0, always get rid of it.
+        // If we also found a target j, skip lines [0, j) so the word starts intact at line j.
+        // If no target exists yet (circle/corner is still tight), at least drop line 0 to avoid an orphan letter.
+        if (tinyFragment || target >= 1) {
+            val last = if (target >= 1) target else 1
+            for (i in 0 until last) {
+                leftInd[i] = (innerW - rightInd[i]).coerceAtLeast(0) // zero usable width on those lines
+            }
+            return true
+        }
+
         return false
     }
 
