@@ -4906,10 +4906,7 @@ class InkCanvasView @JvmOverloads constructor(
             }
             layout = buildWithIndents()
 
-            // Pass A: bump cap‑line left indents to cover leading glyph overhang (e.g., italics).
-            if (fixLeadingOverhangOnCapLines(tp, n.editable, innerW.toInt(), leftInd, rightInd, layout)) {
-                layout = buildWithIndents()
-            }
+
             // Pass B: avoid orphaned 1–2 letter fragment of the first word on the top cap line.
             if (promoteFirstWordFragmentOnCap(tp, n.editable, innerW.toInt(), leftInd, rightInd, layout)) {
                 layout = buildWithIndents()
