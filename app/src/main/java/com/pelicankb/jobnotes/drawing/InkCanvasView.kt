@@ -5004,9 +5004,18 @@ class InkCanvasView @JvmOverloads constructor(
             if (yBot > bottomCapStart) inset = max(inset, chordInsetAt(yBot))
 
             val insetPx = (inset + aa).coerceIn(0f, innerW * 0.5f)
-            val insetInt = insetPx.toInt()
+
+            // Round UP to avoid leaving a 1px sliver near the cap.
+            val insetInt = kotlin.math.ceil(insetPx.toDouble()).toInt()
+
             left[i] = insetInt
             right[i] = insetInt
+
+            // If a sub‑2px remainder remains, collapse the line to EXACT zero usable width.
+            val usable = innerW - left[i] - right[i]
+            if (usable > 0f && usable < 2f) {
+                left[i] = innerW.toInt() - right[i]
+            }
         }
         return left to right
     }
@@ -5088,12 +5097,15 @@ class InkCanvasView @JvmOverloads constructor(
             // first glyph’s left overhang (italic/skew)
             val over = firstGlyphOverhangPx(tp, text, s)
             if (over > 0 && leftInd[i] < over) {
-                // bump just enough to cover overhang; allow zero usable width
+                // bump just enough to cover overhang; allow TRUE zero usable width
                 val maxLeft = (innerW - rightInd[i]).coerceAtLeast(0)
                 val newLeft = min(over, maxLeft)
                 if (newLeft > leftInd[i]) {
                     leftInd[i] = newLeft
-                    if (avail(i) <= 0) leftInd[i] = (innerW - rightInd[i]).coerceAtLeast(0)
+                    // If a tiny sliver remains, collapse it to exactly zero.
+                    if ((innerW - leftInd[i] - rightInd[i]) < 2) {
+                        leftInd[i] = (innerW - rightInd[i]).coerceAtLeast(0)
+                    }
                     changed = true
                 }
             }
