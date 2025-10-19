@@ -5111,61 +5111,68 @@ class InkCanvasView @JvmOverloads constructor(
         rightInd: IntArray,
         layout: StaticLayout
     ): Boolean {
-        if (leftInd.isEmpty() || rightInd.isEmpty() || layout.lineCount <= 0) return false
-        // Only when line 1 is cap-affected (rounded)
-        if (leftInd[0] == 0 && rightInd[0] == 0) return false
+        // Nothing to do if we have no lines or no indent arrays
+        val lineCount = layout.lineCount
+        if (lineCount <= 0 || leftInd.isEmpty() || rightInd.isEmpty()) return false
 
-        // --- First word [s,e) ---
-        val len = text.length
-        var s = 0
-        while (s < len && Character.isWhitespace(text[s])) s++
-        if (s >= len) return false
-        var e = s
-        while (e < len && !Character.isWhitespace(text[e])) e++
+        // We'll only consider lines that are actually cap‑affected (rounded walls),
+        // and where there *is* a following line to move the word to.
+        val capLast = kotlin.math.min(lineCount - 1, kotlin.math.min(leftInd.size, rightInd.size) - 1)
+        var changed = false
 
-        // How much width the whole first word needs (incl. italic overhang safety)?
-        val r = android.graphics.Rect()
-        var overhang = 0
-        try {
-            tp.getTextBounds(text.toString(), s, (s + 1).coerceAtMost(len), r)
-            if (r.left < 0) overhang = -r.left
-        } catch (_: Throwable) { }
-        val need = kotlin.math.ceil(tp.measureText(text, s, e).toDouble()).toInt() + overhang + 1
+        fun avail(line: Int): Int = (innerW - leftInd[line] - rightInd[line]).coerceAtLeast(0)
 
-        // --- What is currently on line 0? Is it a tiny fragment? ---
-        val ls0 = layout.getLineStart(0)
-        val le0 = layout.getLineVisibleEnd(0)
-        val is0 = kotlin.math.max(ls0, s)
-        val ie0 = kotlin.math.min(le0, e)
-        val fragCount = (ie0 - is0).coerceAtLeast(0)
-        val fragPx = if (fragCount > 0) kotlin.math.ceil(tp.measureText(text, is0, ie0).toDouble()).toInt() else 0
-        val em = kotlin.math.ceil(tp.measureText("M")).toInt()
-        val tinyFragment = fragCount > 0 && (fragCount <= 3 || fragPx <= (1.6f * em).toInt())
-
-        // If line 0 already fits the whole word, do nothing.
-        val avail0 = (innerW - leftInd[0] - rightInd[0]).coerceAtLeast(0)
-        if (avail0 >= need) return false
-
-        // Find earliest line j >= 1 that can fit the whole first word with its indents.
-        var target = -1
-        val lim = kotlin.math.min(layout.lineCount, kotlin.math.min(leftInd.size, rightInd.size))
-        for (i in 1 until lim) {
-            val avail = (innerW - leftInd[i] - rightInd[i]).coerceAtLeast(0)
-            if (avail >= need) { target = i; break }
+        // Left overhang (>=0) of the first glyph on a given line; protects italic/skew metrics.
+        fun firstGlyphOverhangPx(start: Int): Int {
+            if (start >= text.length) return 0
+            val end = (start + 1).coerceAtMost(text.length)
+            val r = android.graphics.Rect()
+            return try {
+                // Use substring path of getTextBounds for consistent metrics
+                tp.getTextBounds(text.toString(), start, end, r)
+                if (r.left < 0) -r.left else 0
+            } catch (_: Throwable) { 0 }
         }
 
-        // If we have a tiny fragment on line 0, always get rid of it.
-        // If we also found a target j, skip lines [0, j) so the word starts intact at line j.
-        // If no target exists yet (circle/corner is still tight), at least drop line 0 to avoid an orphan letter.
-        if (tinyFragment || target >= 1) {
-            val last = if (target >= 1) target else 1
-            for (i in 0 until last) {
-                leftInd[i] = (innerW - rightInd[i]).coerceAtLeast(0) // zero usable width on those lines
+        // Walk each cap‑affected line i that has a next line i+1
+        for (i in 0 until capLast) {
+            // Skip lines that aren't cap‑affected
+            if (leftInd[i] == 0 && rightInd[i] == 0) continue
+
+            val start = layout.getLineStart(i)
+            val visEnd = layout.getLineVisibleEnd(i)
+
+            // Find first token start s on this line, skipping whitespace
+            var s = start
+            while (s < visEnd && Character.isWhitespace(text[s])) s++
+            if (s >= text.length || s >= visEnd) continue
+
+            // Find end of that token e
+            var e = s
+            while (e < text.length && !Character.isWhitespace(text[e])) e++
+
+            // Width of the whole word at [s, e)
+            val wordWf = tp.measureText(text, s, e)               // float for precise compare
+            val wordW = kotlin.math.ceil(wordWf).toInt()           // conservative int for capacity checks
+
+            val here = avail(i)            // usable width on this (cap) line
+            val next = avail(i + 1)        // usable width on the next line
+            if (next <= 0) continue
+
+            // Include first‑glyph overhang (italic/skew) to avoid visual clipping
+            val over = firstGlyphOverhangPx(s).toFloat()
+
+            // Deterministic rule:
+            // If the whole first word CLEARLY fits on next line (with 1px safety),
+            // but does NOT fit on this line, collapse this line’s usable width to ~1px
+            // so StaticLayout moves the entire word to the next line intact.
+            if (wordWf + over + 1f <= next.toFloat() && wordW > here) {
+                // Don't fully zero the line; leave 1px usable width to keep layout stable
+                leftInd[i] = (innerW - rightInd[i] - 1).coerceAtLeast(0)
+                changed = true
             }
-            return true
         }
-
-        return false
+        return changed
     }
 
 
