@@ -4884,6 +4884,7 @@ class InkCanvasView @JvmOverloads constructor(
         val estLines = max(1, kotlin.math.ceil(innerH / lineH).toInt() + 4)
         val r = n.cornerRadiusPx.coerceAtMost(min(innerW, innerH) * 0.5f)
         val (leftInd, rightInd) = computePillIndents(innerW, innerH, r, lineH, estLines, fm.ascent, fm.descent)
+        reserveTopLinesForFirstWord(tp, n.editable, innerW.toInt(), leftInd, rightInd)
 
 // Build StaticLayout; one optional promotion pass for orphan letters at the cap
         var layout: StaticLayout
@@ -4898,32 +4899,11 @@ class InkCanvasView @JvmOverloads constructor(
 
             layout = builder.build()
 
-            if (promoteLeadingWordIfFits(tp, n.editable, innerW.toInt(), leftInd, rightInd, layout)) {
-                layout = StaticLayout.Builder.obtain(n.editable, 0, n.editable.length, tp, innerW.toInt())
-                    .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                    .setIncludePad(false)
-                    .setLineSpacing(0f, 1f)
-                    .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
-                    .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
-                    .setIndents(leftInd, rightInd)
-                    .build()
-            }
         } else {
             @Suppress("DEPRECATION")
             layout = StaticLayout(n.editable, tp, innerW.toInt(), Layout.Alignment.ALIGN_NORMAL, 1f, 0f, false)
         }
-        // Second pass: if the first glyph’s left overhang on a cap line still risks clipping,
-// bump that line’s left indent enough to cover the overhang and rebuild once.
-        if (fixLeadingOverhangOnCapLines(tp, n.editable, innerW.toInt(), leftInd, rightInd, layout)) {
-            layout = StaticLayout.Builder.obtain(n.editable, 0, n.editable.length, tp, innerW.toInt())
-                .setAlignment(Layout.Alignment.ALIGN_NORMAL)
-                .setIncludePad(false)
-                .setLineSpacing(0f, 1f)
-                .setBreakStrategy(Layout.BREAK_STRATEGY_SIMPLE)
-                .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
-                .setIndents(leftInd, rightInd)
-                .build()
-        }
+
         // Final safety: if a cap line still shows a singleton first letter, zero its width and rebuild once
         if (removeSingletonFirstLetterOnCapLines(n.editable, innerW.toInt(), leftInd, rightInd, layout)) {
             layout = StaticLayout.Builder.obtain(n.editable, 0, n.editable.length, tp, innerW.toInt())
@@ -5019,6 +4999,49 @@ class InkCanvasView @JvmOverloads constructor(
         }
         return left to right
     }
+    /**
+     * Reserve the top cap lines so the *first word* starts only on the first line
+     * that can fully fit it (including italic overhang). This prevents a singleton
+     * first letter on the narrow top chord.
+     */
+    private fun reserveTopLinesForFirstWord(
+        tp: TextPaint,
+        text: CharSequence,
+        innerW: Int,
+        leftInd: IntArray,
+        rightInd: IntArray
+    ) {
+        val len = text.length
+        var s = 0
+        while (s < len && Character.isWhitespace(text[s])) s++
+        if (s >= len) return
+
+        var e = s
+        while (e < len && !Character.isWhitespace(text[e])) e++
+
+        // Word width (ceil), plus left overhang of the first glyph
+        val wordW = kotlin.math.ceil(tp.measureText(text, s, e)).toInt()
+        val r = android.graphics.Rect()
+        var overhang = 0
+        try {
+            tp.getTextBounds(text.toString(), s, (s + 1).coerceAtMost(len), r)
+            if (r.left < 0) overhang = -r.left
+        } catch (_: Throwable) { /* ignore */ }
+
+        val need = wordW + overhang + 1 // 1px safety
+        val last = min(leftInd.size - 1, rightInd.size - 1)
+
+        for (i in 0..last) {
+            val avail = (innerW - leftInd[i] - rightInd[i]).coerceAtLeast(0)
+            // Stop if we're out of the rounded top cap (rectangular line)
+            if (leftInd[i] == 0 && rightInd[i] == 0) break
+            // If this line is too narrow for the full word, make it zero-usable-width
+            if (avail < need) {
+                leftInd[i] = (innerW - rightInd[i]).coerceAtLeast(0) // 0 usable px
+            } else break // first wide-enough line; let the word start here
+        }
+    }
+
     /**
      * Ensure the first glyph on each cap-affected line isn’t clipped by the rounded left wall.
      * If its left overhang exceeds the current left indent, bump that indent and return true.
