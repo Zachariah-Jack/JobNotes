@@ -5059,8 +5059,24 @@ class InkCanvasView @JvmOverloads constructor(
         val need = wordW + overhang + 1 // small safety margin
         val avail = (innerW - leftInd[0] - rightInd[0]).coerceAtLeast(0)
         if (need > avail) {
-            // Make line 1 zero-usable-width: the entire word will appear on line 2
+            // Make line 1 zero-usable-width: prefer the whole word on line 2
             leftInd[0] = innerW - rightInd[0]
+
+            // Also hint "keep together" so we don't spill a lone first letter if the framework
+            // still leaves a sub-pixel sliver.
+            (text as? android.text.Editable)?.let { editable ->
+                // Clean any previous hints from earlier passes.
+                editable.getSpans(0, editable.length, android.text.style.WrapTogetherSpan::class.java)
+                    .forEach { editable.removeSpan(it) }
+
+                // Lightweight keep-together hint (doesn't change metrics).
+                class NoBreakSpan : android.text.style.CharacterStyle(),
+                    android.text.style.UpdateLayout,
+                    android.text.style.WrapTogetherSpan {
+                    override fun updateDrawState(tp: TextPaint) { /* no-op */ }
+                }
+                editable.setSpan(NoBreakSpan(), s, e, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
         }
     }
 
@@ -5103,7 +5119,7 @@ class InkCanvasView @JvmOverloads constructor(
                 if (newLeft > leftInd[i]) {
                     leftInd[i] = newLeft
                     // If a tiny sliver remains, collapse it to exactly zero to avoid a single orphan glyph.
-                    if ((innerW - leftInd[i] - rightInd[i]) < 2) {
+                    if (avail(i) < 2) {
                         leftInd[i] = (innerW - rightInd[i]).coerceAtLeast(0)
                     }
                     changed = true
@@ -5149,7 +5165,8 @@ class InkCanvasView @JvmOverloads constructor(
         // Evaluate only among lines that actually contain text right now (0..iLast),
         // but when we look for a target line that can fit the word we scan up to arraysLast.
         for (i in 0..iLast) {
-            if (leftInd[i] == 0 && rightInd[i] == 0) continue  // not cap-affected
+            // Limit to cap-affected lines (rect-only case is handled earlier).
+            if (leftInd[i] == 0 && rightInd[i] == 0) continue
 
             val start = layout.getLineStart(i)
             val visEnd = layout.getLineVisibleEnd(i)
@@ -5172,7 +5189,7 @@ class InkCanvasView @JvmOverloads constructor(
             // Find the earliest *later* line that can fit the whole word.
             var target = -1
             var j = i + 1
-            while (j <= arraysLast) { // <<< scan beyond current layout lineCount
+            while (j <= arraysLast) { // scan beyond current layout lineCount
                 if (avail(j).toFloat() >= need) { target = j; break }
                 j++
             }
