@@ -5031,9 +5031,50 @@ class InkCanvasView @JvmOverloads constructor(
         leftInd: IntArray,
         rightInd: IntArray
     ) {
-        // No-op: we no longer pre-clamp line 1.
-        // Rationale: pre-layout "reserve line" tricks can strand one glyph on line 1 because
-        // StaticLayout guarantees at least one glyph per line. We handle this post-layout instead.
+        // Only if line 1 has no cap insets (pure rectangular)
+        if (leftInd.isEmpty() || rightInd.isEmpty()) return
+        if (leftInd[0] != 0 || rightInd[0] != 0) return
+
+        val len = text.length
+        var s = 0
+        while (s < len && Character.isWhitespace(text[s])) s++
+        if (s >= len) return
+
+        var e = s
+        while (e < len && !Character.isWhitespace(text[e])) e++
+
+        // width of the whole first word
+        val wordWf = tp.measureText(text, s, e)
+
+        // left overhang of the first glyph (italic/metrics)
+        val r = android.graphics.Rect()
+        var overhang = 0
+        try {
+            tp.getTextBounds(text.toString(), s, (s + 1).coerceAtMost(len), r)
+            if (r.left < 0) overhang = -r.left
+        } catch (_: Throwable) { /* ignore */ }
+
+        val need = wordWf + overhang + 1f // small safety margin
+        val avail = (innerW - leftInd[0] - rightInd[0]).coerceAtLeast(0).toFloat()
+        if (need > avail) {
+            // Make line 1 zero-usable-width: prefer the whole word on line 2
+            leftInd[0] = (innerW - rightInd[0]).coerceAtLeast(0)
+
+            // Also hint "keep together" so we don't spill a lone first letter if the framework
+            // still leaves a sub-pixel sliver.
+            (text as? android.text.Editable)?.let { editable ->
+                // Clean any previous WrapTogether hints.
+                editable.getSpans(0, editable.length, android.text.style.WrapTogetherSpan::class.java)
+                    .forEach { editable.removeSpan(it) }
+
+                class NoBreakSpan : android.text.style.CharacterStyle(),
+                    android.text.style.UpdateLayout,
+                    android.text.style.WrapTogetherSpan {
+                    override fun updateDrawState(tp: TextPaint) { /* no-op */ }
+                }
+                editable.setSpan(NoBreakSpan(), s, e, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            }
+        }
     }
 
     /**
@@ -5116,6 +5157,7 @@ class InkCanvasView @JvmOverloads constructor(
         val iLast = kotlin.math.min(linesUsedLast, arraysLast)
 
         var changed = false
+        var spanApplied = false
         fun avail(line: Int): Int = (innerW - leftInd[line] - rightInd[line]).coerceAtLeast(0)
 
         // Evaluate only among lines that actually contain text right now (0..iLast),
@@ -5161,14 +5203,16 @@ class InkCanvasView @JvmOverloads constructor(
                 }
             }
 
-            // Hint to keep the first word intact when it lands.
+            // Always add the keep‑together hint so the word doesn’t split when it lands.
             editable.setSpan(NoBreakSpan(), s, e, android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            spanApplied = true
 
-            // One promotion per pass is sufficient; ensureTextLayout(...) will rebuild right after.
+            // One promotion per pass is sufficient.
             break
         }
 
-        return changed
+        // IMPORTANT: trigger a rebuild if we applied the span, even when indents didn't change.
+        return changed || spanApplied
     }
 
 
