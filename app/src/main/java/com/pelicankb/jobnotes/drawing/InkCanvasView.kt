@@ -5999,14 +5999,17 @@ class InkCanvasView @JvmOverloads constructor(
         val rC = RectF(leftC, topC, leftC + n.boxW, topC + n.boxH)
         return contentToViewRect(rC)
     }
-    // Invalidate only the selected text box region (view coords), padded slightly.
+
+// Invalidate only the selected text box region (view coords), padded slightly.
 // Falls back to full invalidate if no selection exists.
     private fun invalidateSelectedTextViewArea() {
         val r = getSelectedTextViewRect()
         if (r != null) {
             val pad = dpToPx(8f).roundToInt()
-            r.inset(-pad, -pad, -pad, -pad)
-            postInvalidateOnAnimation(r)
+            // Symmetric inset for Rect (dx, dy)
+            r.inset(-pad, -pad)
+            // postInvalidateOnAnimation only accepts (left, top, right, bottom)
+            postInvalidateOnAnimation(r.left, r.top, r.right, r.bottom)
         } else {
             postInvalidateOnAnimation()
         }
