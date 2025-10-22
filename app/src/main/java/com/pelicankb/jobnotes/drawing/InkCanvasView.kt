@@ -1913,87 +1913,72 @@ class InkCanvasView @JvmOverloads constructor(
 
 
     override fun onCheckIsTextEditor(): Boolean {
-        return (selectedText != null)
+        return editingSelectedText && selectedText != null
     }
 
     override fun onCreateInputConnection(outAttrs: EditorInfo): InputConnection? {
         val n = selectedText ?: return null
 
+        outAttrs.imeOptions =
+            EditorInfo.IME_FLAG_NO_EXTRACT_UI or
+                    EditorInfo.IME_FLAG_NO_FULLSCREEN or
+                    EditorInfo.IME_ACTION_NONE
 
-        outAttrs.imeOptions = EditorInfo.IME_ACTION_DONE or EditorInfo.IME_FLAG_NO_FULLSCREEN
-        outAttrs.inputType = EditorInfo.TYPE_CLASS_TEXT or
-                EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE or
-                EditorInfo.TYPE_TEXT_FLAG_CAP_SENTENCES
+        outAttrs.inputType =
+            EditorInfo.TYPE_CLASS_TEXT or
+                    EditorInfo.TYPE_TEXT_FLAG_MULTI_LINE or
+                    EditorInfo.TYPE_TEXT_FLAG_CAP_SENTENCES
+
         outAttrs.initialSelStart = n.selStart
         outAttrs.initialSelEnd = n.selEnd
 
-
-        // Simple InputConnection that edits n.editable
-        return object : android.view.inputmethod.BaseInputConnection(this, true) {
-            override fun getEditable(): Editable = n.editable
-
-            override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
-                val t = text ?: ""
-                // replace selection with new text
-                val start = n.selStart.coerceIn(0, n.editable.length)
-                val end = n.selEnd.coerceIn(0, n.editable.length).coerceAtLeast(start)
-                n.editable.replace(start, end, t)
-                val newPos = (start + t.length).coerceAtMost(n.editable.length)
-                n.selStart = newPos
-                n.selEnd = newPos
-                n.layoutDirty = true
-                invalidate()
-                pokeCaret()
-                post(imeLiftRecalc)
-
-
-                return true
-            }
-
-            override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
-                if (n.editable.isEmpty()) return true
-                val start = (n.selStart - beforeLength).coerceAtLeast(0)
-                val end = (n.selEnd + afterLength).coerceAtMost(n.editable.length)
-                if (end > start) {
-                    n.editable.delete(start, end)
-                    n.selStart = start
-                    n.selEnd = start
-                    n.layoutDirty = true
-                    invalidate()
-
-                    pokeCaret()
-                    post(imeLiftRecalc)
-
-
-                }
-                return true
-            }
-
-            override fun setSelection(start: Int, end: Int): Boolean {
-                val s = start.coerceIn(0, n.editable.length)
-                val e = end.coerceIn(0, n.editable.length)
-                n.selStart = min(s, e)
-                n.selEnd = max(s, e)
-                invalidate()
-                pokeCaret()
-                post(imeLiftRecalc)
-
-                return true
-            }
-
-            override fun sendKeyEvent(event: KeyEvent): Boolean {
-                // Handle ENTER for newline
-                if (event.action == KeyEvent.ACTION_DOWN && event.keyCode == KeyEvent.KEYCODE_ENTER) {
-                    return commitText("\n", 1)
-                }
-                return super.sendKeyEvent(event)
-            }
-        }
+        // IMPORTANT: use the InkTextInputConnection that handles Gboard arrows.
+        return InkTextInputConnection(this)
     }
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val n = selectedText
         if (editingSelectedText && n != null) {
             when (keyCode) {
+                KeyEvent.KEYCODE_DPAD_UP -> {
+                    val n = selectedText ?: return true
+                    ensureTextLayout(n)
+                    val lay = n.layout ?: return true
+
+                    // Collapse selection first (standard editor behavior)
+                    val caret = kotlin.math.min(n.selStart, n.selEnd)
+                    val currLine = lay.getLineForOffset(caret)
+                    if (currLine > 0) {
+                        // Preserve horizontal column by using current caret X
+                        val colX = lay.getPrimaryHorizontal(caret)
+                        val prevLine = currLine - 1
+                        val newOff = lay.getOffsetForHorizontal(prevLine, colX)
+                        n.selStart = newOff
+                        n.selEnd = newOff
+                        pokeCaret()
+                        invalidateSelectedTextViewArea()
+                    }
+                    return true
+                }
+
+                KeyEvent.KEYCODE_DPAD_DOWN -> {
+                    val n = selectedText ?: return true
+                    ensureTextLayout(n)
+                    val lay = n.layout ?: return true
+
+                    val caret = kotlin.math.min(n.selStart, n.selEnd)
+                    val currLine = lay.getLineForOffset(caret)
+                    if (currLine < lay.lineCount - 1) {
+                        val colX = lay.getPrimaryHorizontal(caret)
+                        val nextLine = currLine + 1
+                        val newOff = lay.getOffsetForHorizontal(nextLine, colX)
+                        n.selStart = newOff
+                        n.selEnd = newOff
+                        pokeCaret()
+                        invalidateSelectedTextViewArea()
+                    }
+                    return true
+                }
+
                 KeyEvent.KEYCODE_DEL -> {
                     val hasSelection = n.selEnd > n.selStart
                     val start = if (hasSelection) n.selStart else (n.selStart - 1).coerceAtLeast(0)
@@ -6392,6 +6377,137 @@ class InkCanvasView @JvmOverloads constructor(
                 })
             }
             anim.start()
+        }
+    }
+    private inner class InkTextInputConnection(target: android.view.View) :
+        android.view.inputmethod.BaseInputConnection(target, /*fullEditor=*/true) {
+
+        override fun getEditable(): Editable =
+            selectedText?.editable ?: SpannableStringBuilder()
+
+        private fun invalidateBoxArea() {
+            try {
+                invalidateSelectedTextViewArea()
+            } catch (_: Throwable) {
+                invalidate()
+            }
+        }
+
+        private fun moveCaretBy(delta: Int) {
+            val n = selectedText ?: return
+            // Collapse selection first (common IME behavior for arrow taps)
+            val caret = kotlin.math.min(n.selStart, n.selEnd)
+            val newPos = if (delta < 0)
+                android.text.TextUtils.getOffsetBefore(n.editable, caret)
+            else
+                android.text.TextUtils.getOffsetAfter(n.editable, caret)
+            n.selStart = newPos
+            n.selEnd = newPos
+            pokeCaret()
+            invalidateBoxArea()
+        }
+
+        private fun moveCaretLine(vertical: Int) {
+            val n = selectedText ?: return
+            ensureTextLayout(n)
+            val lay = n.layout ?: return
+            val caret = kotlin.math.min(n.selStart, n.selEnd)
+            val line = lay.getLineForOffset(caret)
+            val colX = lay.getPrimaryHorizontal(caret)
+            val targetLine = (line + vertical).coerceIn(0, lay.lineCount - 1)
+            val newOff = lay.getOffsetForHorizontal(targetLine, colX)
+            n.selStart = newOff
+            n.selEnd = newOff
+            pokeCaret()
+            invalidateBoxArea()
+        }
+
+        // Some keyboards send real KeyEvents for arrows.
+        override fun sendKeyEvent(event: android.view.KeyEvent): Boolean {
+            if (event.action != android.view.KeyEvent.ACTION_DOWN) return false
+            when (event.keyCode) {
+                android.view.KeyEvent.KEYCODE_DPAD_LEFT  -> { moveCaretBy(-1); return true }
+                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { moveCaretBy(+1); return true }
+                android.view.KeyEvent.KEYCODE_DPAD_UP    -> { moveCaretLine(-1); return true }
+                android.view.KeyEvent.KEYCODE_DPAD_DOWN  -> { moveCaretLine(+1); return true }
+                android.view.KeyEvent.KEYCODE_DEL        -> {
+                    // Backspace from IME
+                    deleteSurroundingText(1, 0)
+                    return true
+                }
+            }
+            return false
+        }
+
+        // Many keyboards move the cursor with setSelection() (no KeyEvent at all).
+        override fun setSelection(start: Int, end: Int): Boolean {
+            val n = selectedText ?: return false
+            val L = n.editable.length
+            n.selStart = start.coerceIn(0, L)
+            n.selEnd   = end.coerceIn(0, L)
+            pokeCaret()
+            invalidateBoxArea()
+            return true
+        }
+
+        // Text mutations (kept minimal — pass through to your editable)
+        override fun commitText(text: CharSequence?, newCursorPosition: Int): Boolean {
+            val n = selectedText ?: return false
+            if (text == null) return true
+            val start = kotlin.math.min(n.selStart, n.selEnd)
+            val end   = kotlin.math.max(n.selStart, n.selEnd)
+            n.editable.replace(start, end, text)
+            val newPos = (start + text.length + newCursorPosition).coerceIn(0, n.editable.length)
+            n.selStart = newPos
+            n.selEnd   = newPos
+            ensureTextLayout(n)
+            pokeCaret()
+            invalidateBoxArea()
+            return true
+        }
+
+        // Handle backspace/delete even when IME calls this path
+        override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
+            val n = selectedText ?: return false
+            val start = kotlin.math.min(n.selStart, n.selEnd)
+            val end   = kotlin.math.max(n.selStart, n.selEnd)
+            if (start != end) {
+                n.editable.delete(start, end)
+                n.selStart = start; n.selEnd = start
+            } else {
+                val delStart = (start - beforeLength).coerceAtLeast(0)
+                val delEnd   = (end + afterLength).coerceAtMost(n.editable.length)
+                if (delStart < delEnd) {
+                    n.editable.delete(delStart, delEnd)
+                    n.selStart = delStart; n.selEnd = delStart
+                }
+            }
+            ensureTextLayout(n)
+            pokeCaret()
+            invalidateBoxArea()
+            return true
+        }
+
+        // Provide enough surrounding text so IMEs that inspect context can behave
+        override fun getTextBeforeCursor(nChars: Int, flags: Int): CharSequence {
+            val n = selectedText ?: return ""
+            val end = kotlin.math.min(n.selStart, n.selEnd)
+            val start = (end - nChars).coerceAtLeast(0)
+            return n.editable.subSequence(start, end)
+        }
+
+        override fun getTextAfterCursor(nChars: Int, flags: Int): CharSequence {
+            val n = selectedText ?: return ""
+            val start = kotlin.math.max(n.selStart, n.selEnd)
+            val end = (start + nChars).coerceAtMost(n.editable.length)
+            return n.editable.subSequence(start, end)
+        }
+
+        override fun getSelectedText(flags: Int): CharSequence? {
+            val n = selectedText ?: return ""
+            val start = kotlin.math.min(n.selStart, n.selEnd)
+            val end   = kotlin.math.max(n.selStart, n.selEnd)
+            return if (start == end) "" else n.editable.subSequence(start, end)
         }
     }
 
