@@ -2206,6 +2206,24 @@ class InkCanvasView @JvmOverloads constructor(
                         canvas.drawLine(caretX, caretTop, caretX, caretBottom, caretPaint)
                     }
                 }
+                // --- Text selection handles (start/end) ---
+                if (n === selectedText && editingSelectedText && n.selStart != n.selEnd) {
+                    val (sx, sy) = caretInnerXY(n, min(n.selStart, n.selEnd))
+                    val (ex, ey) = caretInnerXY(n, max(n.selStart, n.selEnd))
+
+                    val handleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = 0xFF2196F3.toInt() }
+                    val handleStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                        style = Paint.Style.STROKE
+                        color = Color.WHITE
+                        strokeWidth = dpToPx(1.5f)
+                    }
+                    val r = selHandleR()
+                    canvas.drawCircle(sx, sy, r, handleFill)
+                    canvas.drawCircle(sx, sy, r, handleStroke)
+                    canvas.drawCircle(ex, ey, r, handleFill)
+                    canvas.drawCircle(ex, ey, r, handleStroke)
+                }
+
 
 
 
@@ -2446,6 +2464,38 @@ class InkCanvasView @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (DEBUG_INPUT) {
             val idx = event.actionIndex.coerceAtLeast(0).coerceAtMost(event.pointerCount - 1)
+
+// Text selection handle pickup
+            run {
+                if (editingSelectedText && selectedText != null) {
+                    val n = selectedText!!
+                    if (n.selStart != n.selEnd) {
+                        val (cxTap, cyTap) = toContent(event.getX(idx), event.getY(idx))
+                        val padInner = kotlin.math.max(n.paddingPx, aaPadPx())
+                        val s = kotlin.math.sin(-n.angleRad); val c = kotlin.math.cos(-n.angleRad)
+                        val dx = cxTap - n.center.x
+                        val dy = cyTap - n.center.y
+                        val ix = (dx * c - dy * s + n.boxW * 0.5f - padInner).coerceAtLeast(0f)
+                        val iy = (dx * s + dy * c + n.boxH * 0.5f - padInner).coerceAtLeast(0f)
+
+                        val (sx, sy) = caretInnerXY(n, min(n.selStart, n.selEnd))
+                        val (ex, ey) = caretInnerXY(n, max(n.selStart, n.selEnd))
+                        val padPx = selHandleTouchPad()
+
+                        textSelDrag = when {
+                            hitCircleInner(ix, iy, sx, sy, padPx) -> TextSelDrag.START
+                            hitCircleInner(ix, iy, ex, ey, padPx) -> TextSelDrag.END
+                            else -> TextSelDrag.NONE
+                        }
+                        if (textSelDrag != TextSelDrag.NONE) {
+                            activePointerId = event.getPointerId(idx)
+                            drawing = false; selectingGesture = false; transforming = false
+                            return true
+                        }
+                    }
+                }
+            }
+
             val toolType = if (idx in 0 until event.pointerCount) event.getToolType(idx) else MotionEvent.TOOL_TYPE_UNKNOWN
             val toolName = when (toolType) {
                 MotionEvent.TOOL_TYPE_STYLUS -> "STYLUS"
@@ -2514,34 +2564,50 @@ class InkCanvasView @JvmOverloads constructor(
 
                 // Pointer index for this DOWN event (shared by this case)
                 val idx = event.actionIndex
-                // EARLY caret placement: if editing and tap is INSIDE (and NOT on border), move caret and CONSUME.
+
+                // EARLY caret placement (patched): give selection handles priority.
                 run {
                     if (editingSelectedText && selectedText != null) {
                         val (cxTap, cyTap) = toContent(event.getX(idx), event.getY(idx))
                         val n = selectedText!!
-                        val onBorder = isNearTextBorder(n, cxTap, cyTap, 8f)
 
-                        val inside = isInsideTextBox(n, cxTap, cyTap)
-                        if (inside && !onBorder) {
-                            // map tap to inner text coords (respect rotation)
-                            val s = sin(-n.angleRad); val c = cos(-n.angleRad)
+                        // If a range is selected, check if the tap hits a handle in INNER coords.
+                        val padInner = kotlin.math.max(n.paddingPx, aaPadPx())
+                        var onHandle = false
+                        if (n.selStart != n.selEnd) {
+                            val s = kotlin.math.sin(-n.angleRad); val c = kotlin.math.cos(-n.angleRad)
                             val dx = cxTap - n.center.x; val dy = cyTap - n.center.y
-                            val lx = dx * c - dy * s
-                            val ly = dx * s + dy * c
-                            val innerX = (lx + n.boxW * 0.5f - n.paddingPx).coerceAtLeast(0f)
-                            val innerY = (ly + n.boxH * 0.5f - n.paddingPx).coerceAtLeast(0f)
+                            val ix = dx * c - dy * s + n.boxW * 0.5f - padInner
+                            val iy = dx * s + dy * c + n.boxH * 0.5f - padInner
 
-                            ensureTextLayout(n)
-                            n.layout?.let { lay ->
-                                val line = lay.getLineForVertical(innerY.toInt().coerceAtLeast(0))
-                                val off = lay.getOffsetForHorizontal(line, innerX)
-                                n.selStart = off.coerceIn(0, n.editable.length)
-                                n.selEnd = n.selStart
-                                pokeCaret()
-                                invalidate()
+                            val (sx, sy) = caretInnerXY(n, min(n.selStart, n.selEnd))
+                            val (ex, ey) = caretInnerXY(n, max(n.selStart, n.selEnd))
+                            val padPx = selHandleTouchPad()
+                            onHandle = hitCircleInner(ix, iy, sx, sy, padPx) || hitCircleInner(ix, iy, ex, ey, padPx)
+                        }
+
+                        if (!onHandle) {
+                            val onBorder = isNearTextBorder(n, cxTap, cyTap, 8f)
+                            val inside = isInsideTextBox(n, cxTap, cyTap)
+                            if (inside && !onBorder) {
+                                ensureTextLayout(n)
+                                n.layout?.let { lay ->
+                                    val s = kotlin.math.sin(-n.angleRad); val c = kotlin.math.cos(-n.angleRad)
+                                    val dx = cxTap - n.center.x; val dy = cyTap - n.center.y
+                                    val lx = dx * c - dy * s
+                                    val ly = dx * s + dy * c
+                                    val innerX = (lx + n.boxW * 0.5f - padInner).coerceAtLeast(0f)
+                                    val innerY = (ly + n.boxH * 0.5f - padInner).coerceAtLeast(0f)
+                                    val line = lay.getLineForVertical(innerY.toInt().coerceAtLeast(0))
+                                    val off = lay.getOffsetForHorizontal(line, innerX)
+                                    n.selStart = off.coerceIn(0, n.editable.length)
+                                    n.selEnd = n.selStart
+                                    pokeCaret()
+                                    invalidate()
+                                }
+                                suppressNextSingleTapUp = true
+                                return true
                             }
-                            suppressNextSingleTapUp = true   // block UP from exiting
-                            return true                       // CONSUME
                         }
                     }
                 }
@@ -3030,6 +3096,36 @@ class InkCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_MOVE -> {
+                // Dragging a text selection handle
+                if (textSelDrag != TextSelDrag.NONE && activePointerId != -1 && editingSelectedText && selectedText != null) {
+                    val i = event.findPointerIndex(activePointerId)
+                    if (i != -1) {
+                        val n = selectedText!!
+                        val (cx, cy) = toContent(event.getX(i), event.getY(i))
+                        val s = kotlin.math.sin(-n.angleRad)
+                        val c = kotlin.math.cos(-n.angleRad)
+                        val dx = cx - n.center.x
+                        val dy = cy - n.center.y
+                        val ix = (dx * c - dy * s + n.boxW * 0.5f - n.paddingPx).coerceAtLeast(0f)
+                        val iy = (dx * s + dy * c + n.boxH * 0.5f - n.paddingPx).coerceAtLeast(0f)
+
+                        ensureTextLayout(n)
+                        n.layout?.let { lay ->
+                            val line = lay.getLineForVertical(iy.toInt().coerceAtLeast(0))
+                            val off = lay.getOffsetForHorizontal(line, ix)
+                            if (textSelDrag == TextSelDrag.START) {
+                                val end = max(n.selStart, n.selEnd)
+                                n.selStart = off.coerceAtMost(end)
+                            } else {
+                                val start = min(n.selStart, n.selEnd)
+                                n.selEnd = off.coerceAtLeast(start)
+                            }
+                            pokeCaret()
+                            try { invalidateSelectedTextViewArea() } catch (_: Throwable) { invalidate() }
+                        }
+                    }
+                    return true
+                }
 
 
                 // If user started a pending caret tap but moved past slop, convert to MOVE (translate)
@@ -3303,6 +3399,8 @@ class InkCanvasView @JvmOverloads constructor(
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                textSelDrag = TextSelDrag.NONE
+
                 // Commit a pending caret tap (no drag)
                 if (pendingCaretTap) {
                     val i = if (pendingCaretPointerId != -1) event.findPointerIndex(pendingCaretPointerId) else -1
@@ -4960,6 +5058,26 @@ class InkCanvasView @JvmOverloads constructor(
         n.layoutInnerW = w.toInt()
         n.layoutDirty = false
     }
+    /** Map a (line, offset) caret to node-inner coords (after padding, unrotated). */
+    private fun caretInnerXY(n: TextNode, offset: Int): Pair<Float, Float> {
+        ensureTextLayout(n)
+        val lay = n.layout ?: return 0f to 0f
+        val off = offset.coerceIn(0, n.editable.length)
+        val line = lay.getLineForOffset(off)
+        val x = lay.getPrimaryHorizontal(off)
+        val baseline = lay.getLineBaseline(line).toFloat()
+        val ascent = lay.getLineAscent(line).toFloat()
+        return x to (baseline + ascent)
+    }
+
+    /** Hit-test a circular handle in INNER coords (same space as caretInnerXY). */
+    private fun hitCircleInner(px: Float, py: Float, cx: Float, cy: Float, padPx: Float): Boolean {
+        val r = selHandleR() + padPx
+        val dx = px - cx
+        val dy = py - cy
+        return dx*dx + dy*dy <= r*r
+    }
+
     // Small AA pad only (do NOT include radius here). Keep layout roomy; clip handles containment.
     private fun aaPadPx(): Float = dpToPx(2f).coerceAtMost(dpToPx(8f))
 
@@ -6274,6 +6392,15 @@ class InkCanvasView @JvmOverloads constructor(
 
     // While true, canvas acts as a text editor for selectedText
     private var editingSelectedText: Boolean = false
+    /** Selection handle state for in-canvas text editing */
+    private enum class TextSelDrag { NONE, START, END }
+    private var textSelDrag: TextSelDrag = TextSelDrag.NONE
+    private val selHandleRadiusDp = 9f
+    private val selHandleTouchPadDp = 18f
+
+    private fun selHandleR(): Float = dpToPx(selHandleRadiusDp)
+    private fun selHandleTouchPad(): Float = dpToPx(selHandleTouchPadDp)
+
     fun setEditingSelectedText(editing: Boolean) {
         if (this.editingSelectedText == editing) {
             startCaretBlink()
@@ -6313,6 +6440,8 @@ class InkCanvasView @JvmOverloads constructor(
             }
         } else {
             stopCaretBlink()
+            textSelDrag = TextSelDrag.NONE
+`
 
             // Editing session finished -> autosave and hide IME
             try {
