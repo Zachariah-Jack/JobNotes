@@ -97,6 +97,11 @@ class InkCanvasView @JvmOverloads constructor(
     // ---- Shape Snap (Samsung Notes-style) ----
     private var shapeSnapEnabled: Boolean = true
 
+    private val ioExecutor: java.util.concurrent.ExecutorService =
+        java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "InkCanvas-IO").apply { isDaemon = true }
+        }
+
     // Hold detection at stroke end
     private val SNAP_HOLD_MS = 350L
     private val STILL_MOVE_EPS = 10f.dp()       // allow more hand shake while holding
@@ -146,6 +151,23 @@ class InkCanvasView @JvmOverloads constructor(
     // Debug toggles (safe to ship; disabled by default)
     private val TAG = "InkCanvasView"
     private val DEBUG_INPUT = false
+    private fun compressPngToBytesAsync(
+        bmp: android.graphics.Bitmap,
+        onResult: (bytes: ByteArray) -> Unit
+    ) {
+        ioExecutor.execute {
+            val bos = java.io.ByteArrayOutputStream()
+            try {
+                bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, bos)
+                val bytes = bos.toByteArray()
+                // Hop back to UI thread to resume original flow
+                post { onResult(bytes) }
+            } finally {
+                try { bos.close() } catch (_: Throwable) {}
+            }
+        }
+    }
+
 
     // Pretty-print MotionEvent actions for logs
     private fun actionToString(action: Int): String = when (action) {
@@ -883,11 +905,14 @@ class InkCanvasView @JvmOverloads constructor(
             out.writeFloat(n.center.y)
             out.writeFloat(n.scale)
             out.writeFloat(n.angleRad)
-            val imgBos = ByteArrayOutputStream()
-            n.bitmap.compress(Bitmap.CompressFormat.PNG, 100, imgBos)
-            val png = imgBos.toByteArray()
+            @SuppressLint("WrongThread")
+            val png = ByteArrayOutputStream().use { bos ->
+                n.bitmap.compress(Bitmap.CompressFormat.PNG, 100, bos)
+                bos.toByteArray()
+            }
             out.writeInt(png.size)
             out.write(png)
+
         }
         // text nodes (v5)
         out.writeInt(textNodes.size)
@@ -1943,41 +1968,33 @@ class InkCanvasView @JvmOverloads constructor(
                     val n = selectedText ?: return true
                     ensureTextLayout(n)
                     val lay = n.layout ?: return true
-
-                    // Collapse selection first (standard editor behavior)
                     val caret = kotlin.math.min(n.selStart, n.selEnd)
                     val currLine = lay.getLineForOffset(caret)
                     if (currLine > 0) {
-                        // Preserve horizontal column by using current caret X
                         val colX = lay.getPrimaryHorizontal(caret)
-                        val prevLine = currLine - 1
-                        val newOff = lay.getOffsetForHorizontal(prevLine, colX)
-                        n.selStart = newOff
-                        n.selEnd = newOff
+                        val newOff = lay.getOffsetForHorizontal(currLine - 1, colX)
+                        n.selStart = newOff; n.selEnd = newOff
                         pokeCaret()
-                        invalidateSelectedTextViewArea()
+                        try { invalidateSelectedTextViewArea() } catch (_: Throwable) { invalidate() }
                     }
                     return true
                 }
-
                 KeyEvent.KEYCODE_DPAD_DOWN -> {
                     val n = selectedText ?: return true
                     ensureTextLayout(n)
                     val lay = n.layout ?: return true
-
                     val caret = kotlin.math.min(n.selStart, n.selEnd)
                     val currLine = lay.getLineForOffset(caret)
                     if (currLine < lay.lineCount - 1) {
                         val colX = lay.getPrimaryHorizontal(caret)
-                        val nextLine = currLine + 1
-                        val newOff = lay.getOffsetForHorizontal(nextLine, colX)
-                        n.selStart = newOff
-                        n.selEnd = newOff
+                        val newOff = lay.getOffsetForHorizontal(currLine + 1, colX)
+                        n.selStart = newOff; n.selEnd = newOff
                         pokeCaret()
-                        invalidateSelectedTextViewArea()
+                        try { invalidateSelectedTextViewArea() } catch (_: Throwable) { invalidate() }
                     }
                     return true
                 }
+
 
                 KeyEvent.KEYCODE_DEL -> {
                     val hasSelection = n.selEnd > n.selStart
@@ -5999,6 +6016,16 @@ class InkCanvasView @JvmOverloads constructor(
             postInvalidateOnAnimation()
         }
     }
+    @android.annotation.SuppressLint("WrongThread")
+    private fun pngCompressSync(bmp: android.graphics.Bitmap): ByteArray {
+        val bos = java.io.ByteArrayOutputStream()
+        try {
+            bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, bos)
+            return bos.toByteArray()
+        } finally {
+            try { bos.close() } catch (_: Throwable) {}
+        }
+    }
 
     data class TextStyleSnapshot(
         val textSizePx: Float,
@@ -6393,6 +6420,23 @@ class InkCanvasView @JvmOverloads constructor(
             }
         }
 
+        private fun moveCaretLine(vertical: Int) {
+            val n = selectedText ?: return
+            ensureTextLayout(n)
+            val lay = n.layout ?: return
+            val caret = kotlin.math.min(n.selStart, n.selEnd)
+            val currLine = lay.getLineForOffset(caret)
+            if (currLine + vertical in 0 until lay.lineCount) {
+                val colX = lay.getPrimaryHorizontal(caret)
+                val newLine = (currLine + vertical).coerceIn(0, lay.lineCount - 1)
+                val newOff  = lay.getOffsetForHorizontal(newLine, colX)
+                n.selStart = newOff
+                n.selEnd   = newOff
+                pokeCaret()
+                try { invalidateSelectedTextViewArea() } catch (_: Throwable) { invalidate() }
+            }
+        }
+
         private fun moveCaretBy(delta: Int) {
             val n = selectedText ?: return
             // Collapse selection first (common IME behavior for arrow taps)
@@ -6407,36 +6451,18 @@ class InkCanvasView @JvmOverloads constructor(
             invalidateBoxArea()
         }
 
-        private fun moveCaretLine(vertical: Int) {
-            val n = selectedText ?: return
-            ensureTextLayout(n)
-            val lay = n.layout ?: return
-            val caret = kotlin.math.min(n.selStart, n.selEnd)
-            val line = lay.getLineForOffset(caret)
-            val colX = lay.getPrimaryHorizontal(caret)
-            val targetLine = (line + vertical).coerceIn(0, lay.lineCount - 1)
-            val newOff = lay.getOffsetForHorizontal(targetLine, colX)
-            n.selStart = newOff
-            n.selEnd = newOff
-            pokeCaret()
-            invalidateBoxArea()
-        }
 
         // Some keyboards send real KeyEvents for arrows.
         override fun sendKeyEvent(event: android.view.KeyEvent): Boolean {
             if (event.action != android.view.KeyEvent.ACTION_DOWN) return false
-            when (event.keyCode) {
-                android.view.KeyEvent.KEYCODE_DPAD_LEFT  -> { moveCaretBy(-1); return true }
-                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { moveCaretBy(+1); return true }
-                android.view.KeyEvent.KEYCODE_DPAD_UP    -> { moveCaretLine(-1); return true }
-                android.view.KeyEvent.KEYCODE_DPAD_DOWN  -> { moveCaretLine(+1); return true }
-                android.view.KeyEvent.KEYCODE_DEL        -> {
-                    // Backspace from IME
-                    deleteSurroundingText(1, 0)
-                    return true
-                }
+            return when (event.keyCode) {
+                android.view.KeyEvent.KEYCODE_DPAD_LEFT  -> { moveCaretBy(-1); true }
+                android.view.KeyEvent.KEYCODE_DPAD_RIGHT -> { moveCaretBy(+1); true }
+                android.view.KeyEvent.KEYCODE_DPAD_UP    -> { moveCaretLine(-1); true }
+                android.view.KeyEvent.KEYCODE_DPAD_DOWN  -> { moveCaretLine(+1); true }
+                android.view.KeyEvent.KEYCODE_DEL        -> { deleteSurroundingText(1, 0); true }
+                else -> false
             }
-            return false
         }
 
         // Many keyboards move the cursor with setSelection() (no KeyEvent at all).
