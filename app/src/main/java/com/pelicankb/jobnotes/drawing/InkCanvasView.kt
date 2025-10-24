@@ -905,13 +905,15 @@ class InkCanvasView @JvmOverloads constructor(
             out.writeFloat(n.center.y)
             out.writeFloat(n.scale)
             out.writeFloat(n.angleRad)
-            @SuppressLint("WrongThread")
+
             val png = ByteArrayOutputStream().use { bos ->
+                @android.annotation.SuppressLint("WrongThread")
                 n.bitmap.compress(Bitmap.CompressFormat.PNG, 100, bos)
                 bos.toByteArray()
             }
             out.writeInt(png.size)
             out.write(png)
+
 
         }
         // text nodes (v5)
