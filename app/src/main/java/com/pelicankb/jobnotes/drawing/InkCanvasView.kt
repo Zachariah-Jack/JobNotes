@@ -6441,7 +6441,7 @@ class InkCanvasView @JvmOverloads constructor(
         } else {
             stopCaretBlink()
             textSelDrag = TextSelDrag.NONE
-`
+
 
             // Editing session finished -> autosave and hide IME
             try {
