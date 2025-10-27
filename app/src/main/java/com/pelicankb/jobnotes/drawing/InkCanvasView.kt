@@ -2157,54 +2157,48 @@ class InkCanvasView @JvmOverloads constructor(
 
 
                 // Selection highlight (draw under glyphs)
-                if (n === selectedText && editingSelectedText && n.selStart != n.selEnd) {
-                    n.layout?.let { lay ->
-                        val sOff  = kotlin.math.min(n.selStart, n.selEnd)
-                        val eOff  = kotlin.math.max(n.selStart, n.selEnd)
-                        val sLine = lay.getLineForOffset(sOff)
-                        val eLine = lay.getLineForOffset(eOff)
+                n.layout?.let { lay ->
+                    val sOff  = kotlin.math.min(n.selStart, n.selEnd)
+                    val eOff  = kotlin.math.max(n.selStart, n.selEnd)
+                    val sLine = lay.getLineForOffset(sOff)
+                    val eLine = lay.getLineForOffset(eOff)
+                    val innerW = n.layoutInnerW.toFloat()
 
-                        if (sLine == eLine) {
-                            // Single-line selection: use exact carets
-                            val x0  = lay.getPrimaryHorizontal(sOff)
-                            val x1  = lay.getPrimaryHorizontal(eOff)
-                            val l   = kotlin.math.min(x0, x1)
-                            val r   = kotlin.math.max(x0, x1)
-                            val top = lay.getLineTop(sLine).toFloat()
-                            val bot = lay.getLineBottom(sLine).toFloat()
+                    if (sLine == eLine) {
+                        // Single-line selection: exact caret-to-caret
+                        val x0  = lay.getPrimaryHorizontal(sOff)
+                        val x1  = lay.getPrimaryHorizontal(eOff)
+                        val l   = kotlin.math.min(x0, x1)
+                        val r   = kotlin.math.max(x0, x1)
+                        val top = lay.getLineTop(sLine).toFloat()
+                        val bot = lay.getLineBottom(sLine).toFloat()
+                        if (r > l) canvas.drawRect(l, top, r, bot, selectionHighlight)
+                    } else {
+                        // First (visual) line: from start caret → full inner width (clip trims rounded cap)
+                        run {
+                            val xStart = lay.getPrimaryHorizontal(sOff)
+                            val top    = lay.getLineTop(sLine).toFloat()
+                            val bot    = lay.getLineBottom(sLine).toFloat()
+                            val l      = kotlin.math.min(xStart, innerW)
+                            val r      = innerW
                             if (r > l) canvas.drawRect(l, top, r, bot, selectionHighlight)
-                        } else {
-                            // First line: from start caret → visual line right edge
-                            run {
-                                val xStart = lay.getPrimaryHorizontal(sOff)
-                                val top    = lay.getLineTop(sLine).toFloat()
-                                val bot    = lay.getLineBottom(sLine).toFloat()
-                                val right  = lay.getLineRight(sLine)
-                                val l      = kotlin.math.min(xStart, right)
-                                val r      = right
-                                if (r > l) canvas.drawRect(l, top, r, bot, selectionHighlight)
-                            }
-                            // Middle lines: full width
-                            for (ln in (sLine + 1) until eLine) {
-                                val left = lay.getLineLeft(ln)
-                                val right = lay.getLineRight(ln)
-                                val top = lay.getLineTop(ln).toFloat()
-                                val bot = lay.getLineBottom(ln).toFloat()
-                                if (right > left) canvas.drawRect(left, top, right, bot, selectionHighlight)
-                            }
-                            // Last line: from visual line left edge → end caret
-                            run {
-                                val xEnd  = lay.getPrimaryHorizontal(eOff)
-                                val top   = lay.getLineTop(eLine).toFloat()
-                                val bot   = lay.getLineBottom(eLine).toFloat()
-                                val left  = lay.getLineLeft(eLine)
-                                val l     = left
-                                val r     = kotlin.math.max(left, xEnd)
-                                if (r > l) canvas.drawRect(l, top, r, bot, selectionHighlight)
-                            }
+                        }
+                        // Middle lines: full width
+                        for (ln in (sLine + 1) until eLine) {
+                            val top = lay.getLineTop(ln).toFloat()
+                            val bot = lay.getLineBottom(ln).toFloat()
+                            canvas.drawRect(0f, top, innerW, bot, selectionHighlight)
+                        }
+                        // Last line: from left edge (0) → end caret
+                        run {
+                            val xEnd = lay.getPrimaryHorizontal(eOff)
+                            val top  = lay.getLineTop(eLine).toFloat()
+                            val bot  = lay.getLineBottom(eLine).toFloat()
+                            val l    = 0f
+                            val r    = kotlin.math.max(0f, xEnd)
+                            if (r > l) canvas.drawRect(l, top, r, bot, selectionHighlight)
                         }
                     }
-
                 }
 
                 n.layout?.draw(canvas)
@@ -6672,9 +6666,11 @@ class InkCanvasView @JvmOverloads constructor(
             val newPos = (start + text.length + newCursorPosition).coerceIn(0, n.editable.length)
             n.selStart = newPos
             n.selEnd   = newPos
+            // >>> ensure we rebuild the layout for the new text <<<
+            n.layoutDirty = true
             ensureTextLayout(n)
             pokeCaret()
-            invalidateBoxArea()
+            try { invalidateSelectedTextViewArea() } catch (_: Throwable) { invalidate() }
             return true
         }
 
@@ -6687,11 +6683,9 @@ class InkCanvasView @JvmOverloads constructor(
                 val e0 = kotlin.math.max(n.selStart, n.selEnd).coerceIn(0, L)
 
                 if (s0 != e0) {
-                    // Delete current selection
                     if (e0 > s0) n.editable.delete(s0, e0)
                     n.selStart = s0; n.selEnd = s0
                 } else {
-                    // Collapse delete: backspace/forward-delete from caret
                     val delStart = (s0 - beforeLength).coerceAtLeast(0)
                     val delEnd   = (e0 + afterLength).coerceAtMost(n.editable.length)
                     if (delEnd > delStart) {
@@ -6700,12 +6694,13 @@ class InkCanvasView @JvmOverloads constructor(
                     }
                 }
 
+                // >>> force a fresh layout after any deletion <<<
+                n.layoutDirty = true
                 ensureTextLayout(n)
                 pokeCaret()
                 try { invalidateSelectedTextViewArea() } catch (_: Throwable) { invalidate() }
                 return true
             } catch (_: Throwable) {
-                // Defensive: clamp and repaint to recover from any IME edge case
                 n.selStart = n.selStart.coerceIn(0, n.editable.length)
                 n.selEnd   = n.selEnd.coerceIn(0, n.editable.length)
                 invalidate()
@@ -6752,6 +6747,8 @@ class InkCanvasView @JvmOverloads constructor(
                 if (ee > ss) n.editable.delete(ss, ee)
                 n.selStart = ss; n.selEnd = ss
             }
+            // >>> mark dirty before recomputing layout <<<
+            n.layoutDirty = true
             ensureTextLayout(n)
             pokeCaret()
             try { invalidateSelectedTextViewArea() } catch (_: Throwable) { invalidate() }
