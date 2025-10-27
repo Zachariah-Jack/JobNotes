@@ -669,7 +669,9 @@ class InkCanvasView @JvmOverloads constructor(
                 boxW = n.boxW,
                 boxH = n.boxH,
                 paddingPx = n.paddingPx,
-                angleRad = n.angleRad
+                angleRad = n.angleRad,
+                bgColor = n.bgColor,
+                cornerRadiusPx = n.cornerRadiusPx
             )
             // bounds for paste ghost positioning (we don't draw a text ghost yet)
             clipboardBounds = RectF(
@@ -1815,7 +1817,9 @@ class InkCanvasView @JvmOverloads constructor(
         val boxW: Float,
         val boxH: Float,
         val paddingPx: Float,
-        val angleRad: Float
+        val angleRad: Float,
+        val bgColor: Int?,          // <— added
+        val cornerRadiusPx: Float   // <— added (content px)
     )
     private var clipboardText: ClipboardText? = null
 
@@ -7502,8 +7506,8 @@ class InkCanvasView @JvmOverloads constructor(
                 boxW = ct.boxW,
                 boxH = ct.boxH,
                 paddingPx = ct.paddingPx,
-                bgColor = null,
-                cornerRadiusPx = dpToPx(6f),
+                bgColor = ct.bgColor,                 // <— preserve bg
+                cornerRadiusPx = ct.cornerRadiusPx,   // <— preserve radius
                 layout = null,
                 layoutInnerW = 0,
                 layoutDirty = true,
@@ -7518,6 +7522,12 @@ class InkCanvasView @JvmOverloads constructor(
             selectionInteractive = true
             overlayActive = false
             clampTextToDocument(node)
+
+            // --- history: record text create so Undo removes the pasted box ---
+            textRedoStack.clear()
+            actionRedoStack.clear()
+            textUndoStack.add(TextOp.Create(node, textNodes.lastIndex))
+            actionUndoStack.add(ActionKind.TEXT_OP)
 
             pastePreviewVisible = false
             invalidate()
