@@ -716,16 +716,15 @@ class InkCanvasView @JvmOverloads constructor(
         // Text cut
         selectedText?.let { n ->
             val ok = copySelection()
-            // History: record image delete (cut)
-            val idx = textNodes.indexOf(it).let { i -> if (i < 0) 0 else i }
-
-            imageRedoStack.clear()
-            actionRedoStack.clear()
-            imageUndoStack.add(ImageOp.Delete(n, idx))
-            actionUndoStack.add(ActionKind.IMAGE_OP)
-
             if (ok) {
-                textNodes.remove(n)
+                // Record text delete for undo/redo
+                val idx = textNodes.indexOf(n)
+                textRedoStack.clear()
+                actionRedoStack.clear()
+                textUndoStack.add(TextOp.Delete(n, if (idx >= 0) idx else 0))
+                actionUndoStack.add(ActionKind.TEXT_OP)
+
+                if (idx >= 0 && idx < textNodes.size) textNodes.removeAt(idx) else textNodes.remove(n)
                 selectedText = null
                 selectionInteractive = false
                 invalidate()
@@ -733,6 +732,7 @@ class InkCanvasView @JvmOverloads constructor(
             }
             return ok
         }
+
 
         // Image cut
         selectedImage?.let { img ->
@@ -745,7 +745,7 @@ class InkCanvasView @JvmOverloads constructor(
                 imageUndoStack.add(ImageOp.Delete(img, if (idx >= 0) idx else 0))
                 actionUndoStack.add(ActionKind.IMAGE_OP)
 
-                if (idx >= 0) imageNodes.removeAt(idx) else imageNodes.remove(img)
+                if (idx >= 0 && idx < imageNodes.size) imageNodes.removeAt(idx) else imageNodes.remove(img)
 
                 selectedImage = null
                 selectionInteractive = false
