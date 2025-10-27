@@ -604,23 +604,27 @@ class InkCanvasView @JvmOverloads constructor(
 
 
         // Image delete
-        selectedImage?.let { n ->
+        selectedImage?.let { img ->
+            cancelTransform()
 
-        cancelTransform()
-            // History: record image delete (with original index)
-            val idx = imageNodes.indexOf(n).coerceAtLeast(0)
+            // Record original index for undo (fallback to 0 if not found)
+            val idx = imageNodes.indexOf(img)
+
             imageRedoStack.clear()
             actionRedoStack.clear()
-            imageUndoStack.add(ImageOp.Delete(n, idx))
+            imageUndoStack.add(ImageOp.Delete(img, if (idx >= 0) idx else 0))
             actionUndoStack.add(ActionKind.IMAGE_OP)
 
-            imageNodes.remove(n)
+            if (idx >= 0) imageNodes.removeAt(idx) else imageNodes.remove(img)
+
             selectedImage = null
             selectionInteractive = false
             overlayActive = false
             invalidate()
+            requestAutosave()
             return
         }
+
 
         // Strokes delete
         if (selectedStrokes.isEmpty()) return
@@ -713,7 +717,8 @@ class InkCanvasView @JvmOverloads constructor(
         selectedText?.let { n ->
             val ok = copySelection()
             // History: record image delete (cut)
-            val idx = imageNodes.indexOf(n).coerceAtLeast(0)
+            val idx = textNodes.indexOf(it).let { i -> if (i < 0) 0 else i }
+
             imageRedoStack.clear()
             actionRedoStack.clear()
             imageUndoStack.add(ImageOp.Delete(n, idx))
@@ -730,17 +735,27 @@ class InkCanvasView @JvmOverloads constructor(
         }
 
         // Image cut
-        selectedImage?.let { n ->
+        selectedImage?.let { img ->
             val ok = copySelection()
             if (ok) {
-                imageNodes.remove(n)
+                val idx = imageNodes.indexOf(img)
+
+                imageRedoStack.clear()
+                actionRedoStack.clear()
+                imageUndoStack.add(ImageOp.Delete(img, if (idx >= 0) idx else 0))
+                actionUndoStack.add(ActionKind.IMAGE_OP)
+
+                if (idx >= 0) imageNodes.removeAt(idx) else imageNodes.remove(img)
+
                 selectedImage = null
                 selectionInteractive = false
                 overlayActive = false
                 invalidate()
+                requestAutosave()
             }
             return ok
         }
+
 
         // Strokes cut (existing behavior)
         val ok = copySelection()
