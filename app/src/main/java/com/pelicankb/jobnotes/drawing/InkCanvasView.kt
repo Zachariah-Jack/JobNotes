@@ -213,6 +213,39 @@ class InkCanvasView @JvmOverloads constructor(
         if (actionUndoStack.isNotEmpty()) {
             val last = actionUndoStack.removeAt(actionUndoStack.lastIndex)
             when (last) {
+                ActionKind.IMAGE_OP -> {
+                    if (imageUndoStack.isEmpty()) return
+                    when (val op = imageUndoStack.removeAt(imageUndoStack.lastIndex)) {
+                        is ImageOp.Create -> {
+                            val idx = imageNodes.indexOf(op.node).takeIf { it >= 0 } ?: op.index
+                            if (idx in 0 until imageNodes.size) imageNodes.removeAt(idx)
+                            if (selectedImage === op.node) selectedImage = null
+                            imageRedoStack.add(op)
+                            actionRedoStack.add(ActionKind.IMAGE_OP)
+                            invalidate(); requestAutosave()
+                            return
+                        }
+                        is ImageOp.Delete -> {
+                            val idx = op.index.coerceIn(0, imageNodes.size)
+                            if (!imageNodes.contains(op.node)) imageNodes.add(idx, op.node)
+                            imageRedoStack.add(op)
+                            actionRedoStack.add(ActionKind.IMAGE_OP)
+                            invalidate(); requestAutosave()
+                            return
+                        }
+                        is ImageOp.Transform -> {
+                            op.node.center.x = op.beforeCx
+                            op.node.center.y = op.beforeCy
+                            op.node.scale    = op.beforeScale
+                            op.node.angleRad = op.beforeAngle
+                            imageRedoStack.add(op)
+                            actionRedoStack.add(ActionKind.IMAGE_OP)
+                            invalidate(); requestAutosave()
+                            return
+                        }
+                    }
+                }
+
                 ActionKind.TEXT_OP -> {
                     if (textUndoStack.isEmpty()) return
                     when (val op = textUndoStack.removeAt(textUndoStack.lastIndex)) {
@@ -345,6 +378,39 @@ class InkCanvasView @JvmOverloads constructor(
         if (actionRedoStack.isEmpty()) return
         val next = actionRedoStack.removeAt(actionRedoStack.lastIndex)
         when (next) {
+            ActionKind.IMAGE_OP -> {
+                if (imageRedoStack.isEmpty()) return
+                when (val op = imageRedoStack.removeAt(imageRedoStack.lastIndex)) {
+                    is ImageOp.Create -> {
+                        val idx = op.index.coerceIn(0, imageNodes.size)
+                        if (!imageNodes.contains(op.node)) imageNodes.add(idx, op.node)
+                        actionUndoStack.add(ActionKind.IMAGE_OP)
+                        imageUndoStack.add(op)
+                        invalidate(); requestAutosave()
+                        return
+                    }
+                    is ImageOp.Delete -> {
+                        val idx = imageNodes.indexOf(op.node).takeIf { it >= 0 } ?: op.index
+                        if (idx in 0 until imageNodes.size) imageNodes.removeAt(idx)
+                        if (selectedImage === op.node) selectedImage = null
+                        actionUndoStack.add(ActionKind.IMAGE_OP)
+                        imageUndoStack.add(op)
+                        invalidate(); requestAutosave()
+                        return
+                    }
+                    is ImageOp.Transform -> {
+                        op.node.center.x = op.afterCx
+                        op.node.center.y = op.afterCy
+                        op.node.scale    = op.afterScale
+                        op.node.angleRad = op.afterAngle
+                        actionUndoStack.add(ActionKind.IMAGE_OP)
+                        imageUndoStack.add(op)
+                        invalidate(); requestAutosave()
+                        return
+                    }
+                }
+            }
+
             ActionKind.TEXT_OP -> {
                 if (textRedoStack.isEmpty()) return
                 when (val op = textRedoStack.removeAt(textRedoStack.lastIndex)) {
@@ -541,6 +607,13 @@ class InkCanvasView @JvmOverloads constructor(
         selectedImage?.let { n ->
 
         cancelTransform()
+            // History: record image delete (with original index)
+            val idx = imageNodes.indexOf(n).coerceAtLeast(0)
+            imageRedoStack.clear()
+            actionRedoStack.clear()
+            imageUndoStack.add(ImageOp.Delete(n, idx))
+            actionUndoStack.add(ActionKind.IMAGE_OP)
+
             imageNodes.remove(n)
             selectedImage = null
             selectionInteractive = false
@@ -639,6 +712,13 @@ class InkCanvasView @JvmOverloads constructor(
         // Text cut
         selectedText?.let { n ->
             val ok = copySelection()
+            // History: record image delete (cut)
+            val idx = imageNodes.indexOf(n).coerceAtLeast(0)
+            imageRedoStack.clear()
+            actionRedoStack.clear()
+            imageUndoStack.add(ImageOp.Delete(n, idx))
+            actionUndoStack.add(ActionKind.IMAGE_OP)
+
             if (ok) {
                 textNodes.remove(n)
                 selectedText = null
@@ -1151,7 +1231,8 @@ class InkCanvasView @JvmOverloads constructor(
     private val strokes = mutableListOf<StrokeOp>()
     private val redoStack = mutableListOf<StrokeOp>()
     // ===== Undo/Redo for transforms =====
-    private enum class ActionKind { DRAW_OP, TRANSFORM_OP, TEXT_OP }
+    private enum class ActionKind { DRAW_OP, TRANSFORM_OP, TEXT_OP, IMAGE_OP }
+
 
     private val actionUndoStack = mutableListOf<ActionKind>()
     private val actionRedoStack = mutableListOf<ActionKind>()
@@ -1197,6 +1278,21 @@ class InkCanvasView @JvmOverloads constructor(
     }
     private val textUndoStack = mutableListOf<TextOp>()
     private val textRedoStack = mutableListOf<TextOp>()
+    // Image object-level history
+    private sealed class ImageOp {
+        data class Create(val node: ImageNode, val index: Int) : ImageOp()
+        data class Delete(val node: ImageNode, val index: Int) : ImageOp()
+        data class Transform(
+            val node: ImageNode,
+            val beforeCx: Float, val beforeCy: Float,
+            val beforeScale: Float, val beforeAngle: Float,
+            val afterCx: Float,  val afterCy: Float,
+            val afterScale: Float, val afterAngle: Float
+        ) : ImageOp()
+    }
+    private val imageUndoStack = mutableListOf<ImageOp>()
+    private val imageRedoStack = mutableListOf<ImageOp>()
+
     // Coalesced text-edit accumulator (flushes into a single undo item)
     private var pendingTextEdit: TextOp.Content? = null
     private val textEditCoalesceMs = 650L
@@ -1480,6 +1576,12 @@ class InkCanvasView @JvmOverloads constructor(
     private var textBeforeW = 0f
     private var textBeforeH = 0f
     private var textBeforeAngle = 0f
+    // Image transform BEFORE snapshot
+    private var imageBeforeCx = 0f
+    private var imageBeforeCy = 0f
+    private var imageBeforeScale = 1f
+    private var imageBeforeAngle = 0f
+
 
 
 
@@ -2012,6 +2114,11 @@ class InkCanvasView @JvmOverloads constructor(
         invalidate()
         requestAutosave()
 
+        // History: record image create
+        imageRedoStack.clear()
+        actionRedoStack.clear()
+        imageUndoStack.add(ImageOp.Create(node, imageNodes.lastIndex))
+        actionUndoStack.add(ActionKind.IMAGE_OP)
 
     }
     private fun bringImageToFront(node: ImageNode) {
@@ -3818,6 +3925,12 @@ class InkCanvasView @JvmOverloads constructor(
         selectedImage?.let { n ->
             downX = cx
             downY = cy
+            // BEFORE snapshot for image transform
+            imageBeforeCx = n.center.x
+            imageBeforeCy = n.center.y
+            imageBeforeScale = n.scale
+            imageBeforeAngle = n.angleRad
+
             transformKind = when (handle) {
                 Handle.INSIDE -> TransformKind.TRANSLATE
                 Handle.N, Handle.S, Handle.E, Handle.W, Handle.NE, Handle.NW, Handle.SE, Handle.SW -> TransformKind.SCALE_UNIFORM
@@ -4257,6 +4370,20 @@ class InkCanvasView @JvmOverloads constructor(
             overlayRotateAngleRad = 0f
             transformKind = null
             transforming = false
+            // History: record image transform (BEFORE/AFTER)
+            imageRedoStack.clear()
+            actionRedoStack.clear()
+            imageUndoStack.add(
+                ImageOp.Transform(
+                    node = n,
+                    beforeCx = imageBeforeCx, beforeCy = imageBeforeCy,
+                    beforeScale = imageBeforeScale, beforeAngle = imageBeforeAngle,
+                    afterCx = n.center.x, afterCy = n.center.y,
+                    afterScale = n.scale, afterAngle = n.angleRad
+                )
+            )
+            actionUndoStack.add(ActionKind.IMAGE_OP)
+
             bringImageToFront(n) // drop selected image to the top of image stack on finish
             invalidate()
             return
@@ -7408,6 +7535,11 @@ class InkCanvasView @JvmOverloads constructor(
             pastePreviewVisible = false
             invalidate()
             requestAutosave()
+            // History: record image create (paste)
+            imageRedoStack.clear()
+            actionRedoStack.clear()
+            imageUndoStack.add(ImageOp.Create(node, imageNodes.lastIndex))
+            actionUndoStack.add(ActionKind.IMAGE_OP)
 
             return
         }

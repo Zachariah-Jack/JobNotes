@@ -452,32 +452,37 @@ class MainActivity : AppCompatActivity() {
         val btnText = findViewById<ImageButton>(R.id.btnText)
         inkCanvas.textUiCallbacks = object : InkCanvasView.TextUiCallbacks {
             override fun onTextEditStateChanged(editing: Boolean) {
-                // If entering Edit -> ensure popup is visible; if leaving -> hide it.
                 val isShowing = (textPopup?.isShowing == true)
-                // Always clear any IME lift when we exit edit mode
-                if (!editing) inkCanvas.setImeLiftPx(0f)
-
-                if (editing && !isShowing) {
-                    toggleTextPopup(btnText)
-                } else if (!editing && isShowing) {
-                    toggleTextPopup(btnText)
+                if (editing) {
+                    // Always show keyboard toolbar while editing text
+                    showKeyboardMenu()
+                    if (!isShowing) toggleTextPopup(findViewById(R.id.btnText))
+                } else {
+                    inkCanvas.setImeLiftPx(0f)
+                    // Return to pen toolbar after editing ends
+                    showPenMenu()
+                    if (isShowing) toggleTextPopup(findViewById(R.id.btnText))
                 }
-
+                updateToolbarActiveStates()
             }
         }
 
+
         inkCanvas.setTextEditCallbacks(object : InkCanvasView.TextEditCallbacks {
             override fun onRequestStartEdit() {
-                inkCanvas.setEditingSelectedText(true)   // <— hide canvas glyphs while typing
-
+                inkCanvas.setEditingSelectedText(true)
+                showKeyboardMenu()
                 val btnText = findViewById<ImageButton>(R.id.btnText)
                 if (textPopup?.isShowing != true) toggleTextPopup(btnText)
+                updateToolbarActiveStates()
             }
             override fun onRequestFinishEdit() {
-
-                inkCanvas.setEditingSelectedText(false)  // <— show canvas glyphs again
+                inkCanvas.setEditingSelectedText(false)
                 textPopup?.dismiss(); textPopup = null
+                showPenMenu()
+                updateToolbarActiveStates()
             }
+
         })
 
 
