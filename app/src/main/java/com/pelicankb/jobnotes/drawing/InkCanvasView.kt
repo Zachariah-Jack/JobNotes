@@ -1999,17 +1999,12 @@ class InkCanvasView @JvmOverloads constructor(
 
 
                 KeyEvent.KEYCODE_DEL -> {
-                    val hasSelection = n.selEnd > n.selStart
-                    val start = if (hasSelection) n.selStart else (n.selStart - 1).coerceAtLeast(0)
-                    val end = n.selEnd
-                    if (end > 0 && end >= start) {
-                        n.editable.delete(start, end)
-                        n.selStart = start
-                        n.selEnd = start
-                        n.layoutDirty = true
-                        invalidate()
-                    }
-                    return true
+                    // Soft keyboards already call deleteSurroundingText(); avoid double-handling.
+                    // Only handle true hardware keys here; otherwise let the IME route it.
+                    val isHardware = (event.source and android.view.InputDevice.SOURCE_KEYBOARD) != 0
+                    if (!isHardware) return false
+
+                    return safeDeleteOne()
                 }
                 KeyEvent.KEYCODE_ENTER -> {
                     n.editable.insert(n.selStart, "\n")
@@ -6686,23 +6681,36 @@ class InkCanvasView @JvmOverloads constructor(
         // Handle backspace/delete even when IME calls this path
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
             val n = selectedText ?: return false
-            val start = kotlin.math.min(n.selStart, n.selEnd)
-            val end   = kotlin.math.max(n.selStart, n.selEnd)
-            if (start != end) {
-                n.editable.delete(start, end)
-                n.selStart = start; n.selEnd = start
-            } else {
-                val delStart = (start - beforeLength).coerceAtLeast(0)
-                val delEnd   = (end + afterLength).coerceAtMost(n.editable.length)
-                if (delStart < delEnd) {
-                    n.editable.delete(delStart, delEnd)
-                    n.selStart = delStart; n.selEnd = delStart
+            try {
+                val L  = n.editable.length
+                val s0 = kotlin.math.min(n.selStart, n.selEnd).coerceIn(0, L)
+                val e0 = kotlin.math.max(n.selStart, n.selEnd).coerceIn(0, L)
+
+                if (s0 != e0) {
+                    // Delete current selection
+                    if (e0 > s0) n.editable.delete(s0, e0)
+                    n.selStart = s0; n.selEnd = s0
+                } else {
+                    // Collapse delete: backspace/forward-delete from caret
+                    val delStart = (s0 - beforeLength).coerceAtLeast(0)
+                    val delEnd   = (e0 + afterLength).coerceAtMost(n.editable.length)
+                    if (delEnd > delStart) {
+                        n.editable.delete(delStart, delEnd)
+                        n.selStart = delStart; n.selEnd = delStart
+                    }
                 }
+
+                ensureTextLayout(n)
+                pokeCaret()
+                try { invalidateSelectedTextViewArea() } catch (_: Throwable) { invalidate() }
+                return true
+            } catch (_: Throwable) {
+                // Defensive: clamp and repaint to recover from any IME edge case
+                n.selStart = n.selStart.coerceIn(0, n.editable.length)
+                n.selEnd   = n.selEnd.coerceIn(0, n.editable.length)
+                invalidate()
+                return true
             }
-            ensureTextLayout(n)
-            pokeCaret()
-            invalidateBoxArea()
-            return true
         }
 
         // Provide enough surrounding text so IMEs that inspect context can behave
@@ -6726,6 +6734,33 @@ class InkCanvasView @JvmOverloads constructor(
             val end   = kotlin.math.max(n.selStart, n.selEnd)
             return if (start == end) "" else n.editable.subSequence(start, end)
         }
+    }
+    /** Hardware backspace fallback (safe clamp + repaint). */
+    private fun safeDeleteOne(): Boolean {
+        val n = selectedText ?: return true
+        val L = n.editable.length
+        val hasSel = n.selStart != n.selEnd
+        val s0 = kotlin.math.min(n.selStart, n.selEnd).coerceIn(0, L)
+        val e0 = kotlin.math.max(n.selStart, n.selEnd).coerceIn(0, L)
+        try {
+            if (hasSel) {
+                if (e0 > s0) n.editable.delete(s0, e0)
+                n.selStart = s0; n.selEnd = s0
+            } else if (s0 > 0) {
+                val ss = (s0 - 1).coerceAtLeast(0)
+                val ee = s0.coerceAtMost(n.editable.length)
+                if (ee > ss) n.editable.delete(ss, ee)
+                n.selStart = ss; n.selEnd = ss
+            }
+            ensureTextLayout(n)
+            pokeCaret()
+            try { invalidateSelectedTextViewArea() } catch (_: Throwable) { invalidate() }
+        } catch (_: Throwable) {
+            n.selStart = n.selStart.coerceIn(0, n.editable.length)
+            n.selEnd   = n.selEnd.coerceIn(0, n.editable.length)
+            invalidate()
+        }
+        return true
     }
 
     private inner class GestureListener : GestureDetector.SimpleOnGestureListener() {
