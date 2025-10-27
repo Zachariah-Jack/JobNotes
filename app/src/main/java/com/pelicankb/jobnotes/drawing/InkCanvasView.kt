@@ -206,6 +206,7 @@ class InkCanvasView @JvmOverloads constructor(
     }
 
     fun undo() {
+        flushPendingTextEdit()
         // Nothing to undo?
         if (actionUndoStack.isEmpty() && strokes.isEmpty()) return
 
@@ -238,6 +239,20 @@ class InkCanvasView @JvmOverloads constructor(
                             postInvalidateOnAnimation()
                             return
                         }
+                        is TextOp.Content -> {
+                            val n = op.node
+                            n.editable.clear()
+                            n.editable.append(op.beforeText)
+                            n.selStart = op.beforeSelStart.coerceIn(0, n.editable.length)
+                            n.selEnd   = op.beforeSelEnd.coerceIn(0, n.editable.length)
+                            n.layoutDirty = true
+                            textRedoStack.add(op)
+                            actionRedoStack.add(ActionKind.TEXT_OP)
+                            rebuildCommitted()
+                            postInvalidateOnAnimation()
+                            return
+                        }
+
                         is TextOp.Transform -> {
                             // Undo transform => apply BEFORE
                             op.node.center.x = op.beforeCx
@@ -354,6 +369,20 @@ class InkCanvasView @JvmOverloads constructor(
                         postInvalidateOnAnimation()
                         return
                     }
+                    is TextOp.Content -> {
+                        val n = op.node
+                        n.editable.clear()
+                        n.editable.append(op.afterText)
+                        n.selStart = op.afterSelStart.coerceIn(0, n.editable.length)
+                        n.selEnd   = op.afterSelEnd.coerceIn(0, n.editable.length)
+                        n.layoutDirty = true
+                        actionUndoStack.add(ActionKind.TEXT_OP)
+                        textUndoStack.add(op)
+                        rebuildCommitted()
+                        postInvalidateOnAnimation()
+                        return
+                    }
+
                     is TextOp.Transform -> {
                         // Redo transform => apply AFTER
                         op.node.center.x = op.afterCx
@@ -1154,10 +1183,63 @@ class InkCanvasView @JvmOverloads constructor(
             val afterBgColor: Int?,       // nullable
             val afterCornerPx: Float
         ) : TextOp()
+        // Text content before/after snapshot (coalesces multiple keystrokes)
+        data class Content(
+            val node: TextNode,
+            val beforeText: String,
+            val beforeSelStart: Int,
+            val beforeSelEnd: Int,
+            var afterText: String,
+            var afterSelStart: Int,
+            var afterSelEnd: Int
+        ) : TextOp()
 
     }
     private val textUndoStack = mutableListOf<TextOp>()
     private val textRedoStack = mutableListOf<TextOp>()
+    // Coalesced text-edit accumulator (flushes into a single undo item)
+    private var pendingTextEdit: TextOp.Content? = null
+    private val textEditCoalesceMs = 650L
+    private val flushTextEditRunnable = Runnable { flushPendingTextEdit() }
+
+    private fun beginTextEditIfNeeded(n: TextNode) {
+        if (pendingTextEdit == null) {
+            pendingTextEdit = TextOp.Content(
+                node = n,
+                beforeText = n.editable.toString(),
+                beforeSelStart = n.selStart,
+                beforeSelEnd = n.selEnd,
+                afterText = n.editable.toString(),
+                afterSelStart = n.selStart,
+                afterSelEnd = n.selEnd
+            )
+        }
+    }
+
+    private fun bumpTextEditAfter(n: TextNode) {
+        pendingTextEdit?.let { op ->
+            op.afterText = n.editable.toString()
+            op.afterSelStart = n.selStart
+            op.afterSelEnd = n.selEnd
+        }
+        removeCallbacks(flushTextEditRunnable)
+        postDelayed(flushTextEditRunnable, textEditCoalesceMs)
+    }
+
+    private fun flushPendingTextEdit() {
+        val op = pendingTextEdit ?: return
+        pendingTextEdit = null
+        val changed = (op.beforeText != op.afterText) ||
+                (op.beforeSelStart != op.afterSelStart) ||
+                (op.beforeSelEnd != op.afterSelEnd)
+        if (!changed) return
+        // New content edit breaks the redo chain
+        textRedoStack.clear()
+        actionRedoStack.clear()
+        textUndoStack.add(op)
+        actionUndoStack.add(ActionKind.TEXT_OP)
+        requestAutosave()
+    }
 
 
 
@@ -1836,11 +1918,14 @@ class InkCanvasView @JvmOverloads constructor(
     // Update a selected text node's content (edit-in-place)
     fun updateSelectedText(newText: String) {
         selectedText?.let {
+            beginTextEditIfNeeded(it)
             it.editable.clear()
             it.editable.append(newText)
             it.selStart = it.editable.length
             it.selEnd = it.selStart
             it.layoutDirty = true
+            bumpTextEditAfter(it)
+            flushPendingTextEdit() // push immediately for programmatic changes
             invalidate()
         }
 
@@ -6470,6 +6555,8 @@ class InkCanvasView @JvmOverloads constructor(
         } else {
             removeCallbacks(imeLiftRecalc)
             setImeLiftPx(0f)
+            flushPendingTextEdit()
+
         }
 
         if (editing) {
@@ -6662,21 +6749,24 @@ class InkCanvasView @JvmOverloads constructor(
             if (text == null) return true
             val start = kotlin.math.min(n.selStart, n.selEnd)
             val end   = kotlin.math.max(n.selStart, n.selEnd)
+            beginTextEditIfNeeded(n)   // <— START coalesced content op
             n.editable.replace(start, end, text)
             val newPos = (start + text.length + newCursorPosition).coerceIn(0, n.editable.length)
             n.selStart = newPos
             n.selEnd   = newPos
-            // >>> ensure we rebuild the layout for the new text <<<
             n.layoutDirty = true
             ensureTextLayout(n)
             pokeCaret()
             try { invalidateSelectedTextViewArea() } catch (_: Throwable) { invalidate() }
+            bumpTextEditAfter(n)       // <— UPDATE & schedule flush
             return true
+
         }
 
         // Handle backspace/delete even when IME calls this path
         override fun deleteSurroundingText(beforeLength: Int, afterLength: Int): Boolean {
             val n = selectedText ?: return false
+            beginTextEditIfNeeded(n)
             try {
                 val L  = n.editable.length
                 val s0 = kotlin.math.min(n.selStart, n.selEnd).coerceIn(0, L)
@@ -6699,6 +6789,7 @@ class InkCanvasView @JvmOverloads constructor(
                 ensureTextLayout(n)
                 pokeCaret()
                 try { invalidateSelectedTextViewArea() } catch (_: Throwable) { invalidate() }
+                bumpTextEditAfter(n)
                 return true
             } catch (_: Throwable) {
                 n.selStart = n.selStart.coerceIn(0, n.editable.length)
@@ -6733,10 +6824,11 @@ class InkCanvasView @JvmOverloads constructor(
     /** Hardware backspace fallback (safe clamp + repaint). */
     private fun safeDeleteOne(): Boolean {
         val n = selectedText ?: return true
-        val L = n.editable.length
+        beginTextEditIfNeeded(n)
+        val l = n.editable.length
         val hasSel = n.selStart != n.selEnd
-        val s0 = kotlin.math.min(n.selStart, n.selEnd).coerceIn(0, L)
-        val e0 = kotlin.math.max(n.selStart, n.selEnd).coerceIn(0, L)
+        val s0 = kotlin.math.min(n.selStart, n.selEnd).coerceIn(0, l)
+        val e0 = kotlin.math.max(n.selStart, n.selEnd).coerceIn(0, l)
         try {
             if (hasSel) {
                 if (e0 > s0) n.editable.delete(s0, e0)
@@ -6757,6 +6849,7 @@ class InkCanvasView @JvmOverloads constructor(
             n.selEnd   = n.selEnd.coerceIn(0, n.editable.length)
             invalidate()
         }
+        bumpTextEditAfter(n)
         return true
     }
 
